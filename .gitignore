@@ -216,3 +216,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Project-local runtime data and model caches
+/.cache/
+/workdir/
+/config.toml
+/.env
+/.env.*
+!/.env.example

@@ -1,0 +1,7 @@
+# Copy to config.toml and set installed tool paths. No model is downloaded on startup.
+ffmpeg = 'ffmpeg'
+ffprobe = 'ffprobe'
+llama_server = '.cache/tools/llama.cpp/llama-server.exe'
+port = 8765
+min_free_gb = 30
+max_download_gb = 3
