@@ -180,7 +180,7 @@ Optional chat settings require a known stream ID and a measured offset, with beg
 
 ## Selection efficiency and an existing run
 
-Selection uses compact original speech passages for discovery and detailed word anchors only around shortlisted clips. OpenAI Luna uses `none` reasoning for discovery and `low` for verification. The local context selector controls llama.cpp allocation; API request budgets are independent. See [selection design and measured request reduction](selection-design.md).
+Selection uses compact original speech passages for discovery and detailed word anchors only around shortlisted clips. OpenAI Luna uses `low` reasoning for both discovery and verification. The local context selector controls llama.cpp allocation; API request budgets are independent. See [selection design and measured request reduction](selection-design.md).
 
 After installing the passages-v2 changes, restart the launcher before resuming an existing paused selection run. Its completed audio/transcript are reused, but selection starts with the new format in a separate inference folder. Old responses and spending remain saved. The UI reports the planned speech-section count.
 

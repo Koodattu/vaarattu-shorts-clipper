@@ -175,7 +175,7 @@ def discover(transcript, evaluator, progress):
             prompt = discovery_prompt(context, start, end)
 
             try:
-                result = evaluator.call(SYSTEM, prompt, Proposals, step)
+                result = evaluator.call(SYSTEM, prompt, Proposals, step, reasoning_effort="low")
             except ModelOutputError:
                 record_issue(step, "section_unreadable", interval=[start, end])
                 completed += 1

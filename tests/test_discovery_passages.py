@@ -167,7 +167,7 @@ def test_two_pass_selection_is_blind_precise_and_reports_progress(tmp_path, outc
     result = discover(
         {"words": [w.model_dump() for w in words], "duration_us": 60000000}, evaluator, lambda value: None
     )
-    assert len(calls) == 2 and [r for _, r in calls] == ["none", "low"]
+    assert len(calls) == 2 and [r for _, r in calls] == ["low", "low"]
     assert "discovery-bias" not in calls[1][0] and '"standalone":4' not in calls[1][0]
     assert "[w1]" not in calls[0][0] and "[w1]" in calls[1][0]
     assert result["verified"][0]["eligible"] is eligible
