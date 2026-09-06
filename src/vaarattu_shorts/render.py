@@ -6,7 +6,7 @@ import wave
 
 import numpy as np
 
-from .contracts import Layout
+from .contracts import MAX_CLIP_US, MIN_CLIP_US, Layout
 from .processes import run_tool
 from .storage import atomic_json, digest
 from .youtube import pcm, probe
@@ -46,25 +46,55 @@ def align(settings, source_audio, section, requested_start, folder, check):
     duration = float(info["format"]["duration"])
     if duration < 14:
         raise ValueError("The downloaded section is too short for two timing checks.")
-    origins, samples = [], []
-    for i, position in enumerate((2.0, duration - 8.0)):
+    # Decode the short section once. Seeking a sparse video index can shift the audio sample.
+    decoded = folder / "alignment.wav"
+    pcm(settings, section, decoded, None, duration, check, rate=2000)
+    waveform = read_wave(decoded)
+    decoded.unlink()
+    duration = len(waveform) / 2000
+    origins, samples, failures = [], [], []
+    positions = [2.0, duration - 8.0, duration * 0.25, duration * 0.5, duration * 0.75]
+    for i, position in enumerate(dict.fromkeys(positions)):
+        check()
+        if not 0 <= position <= duration - 6:
+            continue
         expected = requested_start + position
         reference_start = max(0, expected - 30)
         ref = folder / f"reference-{i}.wav"
-        query = folder / f"query-{i}.wav"
         pcm(settings, source_audio, ref, reference_start, 66, check, rate=2000)
-        pcm(settings, section, query, position, 6, check, rate=2000)
-        offset, score = correlate(read_wave(ref), read_wave(query))
+        reference = read_wave(ref)
+        ref.unlink()
+        query = waveform[round(position * 2000) : round((position + 6) * 2000)]
+        try:
+            offset, score = correlate(reference, query)
+        except ValueError as exc:
+            failures.append({"section_seconds": position, "reason": str(exc)})
+            continue
         origin = reference_start + offset - position
         origins.append(origin)
         samples.append(
             {"section_seconds": position, "source_seconds": origin + position, "correlation": score}
         )
-        ref.unlink()
-        query.unlink()
-    if abs(origins[0] - origins[1]) > 0.08:
+        if max(origins) - min(origins) > 0.08:
+            break
+        if max(s["section_seconds"] for s in samples) - min(s["section_seconds"] for s in samples) >= max(
+            6, duration * 0.35
+        ):
+            break
+    atomic_json(folder / "alignment.json", {"anchors": samples, "unusable_samples": failures})
+    if len(origins) >= 2 and max(origins) - min(origins) > 0.08:
         raise ValueError("The section and full audio drift apart. This clip needs alignment review.")
-    return {"origin_us": round(sum(origins) / 2 * 1e6), "anchors": samples, "section_duration": duration}
+    if len(origins) < 2 or max(s["section_seconds"] for s in samples) - min(
+        s["section_seconds"] for s in samples
+    ) < max(6, duration * 0.35):
+        raise ValueError(
+            "Could not find two clear, separated audio matches. Retry or review this clip's timing."
+        )
+    return {
+        "origin_us": round(sum(origins) / len(origins) * 1e6),
+        "anchors": samples,
+        "section_duration": duration,
+    }
 
 
 def caption_cues(words, start_us, end_us):
@@ -170,14 +200,17 @@ def render_clip(settings, section, mapping, body, layout, words, folder, check):
     duration = (end - start) / 1e6
     if (
         local_start < 0
-        or duration < 20
-        or duration > 90
+        or end - start < MIN_CLIP_US
+        or end - start > MAX_CLIP_US
         or local_start + duration > mapping["section_duration"] + 0.05
     ):
-        raise ValueError("The chosen boundaries fall outside the verified section or 20–90 second range.")
+        raise ValueError("The chosen boundaries fall outside the verified section or 5–90 second range.")
     layout = Layout.model_validate(layout)
     info = probe(settings, section, folder, check)
     video = next(s for s in info["streams"] if s["codec_type"] == "video")
+    video_start = float(video.get("start_time", 0)) - float(info.get("format", {}).get("start_time", 0))
+    if video_start > local_start + 0.05:
+        raise ValueError("The picture starts after the chosen clip boundary. Retry the section download.")
     width, height = video["width"], video["height"]
     flags = captions(folder, words, start, end)
     if not layout.calibrated or not layout.solo_host:
@@ -243,6 +276,8 @@ def render_clip(settings, section, mapping, body, layout, words, folder, check):
         raise ValueError("The rendered video duration does not match the excerpt.")
     if abs(float(v.get("duration", duration)) - float(a.get("duration", duration))) > 0.1:
         raise ValueError("Audio and video durations disagree.")
+    if abs(float(v.get("start_time", 0)) - float(a.get("start_time", 0))) > 0.05:
+        raise ValueError("The rendered picture and audio do not start together.")
     # Detect cuts in the source picture. A calibrated crop is unsafe across unknown layout changes.
     scene_log = folder / "scene.log"
     run_tool(

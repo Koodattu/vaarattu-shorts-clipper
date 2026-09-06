@@ -7,6 +7,8 @@ from urllib.parse import parse_qs, urlparse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 CHANNEL_ID = "UCUCV40VqBZqt83afjbbICvw"
+MIN_CLIP_US = 5000000
+MAX_CLIP_US = 90000000  # Retain support for saved clips and manual edits.
 
 
 class Contract(BaseModel):
@@ -59,7 +61,6 @@ class RunRequest(Contract):
     local_model: Literal["gemma4-31b", "gemma4-26b-a4b"] = "gemma4-31b"
     context_size: Literal[16384, 32768] = 16384
     budget_usd: float = Field(default=0, ge=0, le=100)
-    max_clips: int = Field(default=3, ge=1, le=3)
     layout_id: str = Field(pattern=r"^[a-f0-9]{32}$")
     stream_id: int | None = Field(default=None, gt=0)
     stream_offset_seconds: float | None = None
@@ -114,7 +115,7 @@ class Candidate(Contract):
 
 
 class Proposals(Contract):
-    candidates: list[Candidate] = Field(max_length=3)
+    candidates: list[Candidate]
 
 
 class EditRequest(Contract):

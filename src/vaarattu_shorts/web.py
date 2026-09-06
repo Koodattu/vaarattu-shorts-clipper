@@ -7,12 +7,12 @@ import threading
 from pathlib import Path
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import Body, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import catalog
-from .contracts import EditRequest, Layout, RunRequest, Word
+from .contracts import MAX_CLIP_US, MIN_CLIP_US, EditRequest, Layout, RunRequest, Word
 from .llm import PROVIDERS
 from .models import CATALOG, model_path
 from .pipeline import preflight
@@ -195,14 +195,26 @@ def create_app(settings):
     def get_clip(clip_id: str):
         return public_clip(store.clip(clip_id))
 
+    @app.post("/api/clips/{clip_id}/retry", status_code=202)
+    def retry_clip(clip_id: str, expected_revision: int = Body(embed=True, ge=1)):
+        clip = store.clip(clip_id)
+        if clip["body"]["status"] != "held":
+            raise ValueError("Only a clip that needs attention can be retried.")
+        body = {**clip["body"], "status": "pending", "flags": [], "folder": None}
+        revision = store.queue_edit(clip_id, expected_revision, body)
+        return {"revision": revision, "run_id": clip["run_id"]}
+
     @app.post("/api/clips/{clip_id}/edit", status_code=202)
     def edit(clip_id: str, edit: EditRequest):
         clip = store.clip(clip_id)
         original = clip["body"]
         transcript_path = settings.work / "runs" / clip["run_id"] / "asr" / "transcript.json"
         transcript = json.loads(transcript_path.read_text("utf-8"))
-        if not 20000000 <= edit.end_us - edit.start_us <= 90000000 or edit.end_us > transcript["duration_us"]:
-            raise ValueError("Choose a 20–90 second interval within this VOD.")
+        if (
+            not MIN_CLIP_US <= edit.end_us - edit.start_us <= MAX_CLIP_US
+            or edit.end_us > transcript["duration_us"]
+        ):
+            raise ValueError("Choose a 5–90 second interval within this VOD.")
         canonical = [Word.model_validate(w) for w in transcript["words"]]
         if any(
             (w.start_us < edit.start_us < w.end_us) or (w.start_us < edit.end_us < w.end_us)

@@ -158,6 +158,7 @@ class Pipeline:
             # Completed selection belongs to its saved clips; upgrade only unfinished selection.
             selection_version = json.loads(selection_checkpoint.read_text("utf-8")).get("version")
         selection = self.stage("selection", selection_stage, selection_version)
+        legacy_selection = selection.get("version") in {None, "passages-v2"}
         enrichment = self.stage("chat", lambda: (stream_data.enrich(metadata, self.config), []))
         existing_ids = {clip["id"] for clip in self.store.clips(self.run_id)}
         candidates = [item for item in selection["verified"] if item["eligible"]]
@@ -176,7 +177,7 @@ class Pipeline:
             ):
                 continue
             chosen.append(item)
-            if len(chosen) == self.config["max_clips"]:
+            if legacy_selection and len(chosen) == self.config.get("max_clips"):
                 break
         for i, item in enumerate(chosen):
             clip_id = hashlib.sha256(f"{self.run_id}:{i}".encode()).hexdigest()[:32]
@@ -187,7 +188,7 @@ class Pipeline:
             previous = max((w.end_us for w in words if w.end_us <= a), default=0)
             following = min((w.start_us for w in words if w.start_us >= b), default=transcript["duration_us"])
             start, end = max(previous, a - 200000), min(following, b + 300000)
-            if end - start > 90000000:
+            if end - start > (90000000 if legacy_selection else 60000000):
                 start, end = a, b
             body = {
                 "start_us": start,
@@ -204,11 +205,12 @@ class Pipeline:
                 "words": [w.model_dump() for w in words if w.start_us >= start and w.end_us <= end],
             }
             self.store.save_clip(clip_id, self.run_id, 1, body)
-        for i, clip in enumerate(self.store.clips(self.run_id)):
+        clips = self.store.clips(self.run_id)
+        for i, clip in enumerate(clips):
             self.check()
             if clip["body"]["status"] in {"ready", "held"}:
                 continue
-            self.store.update(self.run_id, stage="render", progress=i / max(1, self.config["max_clips"]))
+            self.store.update(self.run_id, stage="render", progress=i / max(1, len(clips)))
             self.deliver(clip, source, transcript["duration_us"])
         return self.finish(enrichment, selection)
 
@@ -249,6 +251,7 @@ class Pipeline:
             self.store.save_clip(clip_id, self.run_id, revision, body)
             check_space(self.settings)
             staging = self.settings.ready / ".staging" / clip_id / str(revision)
+            body["folder"] = str(staging)
             words = [Word.model_validate(w) for w in body["words"]]
             result = render.render_clip(
                 self.settings, section, mapping, body, body["layout"], words, staging, self.check
@@ -316,9 +319,10 @@ class Pipeline:
             intent="",
             message=(
                 f"Finished with {missed} speech sections that could not be evaluated and "
-                f"{len(issues) - missed} discarded suggestions. {len(result['ready'])} clips ready."
+                f"{len(issues) - missed} discarded suggestions. {len(result['ready'])} clips ready. "
+                f"{result['held']} clips need attention."
                 if issues
-                else ""
+                else f"{len(result['ready'])} clips ready. {result['held']} clips need attention."
             ),
         )
         return result

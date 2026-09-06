@@ -9,7 +9,8 @@ from vaarattu_shorts.render import render_clip
 from vaarattu_shorts.storage import atomic_json, digest
 
 
-def test_render_manual_review_does_not_override_technical_caption_hold(settings, monkeypatch):
+@pytest.mark.parametrize("duration", [8, 30])
+def test_render_manual_review_does_not_override_technical_caption_hold(settings, monkeypatch, duration):
     folder = settings.ready / ".staging" / "test"
     folder.mkdir(parents=True)
     source = settings.work / "source.mkv"
@@ -26,16 +27,16 @@ def test_render_manual_review_does_not_override_technical_caption_hold(settings,
     def probe(settings, source, folder, check):
         if source.name == "short.mp4":
             return {
-                "format": {"duration": "30"},
+                "format": {"duration": str(duration)},
                 "streams": [
                     {
                         "codec_type": "video",
                         "width": 1080,
                         "height": 1920,
                         "pix_fmt": "yuv420p",
-                        "duration": "30",
+                        "duration": str(duration),
                     },
-                    {"codec_type": "audio", "duration": "30"},
+                    {"codec_type": "audio", "duration": str(duration)},
                 ],
             }
         return {"streams": [{"codec_type": "video", "width": 1920, "height": 1080}]}
@@ -54,7 +55,7 @@ def test_render_manual_review_does_not_override_technical_caption_hold(settings,
         settings,
         source,
         {"origin_us": 0, "section_duration": 40},
-        {"start_us": 0, "end_us": 30000000, "title": "Test", "reviewed": True},
+        {"start_us": 0, "end_us": duration * 1000000, "title": "Test", "reviewed": True},
         layout,
         words,
         folder,
@@ -63,7 +64,7 @@ def test_render_manual_review_does_not_override_technical_caption_hold(settings,
     assert result["status"] == "held"
     assert result["flags"]
     graph = (folder / "filters.txt").read_text("utf-8")
-    assert "trim=start=0.000000:duration=30.000000" in graph
+    assert f"trim=start=0.000000:duration={duration:.6f}" in graph
     assert "vstack" in graph and "captions.ass" in graph
     assert any("libx264" in args for args in commands)
 

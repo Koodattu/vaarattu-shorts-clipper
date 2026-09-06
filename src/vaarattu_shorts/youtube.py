@@ -88,7 +88,12 @@ def acquire(settings, vod_id, folder, check, interval=None):
             "bestvideo[height<=1080]+bestaudio/best[height<=1080]",
             "--download-sections",
             f"*{start:.6f}-{end:.6f}",
+            "--force-keyframes-at-cuts",
+            "--downloader-args",
+            "ffmpeg_o:-c:v libx264 -preset fast -crf 18 -c:a aac -b:a 192k -f matroska",
             "--merge-output-format",
+            "mkv",
+            "--remux-video",
             "mkv",
         ]
     args += [f"https://www.youtube.com/watch?v={vod_id}"]
@@ -126,8 +131,7 @@ def pcm(settings, source, output, start, duration, check, rate=16000):
             "-v",
             "error",
             "-y",
-            "-ss",
-            f"{start:.6f}",
+            *(["-ss", f"{start:.6f}"] if start is not None else []),
             "-i",
             source,
             "-t",

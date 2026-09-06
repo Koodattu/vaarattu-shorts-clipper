@@ -2,6 +2,8 @@
 
 Status: proposed first implementation. No VOD sections or finished shorts were rendered in this planning pass.
 
+For the implemented range-cut, audio-alignment and retry behavior, see [the 2026-09-06 media fixes](clip-fixes.md). The sections below retain the original broader design; they do not establish that every proposed QC/processing feature has shipped.
+
 ## Range acquisition and exact source timing
 
 Download a candidate's interval plus ten seconds of handles on each side, clamped to the VOD bounds. Merge overlapping requested ranges from the same VOD when doing so reduces repeated transfer. Limit initial source quality to the best available at or below 1080p; do not download 4K just to create a cropped phone video without a measured benefit. Preserve the original full audio only as the discovery/alignment reference; use the downloaded section's matching audio for the finished video.
