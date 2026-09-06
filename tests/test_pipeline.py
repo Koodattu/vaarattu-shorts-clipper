@@ -1,10 +1,17 @@
 from contextlib import contextmanager
 
+import pytest
+
 from vaarattu_shorts.pipeline import Pipeline
 from vaarattu_shorts.storage import atomic_json
 
 
-def test_one_run_reaches_output_with_adapters_replaced_and_resumes(settings, store, monkeypatch):
+@pytest.mark.parametrize(
+    "timing_issues", [[], [{"kind": "word_overlap", "start_us": 1000000, "end_us": 2000000}]]
+)
+def test_one_run_reaches_output_with_adapters_replaced_and_resumes(
+    settings, store, monkeypatch, timing_issues
+):
     """Exercise orchestration only: no media, ASR, LLM, subprocess or network execution."""
     events = []
     config = {
@@ -36,7 +43,7 @@ def test_one_run_reaches_output_with_adapters_replaced_and_resumes(settings, sto
 
     def transcribe(*args):
         events.extend(["asr-load", "asr-exit"])
-        result = {"duration_us": 60000000, "words": []}
+        result = {"duration_us": 60000000, "words": [], "timing_issues": timing_issues}
         atomic_json(args[4] / "transcript.json", result)
         return result
 
@@ -64,12 +71,18 @@ def test_one_run_reaches_output_with_adapters_replaced_and_resumes(settings, sto
     monkeypatch.setattr("vaarattu_shorts.pipeline.discover.discover", select)
     monkeypatch.setattr("vaarattu_shorts.pipeline.stream_data.enrich", enrich)
     result = Pipeline(settings, store, run).execute()
-    assert result["outcome"] == "no_candidates"
+    expected = "needs_attention" if timing_issues else "no_candidates"
+    assert result["outcome"] == expected
+    assert result["transcript_timing_issues"] == timing_issues
     assert (settings.ready / "runs" / f"{run}.json").is_file()
     assert events == ["audio", "asr-load", "asr-exit", "chat-fetch", "llm-load", "llm-exit"]
     assert store.get(run)["state"] == "completed"
     monkeypatch.setattr("vaarattu_shorts.pipeline.discover.VERSION", "later-version")
-    assert Pipeline(settings, store, run).execute()["outcome"] == "no_candidates"
+    assert Pipeline(settings, store, run).execute()["outcome"] == expected
+    assert (
+        Pipeline(settings, store, run).finish({"status": "unavailable"})["transcript_timing_issues"]
+        == timing_issues
+    )
     assert len(events) == 6
 
 

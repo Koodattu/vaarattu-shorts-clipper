@@ -212,6 +212,7 @@ class Pipeline:
                 "title": item["candidate"]["title_fi"],
                 "selection": item["candidate"],
                 "discovery_sources": item.get("discovery_sources", ["transcript"]),
+                "transcript_timing_issues": transcript.get("timing_issues", []),
                 "layout": self.config["layout"],
                 "source_id": metadata["id"],
                 "source_title": metadata["title"],
@@ -229,7 +230,9 @@ class Pipeline:
                 continue
             self.store.update(self.run_id, stage="render", progress=i / max(1, len(clips)))
             self.deliver(clip, source, transcript["duration_us"])
-        return self.finish(enrichment, selection)
+        return self.finish(
+            enrichment, {**selection, "transcript_timing_issues": transcript.get("timing_issues", [])}
+        )
 
     def deliver(self, clip, source, duration_us):
         body, clip_id, revision = clip["body"], clip["id"], clip["revision"]
@@ -305,6 +308,11 @@ class Pipeline:
             else self.store.get(self.run_id)["result"].get("selection_issues", [])
         )
         missed = sum(issue["reason"] == "section_unreadable" for issue in issues)
+        timing_issues = (
+            selection.get("transcript_timing_issues", [])
+            if selection is not None
+            else self.store.get(self.run_id)["result"].get("transcript_timing_issues", [])
+        )
         outcome = (
             "no_candidates"
             if not clips
@@ -316,8 +324,9 @@ class Pipeline:
             "run_id": self.run_id,
             "video_id": self.config["video"],
             "coverage": "partial" if missed else "complete",
-            "outcome": "needs_attention" if missed or (issues and not clips) else outcome,
+            "outcome": "needs_attention" if missed or ((issues or timing_issues) and not clips) else outcome,
             "selection_issues": issues,
+            "transcript_timing_issues": timing_issues,
             "chat": enrichment,
             "chat_peak_review": selection.get("chat_peak_review")
             if selection is not None
@@ -343,6 +352,11 @@ class Pipeline:
                 f"{result['held']} clips need attention."
                 if issues
                 else f"{len(result['ready'])} clips ready. {result['held']} clips need attention."
+            )
+            + (
+                f" {len(timing_issues)} speech timing conflicts recorded; affected clips need review."
+                if timing_issues
+                else ""
             ),
         )
         return result

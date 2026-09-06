@@ -133,6 +133,48 @@ def test_legacy_runs_keep_unbatched_and_new_runs_keep_snapshot(settings, store):
     assert saved.asr_batch_size == 16 and saved.asr_flash_attention is True
 
 
+@pytest.mark.parametrize("overlap_us", [230000, 1500000])
+def test_retry_merges_cached_segment_overlap_without_decoding(settings, monkeypatch, overlap_us):
+    source = settings.work / "audio.opus"
+    source.write_bytes(b"fixture audio")
+    model = settings.models / "turbo"
+    model.mkdir()
+    atomic_json(model / "manifest.json", {"fixture": True})
+    monkeypatch.setattr(transcribe, "model_path", lambda *_args, **_kwargs: model)
+    fingerprint = hashlib.sha256(
+        (
+            digest(source)
+            + digest(model / "manifest.json")
+            + "fi-fp16-beam5-vad-unconditioned-core1200-overlap5-v1-batch16-flash0-v2"
+        ).encode()
+    ).hexdigest()
+    folder = settings.work / "asr"
+    folder.mkdir()
+    cached = folder / "chunk-0.json"
+    atomic_json(
+        cached,
+        {
+            "fingerprint": fingerprint,
+            "words": [
+                {"start": 560, "end": 569.07, "text": "oma"},
+                {"start": 569.07 - overlap_us / 1e6, "end": 569.84, "text": "näkemys"},
+            ],
+            "segments": [{"start": 527.15, "end": 569.07}, {"start": 568.84, "end": 599}],
+        },
+    )
+    before = digest(cached)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Saved transcription must not be decoded or inferred again")
+
+    monkeypatch.setattr(transcribe, "pcm", forbidden)
+    monkeypatch.setattr(transcribe, "run_tool", forbidden)
+    result = transcribe.transcribe(settings, source, 600, "turbo", folder, lambda: None, lambda _: None)
+    assert len(result["words"]) == 2 and result["timing_issues"][0]["overlap_us"] == overlap_us
+    assert json.loads((folder / "transcript.json").read_text("utf-8")) == result
+    assert digest(cached) == before
+
+
 @pytest.mark.parametrize(
     "config",
     ["asr_batch_size = -1", "asr_batch_size = 65", "asr_batch_size = true", 'asr_flash_attention = "true"'],

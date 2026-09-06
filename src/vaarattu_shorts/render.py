@@ -162,6 +162,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         ],
     )
     flags = []
+    selected = [w for w in words if w.start_us >= start and w.end_us <= end]
+    if any(a.end_us - b.start_us > 150000 for a, b in zip(selected, selected[1:])):
+        flags.append("Speech timestamps overlap slightly; inspect this clip's caption timing.")
     for i, cue in enumerate(cues, 1):
         duration = (cue["end_us"] - cue["start_us"]) / 1e6
         if duration <= 0 or max(map(len, cue["text"].splitlines())) > 28:
@@ -213,6 +216,11 @@ def render_clip(settings, section, mapping, body, layout, words, folder, check):
         raise ValueError("The picture starts after the chosen clip boundary. Retry the section download.")
     width, height = video["width"], video["height"]
     flags = captions(folder, words, start, end)
+    if any(
+        issue["start_us"] < end and issue["end_us"] > start
+        for issue in body.get("transcript_timing_issues", [])
+    ):
+        flags.append("Transcription is uncertain in this section; inspect its speech, cut and captions.")
     if not layout.calibrated or not layout.solo_host:
         flags.append("Confirm the source layout and primary speaker before exporting.")
     camera, gameplay = crop(layout.camera, width, height), crop(layout.gameplay, width, height)

@@ -10,7 +10,10 @@ from vaarattu_shorts.storage import atomic_json, digest
 
 
 @pytest.mark.parametrize("duration", [8, 30])
-def test_render_manual_review_does_not_override_technical_caption_hold(settings, monkeypatch, duration):
+@pytest.mark.parametrize("problem", ["caption", "transcript", "outside_clip"])
+def test_render_holds_only_clips_with_technical_or_transcript_issues(
+    settings, monkeypatch, duration, problem
+):
     folder = settings.ready / ".staging" / "test"
     folder.mkdir(parents=True)
     source = settings.work / "source.mkv"
@@ -50,19 +53,35 @@ def test_render_manual_review_does_not_override_technical_caption_hold(settings,
         "calibrated": True,
         "solo_host": True,
     }
-    words = [Word(id="w_0", start_us=0, end_us=1000000, text="Liianpitkäyhdyssanajokaeimahduriville")]
+    words = [
+        Word(
+            id="w_0",
+            start_us=0,
+            end_us=1000000,
+            text=("Liianpitkäyhdyssanajokaeimahduriville" if problem == "caption" else "Puhetta"),
+        )
+    ]
+    issue_start = 2000000 if problem == "transcript" else duration * 1000000
     result = render_clip(
         settings,
         source,
         {"origin_us": 0, "section_duration": 40},
-        {"start_us": 0, "end_us": duration * 1000000, "title": "Test", "reviewed": True},
+        {
+            "start_us": 0,
+            "end_us": duration * 1000000,
+            "title": "Test",
+            "reviewed": True,
+            "transcript_timing_issues": [{"start_us": issue_start, "end_us": issue_start + 1000000}],
+        },
         layout,
         words,
         folder,
         lambda: None,
     )
-    assert result["status"] == "held"
-    assert result["flags"]
+    assert result["status"] == ("ready" if problem == "outside_clip" else "held")
+    assert bool(result["flags"]) == (problem != "outside_clip")
+    if problem == "transcript":
+        assert any("Transcription is uncertain" in flag for flag in result["flags"])
     graph = (folder / "filters.txt").read_text("utf-8")
     assert f"trim=start=0.000000:duration={duration:.6f}" in graph
     assert "vstack" in graph and "captions.ass" in graph

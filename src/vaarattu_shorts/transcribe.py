@@ -13,6 +13,10 @@ from .storage import atomic_json, digest
 from .youtube import pcm
 
 
+class SeamConflict(ValueError):
+    """Two decoded contexts cannot be joined with a reliable shared phrase."""
+
+
 def seam_handoff(left, right, boundary, conflict_start):
     candidates = []
 
@@ -45,16 +49,19 @@ def seam_handoff(left, right, boundary, conflict_start):
             # Prefer a handoff before the disputed phrase, retaining one decoder's full version.
             candidates.append((last.end_us > conflict_start, abs(last.end_us - boundary), li + 1, ri))
     if not candidates:
-        raise ValueError(
+        raise SeamConflict(
             "The transcription chunks disagree at a boundary and have no reliable shared phrase."
         )
     _, _, left_stop, right_start = min(candidates)
     return left_stop, right_start
 
 
-def merge_chunks(chunks, duration_us):
+def merge_chunks(chunks, duration_us, timing_issues=None):
     contexts, selections = [], []
-    for chunk, result in chunks:
+    origins = {}
+    if timing_issues is None:
+        timing_issues = []
+    for chunk_index, (chunk, result) in enumerate(chunks):
         context, owned = [], []
         for value in result["words"]:
             start = round(value["start"] * 1e6) + chunk["offset_us"]
@@ -74,6 +81,7 @@ def merge_chunks(chunks, duration_us):
                     probability=value.get("probability"),
                 )
             )
+        origins.update((id(word), chunk_index) for word in context)
         contexts.append(context)
         selections.append([owned[0], owned[-1] + 1] if owned else [0, 0])
     for i in range(1, len(contexts)):
@@ -90,25 +98,50 @@ def merge_chunks(chunks, duration_us):
             and abs(previous.start_us - following.start_us) < 300000
         ):
             continue
-        stop, start = seam_handoff(left, right, chunks[i][0]["core_start_us"], previous.start_us)
-        if stop <= left_start or start >= right_stop:
-            raise ValueError("The transcription boundary cannot be reconciled within its owned chunks.")
+        boundary = chunks[i][0]["core_start_us"]
+        try:
+            stop, start = seam_handoff(left, right, boundary, previous.start_us)
+            if stop <= left_start or start >= right_stop:
+                raise SeamConflict("The shared phrase falls outside the owned chunks.")
+        except SeamConflict:
+            # Keep owned speech and flag the entire disputed context instead of aborting the VOD.
+            timing_issues.append(
+                {
+                    "kind": "chunk_seam_conflict",
+                    "chunk_indices": [i - 1, i],
+                    "start_us": max(0, min(boundary - 5000000, previous.start_us, following.start_us)),
+                    "end_us": min(duration_us, max(boundary + 5000000, previous.end_us, following.end_us)),
+                }
+            )
+            continue
         selections[i - 1][1], selections[i][0] = stop, start
     merged = [word for context, (start, stop) in zip(contexts, selections) for word in context[start:stop]]
     merged.sort(key=lambda word: (word.start_us, word.end_us))
     words = []
+    furthest = None
     for word in merged:
         if words and word.start_us < words[-1].end_us:
             previous = words[-1]
             if (
-                word.text.casefold() == previous.text.casefold()
+                origins[id(word)] != origins[id(previous)]
+                and word.text.casefold() == previous.text.casefold()
                 and abs(word.start_us - previous.start_us) < 300000
             ):
                 continue
-            # Preserve uncertain overlap as an explicit failure; do not invent timing.
-            if previous.end_us - word.start_us > 150000:
-                raise ValueError("Overlapping speech at a transcription seam needs attention.")
         word.id = f"w_{len(words):07d}"
+        if furthest is not None and furthest.end_us - word.start_us > 150000:
+            timing_issues.append(
+                {
+                    "kind": "word_overlap",
+                    "chunk_indices": sorted({origins[id(furthest)], origins[id(word)]}),
+                    "word_ids": [furthest.id, word.id],
+                    "start_us": min(furthest.start_us, word.start_us),
+                    "end_us": max(furthest.end_us, word.end_us),
+                    "overlap_us": min(furthest.end_us, word.end_us) - word.start_us,
+                }
+            )
+        if furthest is None or word.end_us > furthest.end_us:
+            furthest = word
         words.append(word)
     return words
 
@@ -188,7 +221,8 @@ def transcribe(settings, source, duration, profile, folder, check, progress):
     results = [
         (chunk, json.loads((folder / f"chunk-{i}.json").read_text("utf-8"))) for i, chunk in enumerate(chunks)
     ]
-    words = merge_chunks(results, duration_us)
+    timing_issues = []
+    words = merge_chunks(results, duration_us, timing_issues)
     transcript = {
         "schema_version": 1,
         "duration_us": duration_us,
@@ -202,6 +236,7 @@ def transcribe(settings, source, duration, profile, folder, check, progress):
         },
         "model_manifest": json.loads((settings.models / profile / "manifest.json").read_text("utf-8")),
         "words": [w.model_dump() for w in words],
+        "timing_issues": timing_issues,
         "coverage": [[0, duration_us]],
         "chunks": [{k: v for k, v in c.items() if k != "audio"} for c in chunks],
     }

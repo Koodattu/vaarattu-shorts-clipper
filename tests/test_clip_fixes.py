@@ -66,7 +66,12 @@ def test_all_distinct_proposals_are_verified_and_exported_without_count_quota(
                 validate(result)
             return result
 
-    transcript = {"words": [w.model_dump() for w in words], "duration_us": 360000000}
+    timing_issues = [{"kind": "chunk_seam_conflict", "start_us": 1000000, "end_us": 5000000}]
+    transcript = {
+        "words": [w.model_dump() for w in words],
+        "duration_us": 360000000,
+        "timing_issues": timing_issues,
+    }
     selection = discover.discover(transcript, Evaluator(), lambda _: None)
     assert len(calls) == 13 and len(selection["verified"]) == 12
     assert all(v["eligible"] for v in selection["verified"])
@@ -87,6 +92,7 @@ def test_all_distinct_proposals_are_verified_and_exported_without_count_quota(
 
     def deliver(clip, *args):
         body = clip["body"]
+        assert body["transcript_timing_issues"] == timing_issues
         speech_delay_us = body["words"][0]["start_us"] - body["start_us"]
         assert 0 <= speech_delay_us <= 500000
         assert speech_delay_us == min(leading_silence_us, 200000)
@@ -96,6 +102,7 @@ def test_all_distinct_proposals_are_verified_and_exported_without_count_quota(
     monkeypatch.setattr(pipeline, "deliver", deliver)
     result = pipeline.execute()
     assert len(delivered) == len(result["ready"]) == 12
+    assert result["transcript_timing_issues"] == timing_issues
 
 
 @pytest.mark.parametrize("drift", [False, True])

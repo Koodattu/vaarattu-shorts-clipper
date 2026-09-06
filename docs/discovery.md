@@ -43,7 +43,22 @@ VAD detects speech for inference; it does not authorize shortening the source ti
 
 For chunk seams, keep tokens by owned core, reconcile matching overlap words using normalized text plus time proximity, and reprocess a seam locally if a sentence/word was split. Never deduplicate repeated words on text alone. Preserve words with their raw times/probabilities, original segment text and diagnostic fields; canonical merged output must have finite in-range bounds and ordered starts. Flag unexpected overlaps or missing seam speech instead of silently forcing invented timings.
 
-The merge now reconciles a conflicting owned-core boundary using the saved context on both sides. It requires three consecutive matching normalized words, at least two distinct words, and start/end agreement within 300 ms per word. It selects a handoff with non-overlapping original timestamps, preferring one before the disputed phrase. It does not shorten words or relax the 150 ms overlap check. Without a reliable shared phrase it still fails explicitly. ASR chunk fingerprints remain unchanged because this repairs assembly, not decoding.
+The merger first tries to reconcile conflicting owned-core boundaries using the saved context on both sides. It requires three consecutive matching normalized words, at least two distinct words, and start/end agreement within 300 ms per word. It selects a handoff with non-overlapping original timestamps, preferring one before the disputed phrase. This is the preferred repair, but a missing shared phrase no longer aborts transcription.
+
+## Non-fatal timestamp conflicts (2026-09-06)
+
+The initial fixes were too narrow: phrase matching repaired one cross-chunk seam, and a later 300 ms tolerance covered one internal decoder-segment overlap. The current policy treats unresolved timestamp conflicts as local review issues, without any larger-overlap threshold that aborts an otherwise completed VOD:
+
+- If shared-phrase reconciliation fails or its handoff falls outside the owned chunks, retain the original owned speech from both chunks. Record `chunk_seam_conflict` across the five-second context on both sides, expanded to cover the conflicting word intervals.
+- Preserve overlapping words with original text, timestamps and probabilities. Overlaps beyond the existing 150 ms tolerance are recorded as `word_overlap`; the longest active word interval is tracked so nested overlaps cannot disappear behind a shorter preceding word. Each review range covers the full involved word intervals, including a clip boundary that includes only part of them.
+- Deduplicate the same word only across overlapping source chunks when its text and timing match. Repeated words inside one decoder output remain intact.
+- Save all issues in `transcript.json` under `timing_issues`, with source intervals, chunk indices and, for word overlaps, canonical word IDs and overlap duration. This records uncertainty; it does not claim to have corrected speech or verified acoustic timing.
+- Continue normal transcript selection. Carry the issue intervals into clip metadata and the run report. Any rendered clip intersecting a review range stays held with a speech/cut/caption warning. This check uses intervals, not just the included caption words, and is reapplied after boundary edits and retries. Clips outside the ranges can be ready. A manual reviewed checkbox does not override this technical hold.
+- The run completes with its timing warning count and ready/held results. Full scan coverage means all transcript windows were evaluated, not that every timestamp is reliable. Reports retain timing issues after rerendering.
+
+No extra inference, timestamp clamping, fabricated silence or full-VOD re-transcription is used for this recovery. Raw chunk JSON and decoding fingerprints stay unchanged. After the user restarts the app, Retry reuses matching successful chunks. Invalid data, missing/failed decoding, cancellation, unavailable GPU, storage and other runtime failures still surface normally; only known merge conflicts are localized.
+
+Read-only verification against both saved runs: `a10dd4555f3142fc938bc9035607285a` merged 19 chunks into 20,757 words with no remaining issues; `ed8155b3d8a24001be117a2f335bee78` merged 19 chunks into 19,984 words with one 230 ms overlap. All merged text/timestamp tuples matched raw entries, IDs were unique, starts ordered, and raw hashes unchanged. Synthetic tests cover larger/nested overlaps, unmatched seams, repeated words, affected versus unaffected renders, report preservation and cache-only retry. No live checkpoint modification, app restart, inference or automatic resume was performed.
 
 Transcript artifact v1:
 
