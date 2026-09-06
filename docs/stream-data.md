@@ -1,6 +1,22 @@
 # vaarattu.tv enrichment contract
 
-Status: source audit and proposed integration, 2026-09-06. No changes were made to vaarattu.tv or its deployment. Aggregate activity is optional for this project.
+Status: optional activity adapter and separate LLM peak discovery are implemented, 2026-09-06. No changes were made to vaarattu.tv or its deployment. Stream identity and timing still require confirmation.
+
+## Current integration and activation
+
+Rechecked the public API during this follow-up: both the stream list and `GET /api/streams/254/activity` returned HTTP 200. Activity returned 188 two-minute buckets. This supersedes the earlier missing-route observation below. Browser-tool requests failed, but direct read-only HTTP requests succeeded. No model or clipper server was started.
+
+Previously, the clipper fetched activity **after** selection and only added a one-point ranking boost. In `conversation-v4`, it snapshots activity before LLM work, scans the entire transcript normally, then separately asks the LLM to examine speech around peaks. Suggestions from both discovery passes are merged and deduplicated before independent verification. The verifier sees original speech and proposed word anchors, without chat counts, discovery scores or source labels. New runs do not add a chat ranking bonus or relax any quality gate.
+
+To enable the extra pass, expand **Optional chat peak review** in the run form, enter the stream ID and measured **stream seconds at YouTube time zero**, then confirm the mapping. For example, if the YouTube upload omits the first 30 seconds of the stream, enter `30`; a chat bucket at stream second 120 maps to YouTube second 90. Title/date matching produces identity suggestions only. Without confirmation, the full-transcript scan still runs, and the run reports why peak review was skipped. A missing/failed activity API likewise does not prevent normal discovery. There is no automatic title-to-timestamp alignment or calibration UI in this change.
+
+Peak detection uses active-chatters counts against a surrounding median/MAD baseline. It requires at least four positive neighboring buckets within ten minutes (or five bucket widths for coarse data). A spike must exceed the baseline by at least the largest of three chatters, three MADs, or 50% of baseline. These are initial heuristics, not a measured optimum. Zero buckets are excluded from baseline evidence because collection coverage is unknown; zeros alone cannot create a convincing spike. Flat activity is not a peak, and no fixed number of peaks or clips is requested.
+
+Each detected bucket contributes a candidate region from 90 seconds before it through 30 seconds after its end, clipped to VOD bounds. Overlapping regions merge. The full bucket width is retained: two-minute activity does not locate an event to a precise second. Peak requests use the same passage formatting and 90-second surrounding context as discovery, splitting ownership when needed to fit the model. Chat can lag speech or react to gameplay, spam or an unrelated event, so an empty candidate list remains valid.
+
+`chat-input.json` freezes API data for resumed selection; `chat-peak-review.json` records regions, baseline evidence, checked/skipped requests and status. Completed selection embeds both the chat snapshot and review summary. Clip metadata records discovery sources. Unreadable peak responses or regions that cannot fit are recorded as partial **peak review**, not missing full-transcript coverage. API/model access or quota failures still stop for explicit retry. Extra model calls use the same provider, low reasoning where supported, usage ledger and paid-API spending cap; Codex uses its separate allowance.
+
+Completed old selections retain their existing decisions and stage chain. No old run is silently rescanned. The run UI shows peak-review status/counts; rerendering retains them. Creator review on a new, correctly aligned VOD is still needed to measure whether this actually recovers better clips.
 
 ## What exists and what was verified live
 
@@ -10,7 +26,7 @@ The reference source at `C:/Users/Juha/Desktop/Projektit/vaarattu.tv` was clean 
 |---|---|---|
 | `GET /api/streams?page=1&limit=100` | Paginated stream list, limit capped at 100; titles live in `segments[]` | Works; two pages reported 199 streams in total |
 | `GET /api/streams/:id` | Details include nullable `twitchVideoId` | Endpoint contents not separately probed in this planning pass |
-| `GET /api/streams/:id/activity` | Implemented in routes/controller/service | Request for stream 277 returned HTTP error body `Route not found` |
+| `GET /api/streams/:id/activity` | Implemented in routes/controller/service | Initially 277 returned `Route not found`; follow-up 254 returned HTTP 200, 188 points |
 | Title/recording search | No dedicated search route found in stream routes | Not available as a verified contract |
 | YouTube association | No YouTube video ID in the inspected Stream schema | Must be maintained by the clipper initially |
 

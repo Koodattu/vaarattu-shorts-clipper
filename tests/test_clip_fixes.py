@@ -26,9 +26,18 @@ def proposal(start, end):
     )
 
 
-def test_all_distinct_proposals_are_verified_and_exported_without_count_quota(settings, store, monkeypatch):
+@pytest.mark.parametrize("leading_silence_us", [0, 800000])
+def test_all_distinct_proposals_are_verified_and_exported_without_count_quota(
+    settings, store, monkeypatch, leading_silence_us
+):
     words = [
-        Word(id=f"w{i}", start_us=i * 1000000, end_us=(i + 1) * 1000000, text="Tarina.") for i in range(360)
+        Word(
+            id=f"w{i}",
+            start_us=i * 1000000 + leading_silence_us,
+            end_us=(i + 1) * 1000000,
+            text="Tarina.",
+        )
+        for i in range(360)
     ]
     candidates = [proposal(i * 25, i * 25 + 9) for i in range(12)]
     calls = []
@@ -77,6 +86,10 @@ def test_all_distinct_proposals_are_verified_and_exported_without_count_quota(se
     delivered = []
 
     def deliver(clip, *args):
+        body = clip["body"]
+        speech_delay_us = body["words"][0]["start_us"] - body["start_us"]
+        assert 0 <= speech_delay_us <= 500000
+        assert speech_delay_us == min(leading_silence_us, 200000)
         delivered.append(clip["id"])
         store.save_clip(clip["id"], run, clip["revision"], {**clip["body"], "status": "ready"})
 

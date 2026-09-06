@@ -51,18 +51,26 @@ def test_one_run_reaches_output_with_adapters_replaced_and_resumes(settings, sto
             events.append("llm-exit")
 
     monkeypatch.setattr("vaarattu_shorts.pipeline.local_server", server)
-    monkeypatch.setattr(
-        "vaarattu_shorts.pipeline.discover.discover", lambda *_: {"verified": [], "coverage": [[0, 60000000]]}
-    )
-    monkeypatch.setattr("vaarattu_shorts.pipeline.stream_data.enrich", lambda *_: {"status": "unavailable"})
+
+    def select(transcript, evaluator, progress, chat):
+        assert chat == {"status": "unavailable"}
+        assert events.index("chat-fetch") < events.index("llm-load")
+        return {"verified": [], "coverage": [[0, 60000000]]}
+
+    def enrich(*_):
+        events.append("chat-fetch")
+        return {"status": "unavailable"}
+
+    monkeypatch.setattr("vaarattu_shorts.pipeline.discover.discover", select)
+    monkeypatch.setattr("vaarattu_shorts.pipeline.stream_data.enrich", enrich)
     result = Pipeline(settings, store, run).execute()
     assert result["outcome"] == "no_candidates"
     assert (settings.ready / "runs" / f"{run}.json").is_file()
-    assert events == ["audio", "asr-load", "asr-exit", "llm-load", "llm-exit"]
+    assert events == ["audio", "asr-load", "asr-exit", "chat-fetch", "llm-load", "llm-exit"]
     assert store.get(run)["state"] == "completed"
     monkeypatch.setattr("vaarattu_shorts.pipeline.discover.VERSION", "later-version")
     assert Pipeline(settings, store, run).execute()["outcome"] == "no_candidates"
-    assert len(events) == 5
+    assert len(events) == 6
 
 
 def test_checkpoint_does_not_reuse_changed_artifact(settings, store):
