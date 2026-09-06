@@ -6,6 +6,8 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+from .contracts import CHANNEL_ID
+
 
 def load_env(path: Path) -> None:
     if not path.is_file():
@@ -37,6 +39,9 @@ def load_env(path: Path) -> None:
 @dataclass(frozen=True)
 class Settings:
     root: Path
+    youtube_channel_id: str = CHANNEL_ID
+    asr_batch_size: int = 16
+    asr_flash_attention: bool = False
     ffmpeg: str = "ffmpeg"
     ffprobe: str = "ffprobe"
     llama_server: str = "llama-server"
@@ -89,14 +94,30 @@ def load_settings(root: Path | None = None) -> Settings:
     load_env(root / ".env")
     path = root / "config.toml"
     data = tomllib.loads(path.read_text("utf-8")) if path.exists() else {}
-    allowed = {"ffmpeg", "ffprobe", "llama_server", "port", "min_free_gb", "max_download_gb"}
+    allowed = {
+        "ffmpeg",
+        "ffprobe",
+        "llama_server",
+        "port",
+        "min_free_gb",
+        "max_download_gb",
+        "asr_batch_size",
+        "asr_flash_attention",
+    }
     if set(data) - allowed:
         raise ValueError("Unknown config.toml settings: " + ", ".join(sorted(set(data) - allowed)))
     for name in ("ffmpeg", "ffprobe", "llama_server"):
         value = data.get(name, "")
         if "/" in value or "\\" in value:
             data[name] = str((root / value).resolve())
-    settings = Settings(root=root, **data)
+    channel = os.environ.get("YOUTUBE_CHANNEL_ID", CHANNEL_ID).strip() or CHANNEL_ID
+    if not re.fullmatch(r"UC[A-Za-z0-9_-]{22}", channel):
+        raise ValueError("Set YOUTUBE_CHANNEL_ID to the channel's UC… ID, not its handle or URL.")
+    settings = Settings(root=root, youtube_channel_id=channel, **data)
+    if type(settings.asr_batch_size) is not int or not 0 <= settings.asr_batch_size <= 64:
+        raise ValueError("Set asr_batch_size to 1–64, or 0 for unbatched transcription.")
+    if type(settings.asr_flash_attention) is not bool:
+        raise ValueError("Set asr_flash_attention to true or false.")
     if not 1024 <= settings.port <= 65535 or settings.min_free_gb < 0 or settings.max_download_gb <= 0:
         raise ValueError("Invalid port or disk limit in config.toml")
     return settings

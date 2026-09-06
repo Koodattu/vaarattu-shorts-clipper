@@ -1,6 +1,7 @@
 "use strict";
 const $ = id => document.getElementById(id);
 let token = "", activeRun = null, editing = null, polling = false;
+let library = null, videoLimit = 20, fetchingVideos = false;
 const labels = {local:"Local · Gemma 4",gemini:"Gemini 3.8 Flash",openai:"GPT-5.6 Luna",zai:"GLM-5.3-Flash",deepseek:"DeepSeek V4 Flash",meta:"Meta Muse Spark 1.3"};
 function error(message){$("error").textContent=message;$("error").hidden=!message;}
 async function api(path, options={}){
@@ -23,11 +24,44 @@ $("run-form").onsubmit=async event=>{event.preventDefault();error("");$("run-but
 }catch(e){error(e.message);$("run-button").disabled=false;}};
 async function refresh(){const runs=await api("/api/runs");const active=runs.find(r=>["queued","running","paused"].includes(r.state));$("run-button").disabled=Boolean(active);$("runs").replaceChildren();
   for(const run of runs.slice(0,8)){const row=text("div","","run-row");row.append(text("span",`${run.config.video} · ${run.state}`),action("View",async()=>{activeRun=run.id;await detail();}));$("runs").append(row);}
-  if(!activeRun&&runs.length)activeRun=(active||runs[0]).id;await detail();
+  if(!activeRun&&runs.length)activeRun=(active||runs[0]).id;await detail();await loadLibrary();
   if(active&&!polling){polling=true;setTimeout(async()=>{polling=false;try{await refresh();}catch(e){error(e.message);}},2000);}
 }
+async function loadLibrary(){library=await api("/api/videos");paintLibrary();}
+function paintLibrary(){
+  if(!library)return;
+  $("fetch-videos").disabled=fetchingVideos||!library.configured;
+  $("older-videos").disabled=fetchingVideos||!library.configured;
+  $("older-videos").hidden=!library.has_older;
+  const heading=library.channel_title||library.channel_id;
+  $("channel-status").textContent=fetchingVideos?"Fetching channel videos…":!library.configured?`${heading} · Set YOUTUBE_API_KEY in .env and restart to fetch videos.`:`${heading} · ${library.videos.length} saved videos${library.fetched_at?` · Last fetched ${new Date(library.fetched_at*1000).toLocaleString()}`:" · Fetch the latest videos to begin."}`;
+  const query=$("video-search").value.trim().toLocaleLowerCase(), filter=$("video-filter").value;
+  const items=library.videos.filter(v=>(filter==="all"||(filter==="processed"?v.processed:!v.processed))&&`${v.title} ${v.id}`.toLocaleLowerCase().includes(query));
+  const box=$("channel-videos");box.replaceChildren();
+  if(!items.length)box.append(text("p",library.videos.length?"No saved videos match these filters.":"No channel videos saved yet.","muted"));
+  for(const video of items.slice(0,videoLimit)){
+    const row=text("article","","channel-video");
+    const img=document.createElement("img");img.src=`https://i.ytimg.com/vi/${video.id}/mqdefault.jpg`;img.alt="";img.loading="lazy";img.width=160;img.height=90;row.append(img);
+    const info=text("div","","channel-video-info");info.append(text("h3",video.title));
+    const seconds=video.duration;const duration=seconds?`${Math.floor(seconds/3600)}:${String(Math.floor(seconds/60)%60).padStart(2,"0")}:${String(seconds%60).padStart(2,"0")}`:"Duration unavailable";
+    info.append(text("p",`${video.published?new Date(video.published).toLocaleDateString():"Date unavailable"} · ${duration}`,"muted"));
+    const states={not_started:"Not started",queued:"Queued",running:"Processing",paused:"Paused",failed:"Failed",cancelled:"Cancelled",completed:video.outcome==="no_candidates"?"No suitable clips":video.outcome==="needs_attention"?"Clips need attention":"Completed"};
+    info.append(text("p",`${video.processed?"Processed · ":""}${states[video.state]||video.state}${video.available?"":" · Recording unavailable"}`,"muted"));
+    const buttons=text("div","","actions");const select=action(video.processed?"Select again":"Select video",()=>{$("video").value=video.url;$("run-form").scrollIntoView({behavior:"smooth"});$("video").focus();});select.disabled=!video.available;buttons.append(select);
+    if(video.run_id)buttons.append(action("View run",async()=>{activeRun=video.run_id;await detail();$("run-detail").scrollIntoView({behavior:"smooth"});}));
+    if(video.completed_run_id&&video.completed_run_id!==video.run_id)buttons.append(action("Previous results",async()=>{activeRun=video.completed_run_id;await detail();$("run-detail").scrollIntoView({behavior:"smooth"});}));
+    const link=document.createElement("a");link.href=video.url;link.target="_blank";link.rel="noopener";link.textContent="YouTube";buttons.append(link);info.append(buttons);row.append(info);box.append(row);
+  }
+  $("show-videos").hidden=items.length<=videoLimit;
+}
+async function fetchVideos(action){if(fetchingVideos)return;fetchingVideos=true;error("");paintLibrary();try{library=await api(`/api/videos/${action}`,{method:"POST"});}catch(e){error(e.message);}finally{fetchingVideos=false;paintLibrary();}}
+$("fetch-videos").onclick=()=>fetchVideos("refresh");
+$("older-videos").onclick=()=>fetchVideos("older");
+$("show-videos").onclick=()=>{videoLimit+=20;paintLibrary();};
+for(const id of ["video-search","video-filter"])$(id).oninput=()=>{videoLimit=20;paintLibrary();};
 async function detail(){if(!activeRun){$("run-detail").textContent="No videos processed yet.";return;}const run=await api(`/api/runs/${activeRun}`);const box=$("run-detail");box.replaceChildren(text("h3",`${run.stage} · ${run.state}`));
   const progress=document.createElement("progress");progress.max=1;progress.value=run.progress;box.append(progress,text("p",run.message||"Completed stages are saved automatically."));
+  box.append(text("p",`Turbo · CUDA FP16 · ${run.config.asr_batch_size?`batch size ${run.config.asr_batch_size}`:"unbatched"}${run.config.asr_flash_attention?" · Flash Attention requested":""}`,"muted"));
   const usage=run.usage, count=n=>n.toLocaleString();
   box.append(text("p",`Estimated API cost: $${usage.estimated_cost_usd.toFixed(4)} · pending / uncertain: $${usage.reserved_usd.toFixed(4)} · limit: $${usage.budget_usd.toFixed(2)}`,"muted"));
   box.append(text("p",`${count(usage.request_count)} model requests · ${count(usage.input_tokens)} input tokens · ${count(usage.output_tokens)} output tokens (includes reasoning)`));
@@ -37,7 +71,7 @@ async function detail(){if(!activeRun){$("run-detail").textContent="No videos pr
   box.append(text("p","Costs use conservative rates; provider discounts and taxes can change the invoice. Local inference has no API charge.","muted"));
   const usageLink=document.createElement("a");usageLink.href=`/api/runs/${run.id}/usage`;usageLink.download=`usage-${run.id}.json`;usageLink.textContent="Download usage report";box.append(usageLink);
   const controls=text("div","","actions");for(const [label,op,states] of [["Pause","pause",["running","queued"]],["Resume / retry","resume",["paused","failed","cancelled"]],["Cancel","cancel",["running","queued","paused"]]])if(states.includes(run.state))controls.append(action(label,async()=>{await api(`/api/runs/${run.id}/${op}`,{method:"POST"});await refresh();}));box.append(controls);
-  if(run.state==="completed"&&!run.clips.length)box.append(text("p","No suitable clips were found in this recording."));
+  if(run.state==="completed"&&!run.clips.length)box.append(text("p",run.result.coverage==="partial"?"Some speech sections could not be evaluated. No clips are ready.":"No suitable clips were found in this recording."));
   const grid=$("clips");grid.replaceChildren();for(const clip of run.clips){const card=text("article","","clip");if(clip.has_preview){const video=document.createElement("video");video.controls=true;video.preload="metadata";video.src=`/api/artifacts/${clip.id}/video`;card.append(video);}card.append(text("h3",clip.title),text("p",`${clip.status} · ${(clip.start_us/1e6).toFixed(1)}–${(clip.end_us/1e6).toFixed(1)}s`));for(const flag of clip.flags||[])card.append(text("p",flag));const link=document.createElement("a");link.href=`${clip.source_url}&t=${Math.floor(clip.start_us/1e6)}`;link.target="_blank";link.rel="noopener";link.textContent="Original VOD";card.append(link,action("Edit",()=>openEditor(clip.id)));grid.append(card);}
 }
 $("open-output").onclick=()=>api("/api/output/open",{method:"POST"}).catch(e=>error(e.message));

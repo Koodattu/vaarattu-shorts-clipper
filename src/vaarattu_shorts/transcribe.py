@@ -4,6 +4,7 @@ import json
 import hashlib
 import sys
 import time
+import re
 
 from .contracts import Word
 from .models import model_path
@@ -12,19 +13,59 @@ from .storage import atomic_json, digest
 from .youtube import pcm
 
 
+def seam_handoff(left, right, boundary, conflict_start):
+    candidates = []
+
+    def nearby(words):
+        return [
+            (i, w)
+            for i, w in enumerate(words)
+            if boundary - 5000000 <= (w.start_us + w.end_us) // 2 <= boundary + 5000000
+        ]
+
+    left_near, right_near = nearby(left), nearby(right)
+    for a in range(2, len(left_near)):
+        left_phrase = left_near[a - 2 : a + 1]
+        tokens = [re.sub(r"\W", "", w.text.casefold()) for _, w in left_phrase]
+        if not all(tokens) or len(set(tokens)) < 2:
+            continue
+        for b in range(2, len(right_near)):
+            right_phrase = right_near[b - 2 : b + 1]
+            if tokens != [re.sub(r"\W", "", w.text.casefold()) for _, w in right_phrase]:
+                continue
+            if any(
+                max(abs(lw.start_us - rw.start_us), abs(lw.end_us - rw.end_us)) > 300000
+                for (_, lw), (_, rw) in zip(left_phrase, right_phrase)
+            ):
+                continue
+            li, last = left_phrase[-1]
+            ri = right_phrase[-1][0] + 1
+            if ri >= len(right) or not 0 <= right[ri].start_us - last.end_us <= 1000000:
+                continue
+            # Prefer a handoff before the disputed phrase, retaining one decoder's full version.
+            candidates.append((last.end_us > conflict_start, abs(last.end_us - boundary), li + 1, ri))
+    if not candidates:
+        raise ValueError(
+            "The transcription chunks disagree at a boundary and have no reliable shared phrase."
+        )
+    _, _, left_stop, right_start = min(candidates)
+    return left_stop, right_start
+
+
 def merge_chunks(chunks, duration_us):
-    merged = []
+    contexts, selections = [], []
     for chunk, result in chunks:
+        context, owned = [], []
         for value in result["words"]:
             start = round(value["start"] * 1e6) + chunk["offset_us"]
             end = round(value["end"] * 1e6) + chunk["offset_us"]
             midpoint = (start + end) // 2
-            if not chunk["core_start_us"] <= midpoint < chunk["core_end_us"]:
-                continue
             start, end = max(0, start), min(duration_us, end)
             if end <= start or not value["text"].strip():
                 continue
-            merged.append(
+            if chunk["core_start_us"] <= midpoint < chunk["core_end_us"]:
+                owned.append(len(context))
+            context.append(
                 Word(
                     id="pending",
                     start_us=start,
@@ -33,6 +74,27 @@ def merge_chunks(chunks, duration_us):
                     probability=value.get("probability"),
                 )
             )
+        contexts.append(context)
+        selections.append([owned[0], owned[-1] + 1] if owned else [0, 0])
+    for i in range(1, len(contexts)):
+        left_start, left_stop = selections[i - 1]
+        right_start, right_stop = selections[i]
+        if left_start == left_stop or right_start == right_stop:
+            continue
+        left, right = contexts[i - 1], contexts[i]
+        previous, following = left[left_stop - 1], right[right_start]
+        if previous.end_us - following.start_us <= 150000:
+            continue
+        if (
+            previous.text.casefold() == following.text.casefold()
+            and abs(previous.start_us - following.start_us) < 300000
+        ):
+            continue
+        stop, start = seam_handoff(left, right, chunks[i][0]["core_start_us"], previous.start_us)
+        if stop <= left_start or start >= right_stop:
+            raise ValueError("The transcription boundary cannot be reconciled within its owned chunks.")
+        selections[i - 1][1], selections[i][0] = stop, start
+    merged = [word for context, (start, stop) in zip(contexts, selections) for word in context[start:stop]]
     merged.sort(key=lambda word: (word.start_us, word.end_us))
     words = []
     for word in merged:
@@ -55,12 +117,11 @@ def transcribe(settings, source, duration, profile, folder, check, progress):
     model = model_path(settings, profile, verify=True)
     folder.mkdir(parents=True, exist_ok=True)
     duration_us = round(duration * 1e6)
+    decoding = "fi-fp16-beam5-vad-unconditioned-core1200-overlap5-v1"
+    if settings.asr_batch_size or settings.asr_flash_attention:
+        decoding += f"-batch{settings.asr_batch_size}-flash{int(settings.asr_flash_attention)}-v2"
     fingerprint = hashlib.sha256(
-        (
-            digest(source)
-            + digest(settings.models / profile / "manifest.json")
-            + "fi-fp16-beam5-vad-unconditioned-core1200-overlap5-v1"
-        ).encode()
+        (digest(source) + digest(settings.models / profile / "manifest.json") + decoding).encode()
     ).hexdigest()
     core_us = 1200 * 1000000
     chunks = []
@@ -94,7 +155,16 @@ def transcribe(settings, source, duration, profile, folder, check, progress):
         progress(i / max(1, (duration_us + core_us - 1) // core_us) * 0.15)
     with lock(settings.work / "gpu.lock", "Local\\VaarattuShortsGpu"):
         request = folder / "asr-request.json"
-        atomic_json(request, {"model": str(model), "chunks": chunks, "fingerprint": fingerprint})
+        atomic_json(
+            request,
+            {
+                "model": str(model),
+                "chunks": chunks,
+                "fingerprint": fingerprint,
+                "batch_size": settings.asr_batch_size,
+                "flash_attention": settings.asr_flash_attention,
+            },
+        )
         updated = 0.0
 
         def checkpoint_progress():
@@ -123,6 +193,13 @@ def transcribe(settings, source, duration, profile, folder, check, progress):
         "schema_version": 1,
         "duration_us": duration_us,
         "profile": profile,
+        "decoding": {
+            "batch_size": settings.asr_batch_size,
+            "flash_attention": settings.asr_flash_attention,
+            "device": "cuda",
+            "compute_type": "float16",
+            "beam_size": 5,
+        },
         "model_manifest": json.loads((settings.models / profile / "manifest.json").read_text("utf-8")),
         "words": [w.model_dump() for w in words],
         "coverage": [[0, duration_us]],

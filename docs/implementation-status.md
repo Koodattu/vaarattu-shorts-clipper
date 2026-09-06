@@ -6,10 +6,12 @@ Updated 2026-09-06. The user authorized implementation but explicitly asked not 
 
 - Python package/CLI, locked dependencies, local FastAPI/static UI and separate worker launcher.
 - Project-root `.env` secrets loading with process-environment precedence, blank local file and tracked example. Values are single-line literals; no extra dependency, shell execution or interpolation.
+- YouTube Data API uploads browsing using `.env` key/channel settings, saved newest-first videos, thumbnails, title/ID search, processed filters and page-by-page older uploads. Selection fills the existing Run form. Full run history supplies durable processing badges; run channel identity is snapshotted.
 - One active VOD enforced transactionally, request idempotency, pause/cancel/resume, restart recovery, hashed stage checkpoints and dependency fingerprints.
 - Model preparation commands with pinned revisions and manifests under project `.cache/models/`; all inherited model-cache paths overridden locally. No automatic downloads on startup/Run.
 - Windows Job Object ownership for subprocess cleanup, GPU mutex, Turbo's finite CUDA process, complete exit before the temporary Gemma llama.cpp server, explicit full GPU residency/context checks.
-- One-video channel validation, native audio-only download, bounded chunked/timed Finnish transcription and full transcript-window discovery with a shortlist verifier and source-word validation.
+- New-run Turbo batching defaults to 16 with FP16/VAD/beam 5/word timestamps. Batch size and optional Flash Attention are configured in TOML and snapshotted per run. Legacy runs retain unbatched decode fingerprints. ASR runtime and chunk throughput are recorded.
+- One-video channel validation, native audio-only download, bounded chunked/timed Finnish transcription and compact passage discovery with a shortlist verifier and source-word validation. API context budgets are independent of local GPU allocation; native JSON schemas are not duplicated in prompts. OpenAI discovery uses none reasoning and blind verification uses low. Versioned selection caches preserve upstream transcription; UI messages report planned scan counts.
 - Local Gemma 31B/26B selection plus Gemini/OpenAI/Z.ai/DeepSeek transports, response parsing, one schema repair, usage reservations and no provider fallback.
 - Durable per-request token/rate/cost ledger, per-run UI totals and downloadable JSON reports. Truncated/invalid replies and repair attempts count; cached selections do not double-count. Missing usage remains explicit. Local generation is tracked with zero API cost.
 - Optional stream title/date matching and confirmed-offset aggregate chat ranking; missing activity degrades gracefully.
@@ -21,7 +23,7 @@ Updated 2026-09-06. The user authorized implementation but explicitly asked not 
 
 - No STT model besides Turbo, automatic caption re-transcription, MTP, embeddings, face tracking or sentence/silence splicing. Caption edits use the original Turbo word timeline.
 - Meta's requested API remains disabled until its exact primary API documentation is accessible and verified. It is not a fake adapter and is not counted as implemented support.
-- Channel library/backfill/scheduling/publishing remain future scope, as requested for the single-video first version. A manual published marker and creator-feedback analytics are also deferred.
+- Automatic channel backfill processing, scheduling and publishing remain future scope. The channel library is now implemented with manual fetch/select controls. A manual published marker and creator-feedback analytics are still deferred.
 - The UI uses a locally supplied source screenshot for first crop calibration. A pre-run YouTube thumbnail/sample downloader is not implemented; metadata validation occurs when the worker starts the selected run.
 - One fixed project output root, `workdir/ready`, keeps path handling simple. Choosing an arbitrary external output root from the UI is deferred; all model assets remain strictly project-local.
 - Caption layout uses conservative character bounds and a 30 characters/second hold threshold, rather than a font-metric layout engine. The reference font is system Arial; no font was downloaded. Visual validation remains necessary.
@@ -31,7 +33,20 @@ Updated 2026-09-06. The user authorized implementation but explicitly asked not 
 
 These boundaries supersede the broader design options in the planning documents. They do not remove the first-version path from one Run action through finished output files.
 
-## Verification evidence
+## Verification
+
+Selection resilience follow-up: **89 offline Python tests and the JavaScript UI test passed**; Ruff lint/format and JavaScript syntax passed. Invalid discovery suggestions are isolated without retries or losing valid siblings; exhausted content/verification repairs no longer abort unrelated work. Unevaluated windows are explicit coverage gaps, preserved in final reports/rerenders and excluded from fully-processed channel badges. Budget/access failures remain blocking. Recovered the failed real response from disk without new inference, restarted only the project launcher and resumed its original run/budget.
+
+Selection efficiency follow-up: **84 offline Python tests passed**, including passage preservation, bounded unpunctuated speech, selective word detail, dense six-hour coverage, context-preserving splits, semantic repair/accounting, blind verification and selection-only checkpoint invalidation. Ruff lint passed. Offline replay of the saved first VOD reduced discovery from 1,111 requests to 63 with every canonical word present; aggregate discovery text dropped from 3,796,649 to 628,243 UTF-8 bytes. No paid inference or quality benchmark was run. The existing selection run remains paused and needs an app restart before Resume. See [selection-design.md](selection-design.md).
+ evidence
+
+Transcript-seam repair: **72 offline Python tests passed** and Ruff lint passed. The real first VOD failed on one 220 ms overlap at 13,200 seconds between chunks 10/11. Shared-phrase reconciliation merged all 19 saved chunks into 20,757 words with no overlaps exceeding 150 ms. The raw chunk JSON hashes were unchanged. The transcript checkpoint was repaired without subprocesses/inference, and the same run was queued for continuation under its original configuration and spending cap. The launcher/worker were no longer running; the queued run continues on the next app launch. This does not certify the later LLM/render stages.
+
+ASR batching follow-up: **68 offline Python tests and one JavaScript UI test passed**; Ruff lint and JavaScript syntax passed. Fixtures verify batch/unbatched routing, word-time retention, resume skipping, decode fingerprint separation, config validation and historical run snapshots. Batched GPU speed/quality and optional Flash Attention were not live-tested, and the active run was not interrupted.
+
+During the user's first live **unbatched** run, read-only checks confirmed the ASR Python process on the RTX 4090 with cuBLAS CUDA 12 and cuDNN 9 loaded, CUDA FP16 selected, and multiple completed chunk files. This establishes working GPU transcription for that profile; it does not certify batching, rendering, LLM quality or the full pipeline.
+
+Channel-browser follow-up: **59 offline Python tests and one JavaScript UI test passed**. Ruff lint and JavaScript syntax checks passed. Tests cover uploads pages, batching/deduplication, saved cursor recovery, key non-disclosure, unavailable/live entries, configured channel validation and run snapshots, processing history beyond 100 recent runs, failed reruns, selection/filter controls and the single-active-run rule. API traffic and the browser DOM were fixtures; no live YouTube request, real browser/server, download or processing run was started.
 
 Secrets-file follow-up: **41 offline tests passed** and Ruff lint passed. Added checks cover project-root resolution outside the working directory, process precedence, comments/quoted literal values, optional files, safe parse errors and API non-disclosure. No application or model was started.
 

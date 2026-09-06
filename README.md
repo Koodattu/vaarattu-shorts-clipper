@@ -4,7 +4,7 @@ A new, independent project for finding worthwhile conversations in Vaarattu's Fi
 
 **Status: the single-video application is implemented, with offline verification. It has not been started on real models/media, at the user's request.** No Finnish quality, GPU fit or end-to-end performance is claimed yet. See [setup](docs/setup.md) and [implementation status](docs/implementation-status.md).
 
-The first workflow is: select one VOD and press **Run** → download audio → transcribe locally → unload ASR → load the local LLM (or call the selected API) → find and verify self-contained spoken moments → unload the LLM → download only selected video ranges → compose camera above gameplay → add Finnish captions → automatically save a ready-to-post folder. Juha handles publishing. Only one VOD can be queued or active initially; newest-first channel discovery and backlog processing come later.
+The first workflow is: select one VOD and press **Run** → download audio → transcribe locally → unload ASR → load the local LLM (or call the selected API) → find and verify self-contained spoken moments → unload the LLM → download only selected video ranges → compose camera above gameplay → add Finnish captions → automatically save a ready-to-post folder. Juha handles publishing. Only one VOD can be queued or active. The channel browser now fetches newest-first uploads and remembers processed videos; automatic backlog processing remains deferred.
 
 ## Implementation
 
@@ -15,6 +15,7 @@ The first workflow is: select one VOD and press **Run** → download audio → t
 - Implemented API transports for Gemini 3.8 Flash, GPT-5.6 Luna, GLM-5.3-Flash and DeepSeek V4 Flash. Meta Muse Spark 1.3 remains disabled pending its verified API contract; live provider tests are still pending.
 - All downloaded models live in this project's `.cache/models/`, with adjacent project-local library caches. Downloading models is an explicit setup command; startup and Run do not download them.
 - yt-dlp for metadata/audio/range acquisition; FFmpeg for exact trimming, two-panel composition, captions and validation.
+- YouTube Data API channel browser with thumbnails, search, processed filters and persistent history. Set `YOUTUBE_API_KEY` and `YOUTUBE_CHANNEL_ID` in `.env`, then fetch/select videos in the UI.
 - Optional aggregate chat enrichment from vaarattu.tv. Missing or unaligned chat never prevents speech-based discovery.
 
 Confirmed target machine: Windows, i7-13700K, RTX 4090 (24 GB), approximately 64 GB RAM. The UI runs on this machine; private remote access is a later extension.

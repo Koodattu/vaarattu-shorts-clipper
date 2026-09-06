@@ -16,7 +16,7 @@ Success is useful finished clips per processed VOD hour and low correction effor
 - Use the current Windows PC for processing.
 - Generate a ready-to-post folder automatically; Juha handles publishing. Normal successful clips do not require approval before export.
 - Start with a UI on the processing PC; private remote access can come later.
-- Initially select one YouTube VOD and press Run; automatically complete all stages through ready-to-post files. Only one VOD can be queued/active. Newest-first channel/backlog processing is deferred until this works reliably.
+- Select one YouTube VOD and press Run; automatically complete all stages through ready-to-post files. Only one VOD can be queued/active. The channel library now supports manual newest-first browsing from the YouTube Data API and preserves processing history. Automatic backlog processing remains deferred.
 - Acquire full audio and only the selected video sections.
 - Prefer Gemma 4 through llama.cpp, using the same model family as highlight-clipper and video-generator. Aim for the largest useful model fully on the GPU; unload ASR completely before loading the LLM.
 - Implement only local faster-whisper Turbo for STT now; other ASR remains research for later. Support local and selectable API-based text evaluation, researching all five requested providers in [models-and-providers.md](models-and-providers.md).

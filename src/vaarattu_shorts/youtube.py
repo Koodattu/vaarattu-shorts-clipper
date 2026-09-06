@@ -6,7 +6,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from .contracts import CHANNEL_ID, video_id
+from .contracts import video_id
 from .processes import run_tool
 
 
@@ -41,8 +41,8 @@ def metadata(settings, value, folder, check=lambda: None):
         timeout=180,
     )
     info = json.loads(out.read_text("utf-8"))
-    if info.get("id") != vod_id or info.get("channel_id") != CHANNEL_ID:
-        raise ValueError("Select a video from the VaarattuVODs channel.")
+    if info.get("id") != vod_id or info.get("channel_id") != settings.youtube_channel_id:
+        raise ValueError("Select a video from the configured YouTube channel.")
     if info.get("live_status") in {"is_live", "is_upcoming", "post_live"} or not info.get("duration"):
         raise ValueError("This video is not yet available as a complete recording.")
     # Signed format URLs and private extractor fields do not belong in durable metadata.

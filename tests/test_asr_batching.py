@@ -1,0 +1,143 @@
+import hashlib
+import json
+import sys
+from dataclasses import replace
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from vaarattu_shorts import asr_child, transcribe
+from vaarattu_shorts.config import load_settings
+from vaarattu_shorts.pipeline import Pipeline
+from vaarattu_shorts.storage import atomic_json, digest
+
+
+@pytest.mark.parametrize("batch_size,flash", [(0, False), (16, False), (32, True)])
+def test_asr_child_routes_batching_and_retains_word_timing(tmp_path, monkeypatch, batch_size, flash):
+    calls = []
+    segment = SimpleNamespace(
+        start=1.25,
+        end=1.75,
+        text="moi",
+        no_speech_prob=0.01,
+        avg_logprob=-0.1,
+        words=[SimpleNamespace(start=1.25, end=1.75, word="moi", probability=0.99)],
+    )
+
+    class Model:
+        def __init__(self, path, **kwargs):
+            calls.append(("load", kwargs))
+            self.model = SimpleNamespace(device="cuda", compute_type="float16")
+
+        def transcribe(self, audio, **kwargs):
+            calls.append(("unbatched", kwargs))
+            return iter([segment]), SimpleNamespace(language="fi", duration=1200)
+
+    class Batched:
+        def __init__(self, model):
+            calls.append(("wrap", {}))
+
+        def transcribe(self, audio, **kwargs):
+            calls.append(("batched", kwargs))
+            return iter([segment]), SimpleNamespace(language="fi", duration=1200)
+
+    monkeypatch.setitem(
+        sys.modules, "faster_whisper", SimpleNamespace(WhisperModel=Model, BatchedInferencePipeline=Batched)
+    )
+    request = tmp_path / "request.json"
+    saved = tmp_path / "saved.json"
+    output = tmp_path / "chunk.json"
+    atomic_json(saved, {"fingerprint": "fixture", "words": []})
+    atomic_json(
+        request,
+        {
+            "model": "local-model",
+            "fingerprint": "fixture",
+            "batch_size": batch_size,
+            "flash_attention": flash,
+            "chunks": [
+                {"audio": "already-done.wav", "output": str(saved)},
+                {"audio": "pending.wav", "output": str(output)},
+            ],
+        },
+    )
+    monkeypatch.setattr(sys, "argv", ["asr_child", str(request)])
+    asr_child.main()
+    assert calls[0][1]["device"] == "cuda" and calls[0][1]["compute_type"] == "float16"
+    assert calls[0][1]["local_files_only"] is True
+    assert calls[0][1].get("flash_attention", False) is flash
+    assert calls[-1][0] == ("batched" if batch_size else "unbatched")
+    opts = calls[-1][1]
+    assert opts["language"] == "fi" and opts["word_timestamps"] is True
+    assert opts["vad_filter"] is True and opts["beam_size"] == 5
+    assert opts["condition_on_previous_text"] is False
+    assert opts.get("batch_size", 0) == batch_size
+    assert len(calls) == (3 if batch_size else 2)
+    result = json.loads(output.read_text())
+    assert result["words"][0]["start"] == 1.25 and result["words"][0]["end"] == 1.75
+    assert result["timing"]["audio_seconds"] == 1200
+    assert result["timing"]["elapsed_seconds"] > 0
+    assert json.loads((tmp_path / "runtime.json").read_text())["batch_size"] == batch_size
+
+
+def test_batch_fingerprint_invalidates_only_changed_decode_settings(settings, monkeypatch):
+    source = settings.work / "audio.opus"
+    source.write_bytes(b"fixture audio")
+    model = settings.models / "turbo"
+    model.mkdir()
+    atomic_json(model / "manifest.json", {"fixture": True})
+    monkeypatch.setattr(transcribe, "model_path", lambda *_args, **_kwargs: model)
+    calls = []
+
+    def pcm(settings, source, output, *args, **kwargs):
+        output.write_bytes(b"fixture PCM")
+
+    def run_tool(args, *unused, **kwargs):
+        req = json.loads(args[-1].read_text())
+        calls.append(req)
+        for chunk in req["chunks"]:
+            atomic_json(
+                Path(chunk["output"]),
+                {
+                    "fingerprint": req["fingerprint"],
+                    "words": [{"start": 1, "end": 2, "text": "sana"}],
+                },
+            )
+
+    monkeypatch.setattr(transcribe, "pcm", pcm)
+    monkeypatch.setattr(transcribe, "run_tool", run_tool)
+    folder = settings.work / "asr"
+    legacy = replace(settings, asr_batch_size=0)
+    for profile in (legacy, legacy, settings, settings, replace(settings, asr_flash_attention=True)):
+        transcribe.transcribe(profile, source, 600, "turbo", folder, lambda: None, lambda _: None)
+    assert len(calls) == 3
+    original = hashlib.sha256(
+        (
+            digest(source)
+            + digest(model / "manifest.json")
+            + "fi-fp16-beam5-vad-unconditioned-core1200-overlap5-v1"
+        ).encode()
+    ).hexdigest()
+    assert calls[0]["fingerprint"] == original
+    assert len({r["fingerprint"] for r in calls}) == 3
+    assert [r["batch_size"] for r in calls] == [0, 16, 16]
+
+
+def test_legacy_runs_keep_unbatched_and_new_runs_keep_snapshot(settings, store):
+    old = store.admit({}, "old")
+    assert Pipeline(settings, store, old).settings.asr_batch_size == 0
+    store.update(old, state="completed")
+    new = store.admit({"asr_batch_size": 16, "asr_flash_attention": True}, "new")
+    saved = Pipeline(replace(settings, asr_batch_size=32), store, new).settings
+    assert saved.asr_batch_size == 16 and saved.asr_flash_attention is True
+
+
+@pytest.mark.parametrize(
+    "config",
+    ["asr_batch_size = -1", "asr_batch_size = 65", "asr_batch_size = true", 'asr_flash_attention = "true"'],
+)
+def test_invalid_asr_config_is_rejected(tmp_path, config):
+    (tmp_path / "config.toml").write_text(config)
+    with pytest.raises(ValueError, match="asr_"):
+        load_settings(tmp_path)

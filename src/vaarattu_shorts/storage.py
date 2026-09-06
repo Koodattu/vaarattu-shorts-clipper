@@ -58,6 +58,11 @@ class Store:
                 CREATE TABLE IF NOT EXISTS request_usage(
                     request_id TEXT PRIMARY KEY REFERENCES requests(id), body TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS youtube_channels(id TEXT PRIMARY KEY, body TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS youtube_videos(
+                    id TEXT PRIMARY KEY, channel_id TEXT NOT NULL, published TEXT NOT NULL, body TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS youtube_channel_date ON youtube_videos(channel_id, published);
                 PRAGMA user_version=1;
             """)
 
@@ -89,6 +94,76 @@ class Store:
     def runs(self):
         with self.connect() as db:
             return [self.unpack(r) for r in db.execute("SELECT * FROM runs ORDER BY created DESC LIMIT 100")]
+
+    def channel(self, channel_id):
+        with self.connect() as db:
+            row = db.execute("SELECT body FROM youtube_channels WHERE id=?", (channel_id,)).fetchone()
+            return json.loads(row["body"]) if row else None
+
+    def save_video_page(self, channel, videos):
+        with self.connect() as db:
+            for video in videos:
+                db.execute(
+                    "INSERT INTO youtube_videos VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
+                    "channel_id=excluded.channel_id,published=excluded.published,body=excluded.body",
+                    (video["id"], channel["id"], video["published"], json.dumps(video, ensure_ascii=False)),
+                )
+            db.execute(
+                "INSERT INTO youtube_channels VALUES(?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body",
+                (channel["id"], json.dumps(channel, ensure_ascii=False)),
+            )
+
+    def videos(self, channel_id):
+        with self.connect() as db:
+            db.execute("BEGIN")
+            videos = [
+                json.loads(r["body"])
+                for r in db.execute(
+                    "SELECT body FROM youtube_videos WHERE channel_id=? ORDER BY published DESC,id",
+                    (channel_id,),
+                )
+            ]
+            history = {}
+            # Use all matching runs, not the recent-runs UI's 100-row limit.
+            for row in db.execute(
+                "SELECT r.id,r.state,r.result,json_extract(r.config,'$.video') AS video "
+                "FROM runs r JOIN youtube_videos v ON v.id=json_extract(r.config,'$.video') "
+                "WHERE v.channel_id=? ORDER BY r.created DESC,r.rowid DESC",
+                (channel_id,),
+            ):
+                result = json.loads(row["result"])
+                item = history.setdefault(
+                    row["video"],
+                    {
+                        "run_id": row["id"],
+                        "state": row["state"],
+                        "outcome": result.get("outcome"),
+                        "processed": False,
+                        "completed_run_id": None,
+                    },
+                )
+                if (row["state"] == "completed" and result.get("coverage") != "partial") or result.get(
+                    "coverage"
+                ) == "complete":
+                    item["processed"] = True
+                    if item["completed_run_id"] is None:
+                        item["completed_run_id"] = row["id"]
+        return [
+            {
+                **v,
+                **history.get(
+                    v["id"],
+                    {
+                        "run_id": None,
+                        "state": "not_started",
+                        "outcome": None,
+                        "processed": False,
+                        "completed_run_id": None,
+                    },
+                ),
+            }
+            for v in videos
+        ]
 
     def admit(self, config: dict, request_key: str) -> str:
         with self.connect() as db:

@@ -5,3 +5,7 @@ llama_server = '.cache/tools/llama.cpp/llama-server.exe'
 port = 8765
 min_free_gb = 30
 max_download_gb = 3
+# Parallel speech segments per batch. 0 preserves the original unbatched path.
+asr_batch_size = 16
+# Optional: validate speed, memory and timestamp quality on this Windows runtime first.
+asr_flash_attention = false

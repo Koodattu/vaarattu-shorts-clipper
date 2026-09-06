@@ -60,6 +60,7 @@ def test_one_run_reaches_output_with_adapters_replaced_and_resumes(settings, sto
     assert (settings.ready / "runs" / f"{run}.json").is_file()
     assert events == ["audio", "asr-load", "asr-exit", "llm-load", "llm-exit"]
     assert store.get(run)["state"] == "completed"
+    monkeypatch.setattr("vaarattu_shorts.pipeline.discover.VERSION", "later-version")
     assert Pipeline(settings, store, run).execute()["outcome"] == "no_candidates"
     assert len(events) == 5
 

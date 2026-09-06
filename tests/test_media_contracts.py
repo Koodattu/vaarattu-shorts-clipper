@@ -88,7 +88,10 @@ def test_window_coverage_includes_late_speech_and_silence():
     class Evaluator:
         discovery_budget = 7000
 
-        def input_size(self, system, prompt):
+        def check(self):
+            pass
+
+        def request_size(self, system, prompt, schema):
             return 100
 
     result = list(windows([word(1, 800000000, 801000000)], 900000000, Evaluator()))

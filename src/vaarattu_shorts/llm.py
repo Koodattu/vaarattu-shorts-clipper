@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import secrets
@@ -30,6 +31,10 @@ PROVIDERS = {
     },
 }
 MAX_OUTPUT = 4096
+
+
+class ModelOutputError(ValueError):
+    """A completed model response cannot be used; other work may continue."""
 
 
 def rates(provider, now=None):
@@ -173,8 +178,10 @@ class Evaluator:
         self.provider, self.store, self.run_id = provider, store, run_id
         self.folder, self.cap, self.check, self.client = folder, cap, check, client
         self.context_size = context_size
-        self.discovery_budget = min(15000, context_size - MAX_OUTPUT - 4096)
-        self.verification_budget = min(20000, context_size - MAX_OUTPUT - 2048)
+        # API requests use a conservative 64K envelope, independent of local GPU allocation.
+        # API input_size is a UTF-8 byte bound; local input_size uses llama.cpp's tokenizer.
+        self.discovery_budget = context_size - MAX_OUTPUT - 2048 if provider == "local" else 48000
+        self.verification_budget = self.discovery_budget
 
     def post(self, client, url, headers, body):
         mailbox = queue.Queue(maxsize=1)
@@ -210,7 +217,25 @@ class Evaluator:
         # UTF-8 bytes give a deliberately conservative request bound, not a measured token count.
         return len((system + prompt).encode("utf-8")) + 2048
 
-    def _request(self, system, prompt, schema):
+    def request_system(self, system, schema):
+        if self.provider in {"zai", "deepseek"}:
+            return (
+                system + "\nReturn JSON only matching this schema: " + json.dumps(schema, ensure_ascii=False)
+            )
+        return system
+
+    def request_size(self, system, prompt, response_type):
+        schema = response_type.model_json_schema()
+        prepared = self.request_system(system, schema)
+        # Include the native structured-output schema in the bound without duplicating it in the prompt.
+        if self.provider not in {"zai", "deepseek"}:
+            prepared += "\n" + json.dumps(schema, ensure_ascii=False)
+        return self.input_size(prepared, prompt)
+
+    def report(self, message):
+        self.store.update(self.run_id, message=message)
+
+    def _request(self, system, prompt, schema, reasoning_effort="none"):
         p = self.provider
         model = PROVIDERS[p]["model"]
         messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
@@ -260,7 +285,7 @@ class Evaluator:
                     "store": False,
                     "service_tier": "default",
                     "max_output_tokens": MAX_OUTPUT,
-                    "reasoning": {"effort": "none"},
+                    "reasoning": {"effort": reasoning_effort},
                     "text": {
                         "format": {
                             "type": "json_schema",
@@ -311,25 +336,49 @@ class Evaluator:
             raise ValueError("The model refused or truncated the selection response.")
         return choice.get("message", {}).get("content", "")
 
-    def call(self, system, prompt, response_type, key):
+    def call(self, system, prompt, response_type, key, *, validate=None, reasoning_effort="none"):
         self.check()
-        cache = self.folder / f"{key}.json"
-        if cache.exists():
-            return response_type.model_validate_json(cache.read_text("utf-8"))
         schema = response_type.model_json_schema()
-        system += "\nReturn JSON only matching this schema: " + json.dumps(schema, ensure_ascii=False)
-        if (
-            self.provider == "local"
-            and self.input_size(system, prompt) + MAX_OUTPUT + 256 > self.context_size
-        ):
-            raise ValueError("The request exceeds the safe context budget. No transcript text was truncated.")
+        fingerprint = hashlib.sha256(
+            json.dumps(
+                [
+                    self.provider,
+                    PROVIDERS[self.provider]["model"],
+                    system,
+                    prompt,
+                    schema,
+                    reasoning_effort,
+                    MAX_OUTPUT,
+                    self.context_size,
+                ],
+                ensure_ascii=False,
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+        cache = self.folder / f"{key}-{fingerprint[:16]}.json"
+        if cache.exists():
+            parsed = response_type.model_validate_json(cache.read_text("utf-8"))
+            if validate:
+                try:
+                    validate(parsed)
+                except ValueError as exc:
+                    raise ModelOutputError("The model's suggestion could not be verified.") from exc
+            return parsed
         for attempt in range(2):
             self.check()
-            url, headers, body = self._request(system, prompt, schema)
+            size = self.request_size(system, prompt, response_type)
+            limit = self.context_size - MAX_OUTPUT - 256 if self.provider == "local" else 60000
+            if size > limit:
+                raise ValueError(
+                    "The request exceeds the safe context budget. No transcript text was truncated."
+                )
+            url, headers, body = self._request(
+                self.request_system(system, schema), prompt, schema, reasoning_effort
+            )
             input_rate, output_rate = rates(self.provider)
             reserve = 0
             if self.provider != "local":
-                reserve = (self.input_size(system, prompt) * input_rate + MAX_OUTPUT * output_rate) / 1e6
+                reserve = (size * input_rate + MAX_OUTPUT * output_rate) / 1e6
             model = PROVIDERS[self.provider]["model"]
             if self.provider == "local":
                 model = self.store.get(self.run_id)["config"].get("local_model", "local")
@@ -345,9 +394,15 @@ class Evaluator:
                     "input_usd_per_million": input_rate,
                     "output_usd_per_million": output_rate,
                     "pricing_checked": "2026-09-06",
+                    "prompt_sha256": fingerprint,
+                    "request_sha256": hashlib.sha256(
+                        json.dumps(body, ensure_ascii=False, sort_keys=True).encode("utf-8")
+                    ).hexdigest(),
+                    "reasoning_effort": reasoning_effort if self.provider == "openai" else None,
                 },
             )
             response = None
+            started = time.monotonic()
             try:
                 if self.client:
                     response = self.post(self.client, url, headers, body)
@@ -359,9 +414,13 @@ class Evaluator:
                     raise ValueError(
                         f"The model service returned HTTP {response.status_code}. Retry after checking access or quota."
                     )
-                raw = response.json()
-                atomic_json(self.folder / f"{key}-attempt-{attempt}.response.json", raw)
+                try:
+                    raw = response.json()
+                except ValueError as exc:
+                    raise ModelOutputError("The model returned an unreadable response.") from exc
+                atomic_json(self.folder / f"{key}-{request_id}.response.json", raw)
                 measured = token_usage(self.provider, raw)
+                measured["elapsed_seconds"] = round(time.monotonic() - started, 3)
                 input_tokens, output_tokens = measured["input_tokens"], measured["output_tokens"]
                 actual = 0 if self.provider == "local" else None
                 if input_tokens is not None and output_tokens is not None:
@@ -369,7 +428,7 @@ class Evaluator:
                 # Record billed work even when its content is truncated, refused or invalid JSON.
                 self.store.settle(request_id, actual, measured)
                 atomic_json(
-                    self.folder / f"{key}-attempt-{attempt}.usage.json",
+                    self.folder / f"{key}-{request_id}.usage.json",
                     {
                         "usage": raw.get("usageMetadata" if self.provider == "gemini" else "usage"),
                         **measured,
@@ -379,18 +438,26 @@ class Evaluator:
                         "estimated_cost_usd": actual,
                     },
                 )
-                text = self._parse(raw)
-                if not text:
-                    raise ValueError("The model returned an empty response.")
-                parsed = response_type.model_validate_json(text)
+                try:
+                    text = self._parse(raw)
+                    if not text:
+                        raise ValueError("The model returned an empty response.")
+                    parsed = response_type.model_validate_json(text)
+                    if validate:
+                        validate(parsed)
+                except ValueError as exc:
+                    raise ModelOutputError("The model's response could not be validated.") from exc
                 atomic_json(cache, parsed.model_dump())
                 return parsed
             except (httpx.TransportError, httpx.HTTPStatusError) as exc:
                 raise ValueError(
                     "The model service could not complete the request. Completed work is saved."
                 ) from exc
-            except ValueError:
+            except ModelOutputError:
                 if attempt or response is None or response.status_code >= 400:
                     raise
-                prompt += "\nThe previous response was invalid or incomplete. Return valid JSON matching the schema."
+                prompt += (
+                    "\nThe previous response was invalid or incomplete. Return valid JSON matching the schema. "
+                    "Use only supplied anchors in their original order and keep the proposed idea inside the clip."
+                )
         raise AssertionError("Unreachable")

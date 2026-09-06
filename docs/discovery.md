@@ -2,6 +2,8 @@
 
 Status: proposed v1 contracts and algorithm. Parameter values below are initial experiment settings. [Evaluation](implementation-plan.md) decides which settings become defaults.
 
+Current selection implementation: [passages-v2 design and measurements](selection-design.md) supersede earlier window/prompt experiments below.
+
 Implementation update: STT is Turbo only by the user's latest instruction; alternative ASR and optional re-transcription described below remain future research. The current implementation uses source word IDs throughout and records its exact scope in [implementation-status.md](implementation-status.md).
 
 ## 1. Select one video now; discover the archive later
@@ -35,11 +37,13 @@ Use integer microseconds and half-open intervals `[start_us, end_us)` everywhere
 
 Decode PCM at the selected ASR model's required sample rate/channels (16 kHz mono for the initial Whisper profile) only for active chunks. For Whisper start with 20-minute owned cores and 5 seconds of context on both sides where available; other models may need different tested chunk geometry. Persist successful chunk results so a six-hour failure does not lose earlier work. Both unbatched and batched ASR must map chunk-local timestamps back to the canonical VOD timeline.
 
-Initial ASR profile: faster-whisper `turbo`, Finnish transcription (`language=fi`, not translation), word timestamps, VAD enabled, FP16 on CUDA. Start batch size 8 and compare 4/8/16 with measured memory and accuracy; compare beam 1 versus 5 only after fixing the evaluation audio. The [faster-whisper documentation](https://github.com/SYSTRAN/faster-whisper) supports CUDA precision choices, batched inference, VAD and word timestamps. Its published throughput is not a promise for Finnish stream audio.
+Current new-run ASR profile: faster-whisper `turbo`, Finnish transcription (`language=fi`, not translation), word timestamps, VAD enabled, FP16 on CUDA, beam size 5 and `BatchedInferencePipeline` batch size 16, matching niilo22. Original runs retain unbatched decoding for resume compatibility. Compare batch sizes with measured memory and accuracy; compare beam 1 versus 5 only after fixing the evaluation audio. Flash Attention is optional and disabled pending validation. The [faster-whisper documentation](https://github.com/SYSTRAN/faster-whisper) supports CUDA precision choices, batched inference, VAD and word timestamps. Its published throughput is not a promise for Finnish stream audio.
 
 VAD detects speech for inference; it does not authorize shortening the source timeline. Keep original gaps, restore offsets after VAD, and never concatenate speech-only audio without an explicit mapping. Initial text-conditioning choices must be recorded; compare disabling previous-text conditioning if repetitions/hallucinations occur.
 
 For chunk seams, keep tokens by owned core, reconcile matching overlap words using normalized text plus time proximity, and reprocess a seam locally if a sentence/word was split. Never deduplicate repeated words on text alone. Preserve words with their raw times/probabilities, original segment text and diagnostic fields; canonical merged output must have finite in-range bounds and ordered starts. Flag unexpected overlaps or missing seam speech instead of silently forcing invented timings.
+
+The merge now reconciles a conflicting owned-core boundary using the saved context on both sides. It requires three consecutive matching normalized words, at least two distinct words, and start/end agreement within 300 ms per word. It selects a handoff with non-overlapping original timestamps, preferring one before the disputed phrase. It does not shorten words or relax the 150 ms overlap check. Without a reliable shared phrase it still fails explicitly. ASR chunk fingerprints remain unchanged because this repairs assembly, not decoding.
 
 Transcript artifact v1:
 
@@ -64,9 +68,9 @@ Compare Turbo, large-v3 and Finnish-NLP Whisper on the same audio, and test Para
 
 The default local direction is Gemma 4 through llama.cpp: test 31B Q4 first and 26B-A4B Q4 as the required comparison, with full GPU residency. The ASR process must exit before loading the LLM. Keep the chosen LLM loaded through discovery and verification, then unload it. API selection uses the same application output contract with provider-specific adapters; all five requested providers and their current limitations are in [models-and-providers.md](models-and-providers.md).
 
-Scan all completed transcript regions, not just loud/chatty ones. Initial geometry: six-minute core windows with 60 seconds of surrounding context on each side. Emit a candidate only if its central idea/payoff anchor belongs to that core. This assigns ownership across overlapping windows while still exposing setup and ending.
+Scan all completed transcript regions, not just loud/chatty ones. Initial geometry: six-minute core windows with 90 seconds of surrounding context on each side. Emit a candidate only if its central idea/payoff anchor belongs to that core. This assigns ownership across overlapping windows while still exposing setup and ending.
 
-Apply the model tokenizer to the actual prompt. Start with an 8K input budget inside a 16K context, reserving room for output/schema. If a dense window exceeds the budget, split at a sentence/pause with retained overlap and record both owned cores. Do not silently truncate or replace the transcript with a summary before discovery. Empty/no-speech cores may be skipped with recorded coverage; quality-flagged speech stays visible for diagnostics.
+For local inference, tokenize the actual prompt with output/schema room reserved inside the allocated 16K/32K context. APIs use an independent conservative input bound, including schema/control overhead, instead of the local GPU setting. If a dense window exceeds the budget, split ownership at a passage boundary with the full surrounding context retained and record both owned cores. Do not silently truncate or replace the transcript with a summary before discovery. Empty/no-speech cores may be skipped with recorded coverage; quality-flagged speech stays visible for diagnostics.
 
 Provide compact utterance lines such as `seg_0123 | 00:14:21.300–00:14:27.100 | <verbatim Finnish speech>`, explicit long-gap markers, and quality flags. Full word detail is available for the later boundary pass. Include game/title context as metadata, not an instruction to favor game highlights.
 
@@ -76,9 +80,9 @@ Save all outputs before ranking. Merge duplicate proposals across overlapping wi
 
 ## 5. Verify meaning and select boundaries
 
-After duplicate merging, sort discovery proposals by provisional rubric sum, using source-time/topic variety to break ties, and select at most 10 for verification per VOD. Keep every unselected proposal for recall analysis. This is a cost bound that can lose useful moments and must be measured separately from discovery coverage. For each shortlisted proposal, send original word-timed transcript around it, initially 60 seconds before/after and at most five minutes total. Do not feed only the discovery summary. A separately worded verification call checks what a viewer would actually hear and whether the excerpt preserves the speaker's position.
+After duplicate merging, sort discovery proposals by provisional rubric sum (topic-diversity ranking remains future work), and select at most 10 for verification per VOD. Keep every unselected proposal for recall analysis. This is a cost bound that can lose useful moments and must be measured separately from discovery coverage. For each shortlisted proposal, send original passages around it, initially 90 seconds before/after. Only the candidate and 15 seconds on either side include individual word IDs. Withhold discovery scores, summaries and rationales; the verifier makes its own assessment. A separately worded verification call checks what a viewer would actually hear and whether the excerpt preserves the speaker's position.
 
-Verification outcomes are `accept`, `reject`, `needs_context`. On `needs_context`, permit one bounded expansion if unshown neighboring speech exists. Otherwise hold/reject; never stretch the excerpt blindly to fit a target duration.
+Verification outcomes are `accept`, `reject`, `needs_context`. On `needs_context`, permit one expansion to 180 seconds on either side if unshown neighboring speech exists. Otherwise hold/reject; never stretch the excerpt blindly to fit a target duration.
 
 Proposed application output contract:
 
@@ -106,7 +110,7 @@ Proposed application output contract:
 
 All referenced IDs must belong to the supplied transcript revision/context, with `start ≤ idea ≤ end`. The application derives bounds from the first word's start and last word's end. Reject unknown IDs, invalid scores, impossible order, out-of-range spans and unsupported categories. Free-floating LLM timestamps never become edit commands. Validate JSON shape and semantic references independently; constrained JSON does not establish truth.
 
-Prompt data (transcript, titles and chat-derived labels) is untrusted quoted material. Models have no tools, filesystem/network access or authority to change pipeline instructions. Keep inference parameters, prompt hash, raw response, parse status and usage. Allow one repair for malformed/schema-invalid output, then record failure instead of silently discarding the window.
+Prompt data (transcript, titles and chat-derived labels) is untrusted quoted material. Models have no tools, filesystem/network access or authority to change pipeline instructions. Keep inference parameters, prompt hash, raw response, parse status and usage. Allow one repair for malformed/schema-invalid output, then record an explicit coverage gap and continue other windows. Invalid individual discovery anchors/ownership are logged and filtered without retrying valid siblings. Failed verification excludes that candidate. Operational and budget failures remain blocking.
 
 Starting rubric, each dimension 0–4:
 

@@ -44,7 +44,7 @@ Proposed durable records:
 
 | Record | Minimum stored information |
 |---|---|
-| `vod` | YouTube ID (unique), pinned channel ID, raw title, upload timestamp, parsed recording-date hint, duration, availability, discovery order |
+| `vod` | YouTube ID (unique), configured channel ID snapshotted per run, raw title, upload timestamp, parsed recording-date hint, duration, availability, discovery order |
 | `analysis_run` | VOD, overall state, selected ASR and local/API model profile snapshot, output root, input hashes, runtime/prompt/config revisions, stage coverage, timestamps |
 | `job` | stage, run/candidate revision, idempotency key, state, attempts, next retry, owner/lease, progress and error class |
 | `artifact` | kind, contained relative path, bytes/hash, producer job, source interval/time mapping, validation result |

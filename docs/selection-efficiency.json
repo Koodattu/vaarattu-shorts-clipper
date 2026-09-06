@@ -1,0 +1,17 @@
+{
+  "video_id": "OJ-bDXbfEos",
+  "transcript_sha256": "a9cb99a81f5d4ef9501d29cbce12be2c4f8305dd7ada588504e5e6451c8924a3",
+  "offline_only": true,
+  "version": "passages-v2",
+  "words": 20757,
+  "passages": 4495,
+  "discovery_requests": 63,
+  "legacy_discovery_requests": 1111,
+  "legacy_transcript_rows_bytes": 816513,
+  "passage_rows_bytes": 345327,
+  "legacy_discovery_text_bytes_total": 3796649,
+  "discovery_text_bytes_total": 628243,
+  "largest_request_input_bound": 20011,
+  "all_word_ids_present": true,
+  "verification_calls_max": 20
+}

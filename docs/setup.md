@@ -57,6 +57,25 @@ yt-dlp is installed as a Python dependency and invoked with an isolated configur
 
 ## Explicit model preparation
 
+### Turbo performance settings
+
+New runs now default to the same main acceleration approach as niilo22: `BatchedInferencePipeline` with batch size **16**, CUDA FP16, Finnish, VAD and beam size 5. Word timestamps remain enabled. This batches short speech segments inside each 20-minute checkpoint chunk; it does not load multiple VODs or keep the LLM resident. No PyTorch installation is required.
+
+Optional settings in `config.toml`:
+
+```toml
+asr_batch_size = 16
+asr_flash_attention = false
+```
+
+Batch size accepts 1–64; 0 explicitly selects the original unbatched implementation. Larger batches consume more VRAM and must be benchmarked; 16 matches niilo22, not a measured optimum for this machine. Flash Attention is opt-in because the installed Windows build, performance and timestamp quality still need validation. CTranslate2 documents it for Whisper self-attention; the code retains cross-attention word alignment. It never silently falls back if CUDA/FP16 or an explicitly requested optimization fails. See [batched faster-whisper](https://github.com/SYSTRAN/faster-whisper#batched-transcription) and [CTranslate2 Whisper options](https://opennmt.net/CTranslate2/python/ctranslate2.models.Whisper.html).
+
+Restart the launcher after the current run finishes to load the new implementation. Each newly admitted run snapshots these settings. Existing runs keep their original unbatched profile on resume, even after config changes, so their completed chunks and transcript meaning are not silently replaced. New runs with different batching/attention settings have separate decode fingerprints. The run view displays the saved batch mode.
+
+`workdir/runs/<run_id>/asr/runtime.json` records actual device/compute type, requested batch/attention settings and model load time. Newly generated chunk JSON files include audio seconds, elapsed transcription seconds and audio-seconds-per-second throughput; `asr.log` summarizes each chunk. Timings include preprocessing/VAD/alignment for that chunk, exclude initial PCM preparation/model loading, and include overlap audio. They are not whole-pipeline speed measurements.
+
+CUDA FP16, VAD, fixed Finnish and loading the model once per ASR process were already enabled. Batching is the newly enabled optimization. Greedy beam-1 decoding, INT8, larger batches, concurrent GPU workers and Flash Attention are not all enabled by default: compare throughput, peak memory, Finnish accuracy and word alignment on the same audio before adopting them. Changing the decoding strategy can change output even with the same weights.
+
 Startup and Run never automatically download models. Use the following commands when model download is wanted:
 
 ```powershell
@@ -120,6 +139,29 @@ Each run now displays request count, reported input/output tokens, reported cach
 
 ## Run one video later
 
+### Browse your YouTube channel
+
+Set these entries in the project's ignored `.env` (they have been added without replacing existing entries):
+
+```dotenv
+YOUTUBE_API_KEY=
+YOUTUBE_CHANNEL_ID=UCUCV40VqBZqt83afjbbICvw
+```
+
+Fill the key value with a Google API key from a project with **YouTube Data API v3 enabled**, then restart the launcher. The channel ID above is VaarattuVODs; use a `UC…` channel ID, not a handle or URL. This is separate from the LLM provider keys. An absent/blank channel setting defaults to VaarattuVODs for compatibility; an invalid ID fails configuration. See Google's [YouTube API setup guide](https://developers.google.com/youtube/v3/getting-started).
+
+In **Channel videos**, press **Fetch latest videos**. This reads the channel's uploads playlist and saves up to 50 entries with titles, publication dates, duration and availability. Thumbnails load from YouTube's image host. Search saved titles/IDs, filter processed/unprocessed videos, and press **Select video** to fill the existing Run form. Selection does not download media or start processing. You can still paste a URL manually.
+
+**Show more saved videos** expands the local list. **Load older videos from YouTube** fetches the next uploads page. Reloading the app and processing-status polling read SQLite only; they do not spend YouTube API quota. Refreshing latest keeps all previously saved videos and restarts the older-page cursor from that latest page, so repeated pages are safely deduplicated. It does not scan the whole channel automatically. If a cursor becomes invalid after uploads change, fetch latest again.
+
+Processing badges use the entire durable run history, including runs originally started by pasting a URL. A run completed with ready clips, held clips, or no suitable candidates counts as **Processed**. Queued/running/paused/failed/cancelled states stay separate. A later failed rerun does not erase an earlier completed result; **Previous results** opens that run. Explicit reprocessing remains possible with **Select again**. There is still only one queued/running/paused video at a time.
+
+Catalog rows and the channel cursor live in the existing `workdir/state.sqlite3` and are included in database backups. Refreshes cannot reset processing history. Failed API calls preserve cached rows/cursors. Live/upcoming, unfinished and known unavailable entries cannot be selected in the library; worker metadata validation remains authoritative because availability can change after fetching. Each new run snapshots its configured channel ID, so later `.env` edits cannot change a resumed run's source. Legacy runs retain the original VaarattuVODs channel.
+
+The backend follows niilo22's uploads-playlist approach using the existing HTTP client, with no additional dependency or YouTube search requests. The key is sent in a server-side header and never returned to the browser, persisted in the catalog or included in errors. A normal nonempty latest-page fetch makes three requests (`channels.list`, `playlistItems.list`, `videos.list`); subsequent older pages make two. Each of these methods currently costs one YouTube quota unit. These quota units are separate from LLM token/cost accounting. See [channels.list](https://developers.google.com/youtube/v3/docs/channels/list), [playlistItems.list](https://developers.google.com/youtube/v3/docs/playlistItems/list) and [videos.list](https://developers.google.com/youtube/v3/docs/videos/list).
+
+### Start the launcher
+
 ```powershell
 uv --cache-dir .cache/uv run --locked --extra asr vaarattu-shorts serve
 ```
@@ -127,14 +169,20 @@ uv --cache-dir .cache/uv run --locked --extra asr vaarattu-shorts serve
 Open `http://127.0.0.1:8765`. `serve` starts the local FastAPI UI and one separate worker; neither is a scheduled service. Closing the browser preserves processing. Stopping the launcher stops its owned worker/model processes; completed checkpoints are recovered on the next launch. Separate `web` and `worker` commands are also available for separate terminals. Do not launch multiple workers for one workdir.
 
 1. Save a layout: load a screenshot from the recording in the crop editor, draw camera and gameplay rectangles, and confirm the layout/source assumptions. This is a one-time preset per known source layout, not per-clip approval. No guessed camera coordinates are built into the app.
-2. Paste one VaarattuVODs URL, choose a saved layout and local LLM or configured API. STT is fixed to Turbo. Start with 16K local context; 32K is available only if it actually fits.
+2. Select one video from the channel library or paste its URL, then choose a saved layout and local LLM or configured API. STT is fixed to Turbo. Start with 16K local context; 32K is available only if it actually fits.
 3. Press Run. The worker validates metadata/channel identity, downloads full audio, checkpoints transcription, exits the ASR process, runs discovery/verification, exits the local LLM, downloads selected video ranges, verifies timing at two audio anchors, renders vertical shorts and captions, checks output and promotes eligible packages.
 4. Open the output folder. Ready clips include `short.mp4`, Finnish SRT/word sidecars, title, metadata and a contact sheet. Technical logs/ASS/filter files are also retained. Held clips show a reason and may have previews. A run can finish with no suitable candidates or with all outputs needing attention.
 5. Optional edits change bounds/title/caption words/layout and queue a new render revision. Boundaries cannot split known words. Caption IDs/times remain attached to the original transcript. Confirm the edited source/meaning before rerendering; technical caption/layout checks still apply. Old ready revisions are preserved; the run index/UI identifies current revisions, so use it when choosing which file to publish.
 
-Only one queued/running/paused VOD is admitted. Pause/cancel requests are handled at worker checks, including while external tools or model requests are in progress; completed chunks/windows remain saved. Cancel releases the slot only after cleanup. Resume uses matching checkpoints. There is no channel scan, automatic next video, overnight schedule or publisher.
+Only one queued/running/paused VOD is admitted. Pause/cancel requests are handled at worker checks, including while external tools or model requests are in progress; completed chunks/windows remain saved. Cancel releases the slot only after cleanup. Resume uses matching checkpoints. Channel browsing is manual; there is no automatic next video, overnight schedule or publisher.
 
 Optional chat settings require a known stream ID and a measured offset, with beginning/end confirmation. Otherwise matching is informational and chat cannot affect ranking. Current aggregate outages or unverified timing do not prevent transcript-only processing. The stream service itself was not modified.
+
+## Selection efficiency and an existing run
+
+Selection uses compact original speech passages for discovery and detailed word anchors only around shortlisted clips. OpenAI Luna uses `none` reasoning for discovery and `low` for verification. The local context selector controls llama.cpp allocation; API request budgets are independent. See [selection design and measured request reduction](selection-design.md).
+
+After installing the passages-v2 changes, restart the launcher before resuming an existing paused selection run. Its completed audio/transcript are reused, but selection starts with the new format in a separate inference folder. Old responses and spending remain saved. The UI reports the planned speech-section count.
 
 ## Checks and recovery
 
@@ -145,6 +193,7 @@ Offline checks do not download media/models, invoke FFmpeg, perform inference or
 .venv/Scripts/ruff.exe check src tests
 .venv/Scripts/ruff.exe format --check src tests
 node --check src/vaarattu_shorts/static/app.js
+node --test tests/catalog_ui.test.cjs
 ```
 
 In restricted Windows environments, pytest's shared user temp folder can be inaccessible. Use a fresh directory under `.cache/tests/` with `--basetemp`, after creating its parent. Tests allow only the standard library's internal asyncio wake-up socket pair; outbound network calls are blocked.

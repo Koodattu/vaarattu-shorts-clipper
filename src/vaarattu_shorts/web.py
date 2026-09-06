@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import threading
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -10,6 +11,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from . import catalog
 from .contracts import EditRequest, Layout, RunRequest, Word
 from .llm import PROVIDERS
 from .models import CATALOG, model_path
@@ -37,6 +39,7 @@ def create_app(settings):
     settings.initialize()
     store = Store(settings.work / "state.sqlite3")
     token = secrets.token_urlsafe(32)
+    catalog_lock = threading.Lock()
     app = FastAPI(title="Vaarattu Shorts", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.store = store
     static = Path(__file__).parent / "static"
@@ -63,7 +66,7 @@ def create_app(settings):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; img-src 'self' blob: data:; media-src 'self'; "
+            "default-src 'self'; img-src 'self' blob: data: https://i.ytimg.com; media-src 'self'; "
             "style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'"
         )
         if request.url.path.startswith("/api/"):
@@ -111,7 +114,32 @@ def create_app(settings):
             },
             "output": str(settings.ready),
             "model_cache": str(settings.models),
+            "asr": {"batch_size": settings.asr_batch_size, "flash_attention": settings.asr_flash_attention},
         }
+
+    @app.get("/api/videos")
+    def videos():
+        channel = store.channel(settings.youtube_channel_id)
+        return {
+            "channel_id": settings.youtube_channel_id,
+            "channel_title": channel["title"] if channel else "",
+            "configured": bool(os.environ.get("YOUTUBE_API_KEY", "").strip()),
+            "fetched_at": channel["fetched_at"] if channel else None,
+            "has_older": bool(channel and channel.get("next_page_token")),
+            "videos": store.videos(settings.youtube_channel_id),
+        }
+
+    @app.post("/api/videos/{action}")
+    def fetch_videos(action: str):
+        if action not in {"refresh", "older"}:
+            raise HTTPException(404, "Action not found.")
+        if not catalog_lock.acquire(blocking=False):
+            raise HTTPException(409, "Channel videos are already being fetched.")
+        try:
+            catalog.fetch_page(settings, store, older=action == "older")
+            return videos()
+        finally:
+            catalog_lock.release()
 
     @app.get("/api/layouts")
     def layouts():
@@ -129,7 +157,15 @@ def create_app(settings):
     def start_run(body: RunRequest, idempotency_key: str = Header(min_length=8, max_length=100)):
         manifests = preflight(settings, body)
         layout = store.layout(body.layout_id)
-        config = {**body.model_dump(), "layout": layout, "model_manifests": manifests, "pipeline_version": 1}
+        config = {
+            **body.model_dump(),
+            "layout": layout,
+            "model_manifests": manifests,
+            "pipeline_version": 1,
+            "channel_id": settings.youtube_channel_id,
+            "asr_batch_size": settings.asr_batch_size,
+            "asr_flash_attention": settings.asr_flash_attention,
+        }
         return {"id": store.admit(config, idempotency_key)}
 
     @app.get("/api/runs/{run_id}")

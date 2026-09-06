@@ -5,8 +5,17 @@
 <header><div><p class="eyebrow">VAARATTU / STUDIO</p><h1>Find the good conversations.</h1>
 <p>One recording. Finnish captions. Shorts ready for your review and publishing.</p></div><span class="badge">LOCAL WORKSPACE</span></header>
 <p id="error" role="alert" hidden></p>
+<section class="panel" aria-labelledby="channel-heading">
+<div class="section-head"><h2 id="channel-heading">Channel videos</h2><button id="fetch-videos" type="button" class="secondary">Fetch latest videos</button></div>
+<p id="channel-status" class="muted" aria-live="polite"></p>
+<div class="grid"><label>Search saved videos<input id="video-search" type="search" placeholder="Title or video ID"></label>
+<label>Processing status<select id="video-filter"><option value="all">All videos</option><option value="unprocessed">Not yet processed</option><option value="processed">Processed</option></select></label></div>
+<div id="channel-videos" class="channel-videos"></div>
+<div class="actions"><button id="show-videos" type="button" class="secondary" hidden>Show more saved videos</button><button id="older-videos" type="button" class="secondary" hidden>Load older videos from YouTube</button></div>
+<p class="muted">Selecting a video fills the form below. Only Run video starts processing. Completed videos stay marked even if no suitable clips were found.</p>
+</section>
 <section class="panel"><h2>Process a video</h2><form id="run-form">
-<label>YouTube video<input id="video" type="text" required placeholder="Paste a VaarattuVODs video URL"></label>
+<label>YouTube video<input id="video" type="text" required placeholder="Select above or paste a video URL from your channel"></label>
 <div class="grid"><label>Find moments with<select id="provider"></select></label>
 <label>Local model<select id="local-model"><option value="gemma4-31b">Gemma 4 · 31B Q4</option><option value="gemma4-26b-a4b">Gemma 4 · 26B-A4B Q4</option></select></label>
 <label>Context<select id="context"><option value="16384">16K</option><option value="32768">32K · requires more memory</option></select></label>

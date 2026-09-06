@@ -5,10 +5,11 @@ import importlib.util
 import json
 import shutil
 from contextlib import nullcontext
+from dataclasses import replace
 from pathlib import Path
 
 from . import discover, render, stream_data, transcribe, youtube
-from .contracts import Candidate, RunRequest, Word
+from .contracts import CHANNEL_ID, Candidate, RunRequest, Word
 from .llm import Evaluator, check_provider, local_server
 from .models import model_path
 from .processes import Interrupted, ToolError
@@ -42,6 +43,13 @@ class Pipeline:
     def __init__(self, settings, store, run_id, stopping=lambda: False):
         self.settings, self.store, self.run_id, self.stopping = settings, store, run_id, stopping
         self.config = store.get(run_id)["config"]
+        # A resumed run retains its original channel even if .env changes later.
+        self.settings = replace(
+            settings,
+            youtube_channel_id=self.config.get("channel_id", CHANNEL_ID),
+            asr_batch_size=self.config.get("asr_batch_size", 0),
+            asr_flash_attention=self.config.get("asr_flash_attention", False),
+        )
         self.folder = settings.work / "runs" / run_id
         self.folder.mkdir(parents=True, exist_ok=True)
         self.chain = hashlib.sha256(json.dumps(self.config, sort_keys=True).encode()).hexdigest()
@@ -56,8 +64,10 @@ class Pipeline:
     def progress(self, value):
         self.store.update(self.run_id, progress=min(1, max(0, value)))
 
-    def stage(self, name, operation):
+    def stage(self, name, operation, version=None):
         self.check()
+        if version is not None:
+            self.chain = hashlib.sha256(f"{self.chain}:{name}:{version}".encode()).hexdigest()
         self.store.update(self.run_id, stage=name, progress=0, message="")
         checkpoint = self.folder / f"{name}.checkpoint.json"
         if checkpoint.exists():
@@ -75,6 +85,7 @@ class Pipeline:
             checkpoint,
             {
                 "input_chain": self.chain,
+                "version": version,
                 "result": result,
                 "artifacts": [{"path": str(p), "sha256": digest(p)} for p in artifacts],
             },
@@ -141,7 +152,12 @@ class Pipeline:
             atomic_json(folder / "selection.json", selection)
             return selection, [folder / "selection.json"]
 
-        selection = self.stage("selection", selection_stage)
+        selection_checkpoint = self.folder / "selection.checkpoint.json"
+        selection_version = discover.VERSION
+        if selection_checkpoint.exists():
+            # Completed selection belongs to its saved clips; upgrade only unfinished selection.
+            selection_version = json.loads(selection_checkpoint.read_text("utf-8")).get("version")
+        selection = self.stage("selection", selection_stage, selection_version)
         enrichment = self.stage("chat", lambda: (stream_data.enrich(metadata, self.config), []))
         existing_ids = {clip["id"] for clip in self.store.clips(self.run_id)}
         candidates = [item for item in selection["verified"] if item["eligible"]]
@@ -194,7 +210,7 @@ class Pipeline:
                 continue
             self.store.update(self.run_id, stage="render", progress=i / max(1, self.config["max_clips"]))
             self.deliver(clip, source, transcript["duration_us"])
-        return self.finish(enrichment)
+        return self.finish(enrichment, selection)
 
     def deliver(self, clip, source, duration_us):
         body, clip_id, revision = clip["body"], clip["id"], clip["revision"]
@@ -260,9 +276,15 @@ class Pipeline:
                 },
             )
 
-    def finish(self, enrichment):
+    def finish(self, enrichment, selection=None):
         self.check()
         clips = self.store.clips(self.run_id)
+        issues = (
+            selection.get("issues", [])
+            if selection is not None
+            else self.store.get(self.run_id)["result"].get("selection_issues", [])
+        )
+        missed = sum(issue["reason"] == "section_unreadable" for issue in issues)
         outcome = (
             "no_candidates"
             if not clips
@@ -273,8 +295,9 @@ class Pipeline:
         result = {
             "run_id": self.run_id,
             "video_id": self.config["video"],
-            "coverage": "complete",
-            "outcome": outcome,
+            "coverage": "partial" if missed else "complete",
+            "outcome": "needs_attention" if missed or (issues and not clips) else outcome,
+            "selection_issues": issues,
             "chat": enrichment,
             "ready": [
                 {"clip_id": c["id"], "revision": c["revision"], "folder": c["body"].get("folder")}
@@ -285,7 +308,18 @@ class Pipeline:
         }
         atomic_json(self.settings.ready / "runs" / f"{self.run_id}.json", result)
         self.store.update(
-            self.run_id, state="completed", stage="complete", progress=1, result=result, intent=""
+            self.run_id,
+            state="completed",
+            stage="complete",
+            progress=1,
+            result=result,
+            intent="",
+            message=(
+                f"Finished with {missed} speech sections that could not be evaluated and "
+                f"{len(issues) - missed} discarded suggestions. {len(result['ready'])} clips ready."
+                if issues
+                else ""
+            ),
         )
         return result
 
