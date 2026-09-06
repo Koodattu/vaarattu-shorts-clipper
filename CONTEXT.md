@@ -1,5 +1,7 @@
 # Current project state
 
+Latest provider addition (2026-09-06): Codex via user's already-running openai-api-server-via-codex at http://127.0.0.1:18080/v1. New UI provider codex, default gpt-5.6-luna, both passes low reasoning. .env CODEX_BASE_URL/CODEX_MODEL/CODEX_API_KEY added preserving existing entries; optional local bridge key never uses OPENAI_API_KEY. Endpoint/model snapshotted per run and included in cache identity. Responses native JSON schema, store=false, 300s timeout, no paid fallback. Published bridge removes max_output_tokens; adapter omits it and records no enforceable output cap. Usage tokens recorded; public money/rates/cap null with codex_subscription basis, UI dollar cap disabled. See docs/codex-provider.md. No bridge/app startup, account login, inference, video processing or dependency installation performed. Juha still exclusively starts/restarts the app.
+
 Updated 2026-09-06 after end-to-end single-video implementation and the Turbo-only STT correction.
 
 ## User intent and confirmed choices

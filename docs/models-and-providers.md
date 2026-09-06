@@ -1,5 +1,7 @@
 # Local models and API providers
 
+Additional implemented option: [Codex through the local API bridge](codex-provider.md), defaulting to gpt-5.6-luna and low reasoning without a Platform API key. Its subscription/credit usage is separate from the API prices below.
+
 Decision/research update: 2026-09-06. This is a design, not an installed model catalogue or a completed benchmark. The user's revised preference supersedes the initial Qwen3.5-9B and Gemini 3.5 Flash-Lite defaults. Local inference should use Gemma 4 through llama.cpp, with the largest useful model that fits entirely on the RTX 4090 at a tested context size. API selection should cover all five requested providers.
 
 Latest implementation direction: **implement only faster-whisper Turbo for STT; investigate the other ASR options later.** Their comparison below is retained as research, not implemented support. Downloaded weights live under this repository's `.cache/models/`; library caches also stay under `.cache/`. The Gemma/Turbo catalogue and four API transports are implemented, with Meta disabled pending verified documentation. See [implementation status](implementation-status.md). No model was downloaded or run in this implementation pass.

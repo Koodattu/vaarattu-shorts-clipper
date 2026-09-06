@@ -66,3 +66,49 @@ test("channel selection, local filters and explicit page fetching", async()=>{
   assert.deepEqual(calls.at(-1),{url:"/api/videos/older",method:"POST"});
   assert.equal(nodes.get("older-videos").hidden,true);
 });
+
+test("Codex selection disables dollar cap and renders unknown costs", async()=>{
+  const staticPath=path.join(__dirname,"../src/vaarattu_shorts/static");
+  const html=fs.readFileSync(path.join(staticPath,"index.html"),"utf8");
+  const nodes=new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],new Element()]));
+  const run={id:"fixture-run",state:"completed",stage:"complete",message:"",clips:[],
+    config:{video:"abc_def-ghI",provider:"codex",codex:{model:"gpt-5.6-luna"}},result:{coverage:"complete"},
+    usage:{estimated_cost_usd:null,reserved_usd:null,budget_usd:null,request_count:1,input_tokens:800,
+      output_tokens:120,cached_input_tokens:100,reasoning_tokens:20,unreported_requests:0,
+      reported_counts:{cached_input_tokens:1,reasoning_tokens:1}}};
+  let queued=false, submitted;
+  const context=vm.createContext({
+    crypto:{randomUUID:()=>"fixture-request"},
+    document:{getElementById:id=>nodes.get(id),createElement:tag=>new Element(tag)},
+    fetch:async(url,options)=>{
+      let result;
+      if(url==="/api/status")result={token:"fixture",models:{turbo:true},providers:{
+        codex:{model:"gpt-5.6-luna",configured:true,available:true}}};
+      else if(url==="/api/layouts")result=[];
+      else if(url==="/api/videos")result={configured:false,videos:[]};
+      else if(url==="/api/runs"&&options.method==="POST"){
+        queued=true;submitted=JSON.parse(options.body);result={id:run.id};
+      }else if(url==="/api/runs")result=queued?[run]:[];
+      else if(url==="/api/runs/fixture-run")result=run;
+      else throw new Error(`Unexpected API request: ${url}`);
+      return {ok:true,json:async()=>result};
+    },
+  });
+  vm.runInContext(fs.readFileSync(path.join(staticPath,"app.js"),"utf8"),context);
+  await new Promise(setImmediate);
+  assert.ok(find(nodes.get("provider"),"Codex · gpt-5.6-luna"));
+  nodes.get("provider").value="codex";
+  nodes.get("provider").onchange();
+  assert.equal(nodes.get("budget").disabled,true);
+  assert.equal(nodes.get("codex-note").hidden,false);
+  nodes.get("budget").value="9";
+  nodes.get("video").value="abc_def-ghI";
+  await nodes.get("run-form").onsubmit({preventDefault(){}});
+  assert.equal(submitted.provider,"codex");
+  assert.equal(submitted.budget_usd,0);
+  assert.equal(nodes.get("error").textContent,"");
+  assert.ok(find(nodes.get("run-detail"),"Codex · gpt-5.6-luna · subscription usage · monetary cost unavailable."));
+  nodes.get("provider").value="openai";
+  nodes.get("provider").onchange();
+  assert.equal(nodes.get("budget").disabled,false);
+});

@@ -57,7 +57,7 @@ class Layout(Contract):
 class RunRequest(Contract):
     video: str
     asr: Literal["turbo"] = "turbo"
-    provider: Literal["local", "gemini", "openai", "zai", "deepseek", "meta"] = "local"
+    provider: Literal["local", "gemini", "openai", "codex", "zai", "deepseek", "meta"] = "local"
     local_model: Literal["gemma4-31b", "gemma4-26b-a4b"] = "gemma4-31b"
     context_size: Literal[16384, 32768] = 16384
     budget_usd: float = Field(default=0, ge=0, le=100)
@@ -69,8 +69,10 @@ class RunRequest(Contract):
     @model_validator(mode="after")
     def normalize(self):
         self.video = video_id(self.video)
-        if self.provider != "local" and self.budget_usd <= 0:
+        if self.provider not in {"local", "codex"} and self.budget_usd <= 0:
             raise ValueError("Set a spending limit for the selected API provider.")
+        if self.provider == "codex":
+            self.budget_usd = 0
         if self.alignment_confirmed and (self.stream_id is None or self.stream_offset_seconds is None):
             raise ValueError("A confirmed chat mapping needs a stream and measured offset.")
         return self

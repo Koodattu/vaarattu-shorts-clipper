@@ -23,7 +23,8 @@
 <label>Layout<select id="layout" required></select></label></div>
 <p class="muted">Finds short, self-contained moments for a general audience, usually 15–45 seconds. No clip quota: only worthwhile moments are exported, and some recordings may produce none.</p>
 <p class="muted">Speech recognition: faster-whisper Turbo, Finnish, on this GPU. It unloads before the local language model starts.</p>
-<details><summary>Optional confirmed chat timing</summary><p>Leave empty unless you have checked the stream identity and measured the upload offset.</p>
+<p id="codex-note" class="muted" hidden>Uses your running Codex bridge and its ChatGPT login. Codex allowance applies; API spending limits do not control subscription or credit charges.</p>
+<details><summary>Optional chat peak review</summary><p>After the full transcript scan, separately examine speech around chat spikes. Enter a confirmed stream and measured timing offset to enable this extra pass. Peaks alone never make a clip eligible.</p>
 <div class="grid"><label>Stream ID<input id="stream-id" type="number" min="1"></label><label>Stream seconds at YouTube time zero<input id="stream-offset" type="number" step="0.001"></label></div>
 <label class="check"><input id="alignment" type="checkbox">I checked the mapping near the beginning and end.</label></details>
 <div class="actions"><button id="run-button" type="submit">Run video</button><span id="setup-status" class="muted"></span></div>

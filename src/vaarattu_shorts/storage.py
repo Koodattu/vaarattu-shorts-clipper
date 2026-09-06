@@ -290,19 +290,24 @@ class Store:
                         **body,
                         "id": row["id"],
                         "status": row["status"],
-                        "reserved_usd": row["amount"] if row["status"] == "reserved" else 0,
-                        "estimated_cost_usd": row["actual"],
+                        "reserved_usd": None
+                        if body.get("provider") == "codex"
+                        else row["amount"]
+                        if row["status"] == "reserved"
+                        else 0,
+                        "estimated_cost_usd": None if body.get("provider") == "codex" else row["actual"],
                     }
                 )
         fields = ("input_tokens", "output_tokens", "cached_input_tokens", "reasoning_tokens")
         totals = {field: sum(r.get(field) or 0 for r in requests) for field in fields}
+        codex = run["config"].get("provider") == "codex"
         return {
             "run_id": run_id,
             "currency": "USD",
-            "pricing_basis": "standard_uncached_conservative",
-            "estimated_cost_usd": run["spent"],
-            "reserved_usd": run["reserved"],
-            "budget_usd": run["config"].get("budget_usd", 0),
+            "pricing_basis": "codex_subscription" if codex else "standard_uncached_conservative",
+            "estimated_cost_usd": None if codex else run["spent"],
+            "reserved_usd": None if codex else run["reserved"],
+            "budget_usd": None if codex else run["config"].get("budget_usd", 0),
             "request_count": len(requests),
             "unreported_requests": sum(any(r.get(f) is None for f in fields[:2]) for r in requests),
             "reported_counts": {field: sum(r.get(field) is not None for r in requests) for field in fields},

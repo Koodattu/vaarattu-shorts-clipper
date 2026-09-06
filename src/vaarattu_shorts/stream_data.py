@@ -52,11 +52,12 @@ def rank_matches(metadata, streams):
     return sorted(result, key=lambda row: row["similarity"], reverse=True)[:10]
 
 
-def enrich(metadata, config):
+def enrich(metadata, config, check=lambda: None):
     try:
         with httpx.Client(timeout=15, trust_env=False) as client:
             streams = []
             for page in range(1, 21):
+                check()
                 data = (
                     client.get(f"{BASE}/streams", params={"page": page, "limit": 100})
                     .raise_for_status()
@@ -75,6 +76,7 @@ def enrich(metadata, config):
             selected = next((s for s in streams if s["id"] == stream_id), None)
             if selected is None:
                 return {**result, "status": "stream_unavailable"}
+            check()
             payload = client.get(f"{BASE}/streams/{stream_id}/activity").raise_for_status().json()
             activity = payload.get("data", payload)
             start = datetime.fromisoformat(selected["startTime"].replace("Z", "+00:00"))
@@ -82,6 +84,8 @@ def enrich(metadata, config):
             for point in activity["points"]:
                 time = datetime.fromisoformat(point["time"].replace("Z", "+00:00"))
                 end = datetime.fromisoformat(point["endTime"].replace("Z", "+00:00"))
+                if end <= time or type(point["activeChatters"]) is not int or point["activeChatters"] < 0:
+                    raise ValueError("Invalid activity bucket.")
                 points.append(
                     {
                         "start_us": round(
@@ -98,9 +102,48 @@ def enrich(metadata, config):
                 "status": "aligned",
                 "points": points,
                 "interval_minutes": activity["intervalMinutes"],
+                "stream_id": stream_id,
+                "stream_offset_seconds": config["stream_offset_seconds"],
             }
     except (httpx.HTTPError, ValueError, KeyError, TypeError):
         return {"status": "unavailable", "matches": [], "points": [], "coverage": "unknown"}
+
+
+def peak_regions(data, duration_us):
+    """Return merged VOD regions around locally unusual chatter counts, not clip scores."""
+    if data.get("status") != "aligned":
+        return []
+    points = sorted(data.get("points", []), key=lambda p: p["start_us"])
+    regions = []
+    for point in points:
+        if point["end_us"] <= 0 or point["start_us"] >= duration_us:
+            continue
+        width = point["end_us"] - point["start_us"]
+        if width <= 0 or point["active_chatters"] <= 0:
+            continue
+        # The API does not expose collection coverage; zero buckets cannot prove a quiet baseline.
+        neighbors = [
+            p["active_chatters"]
+            for p in points
+            if p is not point
+            and p["active_chatters"] > 0
+            and 0 <= p["start_us"] < duration_us
+            and abs(p["start_us"] - point["start_us"]) <= max(600000000, 5 * width)
+        ]
+        if len(neighbors) < 4:
+            continue
+        baseline = float(np.median(neighbors))
+        mad = float(np.median(np.abs(np.array(neighbors) - baseline)))
+        if point["active_chatters"] - baseline < max(3, 3 * mad, baseline * 0.5):
+            continue
+        evidence = {**point, "baseline": baseline, "mad": mad}
+        start, end = max(0, point["start_us"] - 90000000), min(duration_us, point["end_us"] + 30000000)
+        if regions and start <= regions[-1]["end_us"]:
+            regions[-1]["end_us"] = max(regions[-1]["end_us"], end)
+            regions[-1]["peaks"].append(evidence)
+        else:
+            regions.append({"start_us": start, "end_us": end, "peaks": [evidence]})
+    return regions
 
 
 def boost(start, end, data):

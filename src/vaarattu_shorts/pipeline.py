@@ -132,6 +132,13 @@ class Pipeline:
         def selection_stage():
             folder = self.folder / "inference" / self.chain[:16]
             folder.mkdir(parents=True, exist_ok=True)
+            chat_path = folder / "chat-input.json"
+            if chat_path.exists():
+                chat = json.loads(chat_path.read_text("utf-8"))
+            else:
+                self.store.update(self.run_id, message="Checking stream activity for extra clip leads.")
+                chat = stream_data.enrich(metadata, self.config, self.check)
+                atomic_json(chat_path, chat)
             manager = (
                 local_server(self.settings, self.config, folder, self.check)
                 if self.config["provider"] == "local"
@@ -147,10 +154,12 @@ class Pipeline:
                     self.check,
                     client,
                     self.config.get("context_size", 16384),
+                    codex_config=self.config.get("codex"),
                 )
-                selection = discover.discover(transcript, evaluator, self.progress)
+                selection = discover.discover(transcript, evaluator, self.progress, chat)
+                selection["chat"] = chat
             atomic_json(folder / "selection.json", selection)
-            return selection, [folder / "selection.json"]
+            return selection, [folder / "selection.json", chat_path]
 
         selection_checkpoint = self.folder / "selection.checkpoint.json"
         selection_version = discover.VERSION
@@ -159,13 +168,20 @@ class Pipeline:
             selection_version = json.loads(selection_checkpoint.read_text("utf-8")).get("version")
         selection = self.stage("selection", selection_stage, selection_version)
         legacy_selection = selection.get("version") in {None, "passages-v2"}
-        enrichment = self.stage("chat", lambda: (stream_data.enrich(metadata, self.config), []))
+        enrichment = selection.get("chat")
+        if enrichment is None:
+            # Older completed selections retain their original stage chain and ranking behavior.
+            enrichment = self.stage("chat", lambda: (stream_data.enrich(metadata, self.config), []))
         existing_ids = {clip["id"] for clip in self.store.clips(self.run_id)}
         candidates = [item for item in selection["verified"] if item["eligible"]]
         candidates.sort(
             key=lambda item: (
                 Candidate.model_validate(item["candidate"]).scores.total()
-                + stream_data.boost(item["start_us"], item["end_us"], enrichment)
+                + (
+                    0
+                    if "chat_peak_review" in selection
+                    else stream_data.boost(item["start_us"], item["end_us"], enrichment)
+                )
             ),
             reverse=True,
         )
@@ -195,6 +211,7 @@ class Pipeline:
                 "end_us": end,
                 "title": item["candidate"]["title_fi"],
                 "selection": item["candidate"],
+                "discovery_sources": item.get("discovery_sources", ["transcript"]),
                 "layout": self.config["layout"],
                 "source_id": metadata["id"],
                 "source_title": metadata["title"],
@@ -302,6 +319,9 @@ class Pipeline:
             "outcome": "needs_attention" if missed or (issues and not clips) else outcome,
             "selection_issues": issues,
             "chat": enrichment,
+            "chat_peak_review": selection.get("chat_peak_review")
+            if selection is not None
+            else self.store.get(self.run_id)["result"].get("chat_peak_review"),
             "ready": [
                 {"clip_id": c["id"], "revision": c["revision"], "folder": c["body"].get("folder")}
                 for c in clips

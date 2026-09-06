@@ -110,6 +110,7 @@ Existing process environment variables take precedence, including empty values. 
 | Local · Gemma 4 | None |
 | Gemini 3.8 Flash | `GEMINI_API_KEY` |
 | GPT-5.6 Luna | `OPENAI_API_KEY` |
+| Codex · gpt-5.6-luna | No Platform key; optional `CODEX_API_KEY` for a protected local bridge |
 | GLM-5.3-Flash | `ZAI_API_KEY` |
 | DeepSeek V4 Flash | `DEEPSEEK_API_KEY` |
 
@@ -121,7 +122,9 @@ $env:GEMINI_API_KEY = [System.Net.NetworkCredential]::new('', $clipperApiKey).Pa
 Remove-Variable clipperApiKey
 ```
 
-The PowerShell override lasts for that terminal session and its child processes; `.env` persists your saved configuration. Once launched, the provider selector indicates missing keys. Set a positive API spending limit in the form (for example `$1.00` as a first-run ceiling, not a predicted VOD price); local mode can keep it at zero.
+The PowerShell override lasts for that terminal session and its child processes; `.env` persists your saved configuration. Once launched, the provider selector indicates missing keys. Set a positive API spending limit in the form (for example `$1.00` as a first-run ceiling, not a predicted VOD price); local mode can keep it at zero. Codex uses a separate subscription allowance and disables this dollar cap.
+
+To use the already-running local Codex bridge instead of the Platform API, select **Codex · gpt-5.6-luna**. Defaults are `CODEX_BASE_URL=http://127.0.0.1:18080/v1` and `CODEX_MODEL=gpt-5.6-luna` in `.env`; leave `CODEX_API_KEY` empty unless your bridge requires its own local key. Token usage is still recorded, while subscription/credit costs are shown as unavailable. See [Codex provider setup and limitations](codex-provider.md).
 
 Gemini 3.8 Flash, GPT-5.6 Luna, GLM-5.3-Flash and DeepSeek V4 Flash have implemented provider-specific request/response paths. They have fixture validation, not live API certification. Meta Muse Spark 1.3 appears as unavailable because its exact API contract remains unverified; entering a Meta key does not enable a guessed endpoint. This is the one requested provider whose implementation is deferred pending accessible documentation.
 

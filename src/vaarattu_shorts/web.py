@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import catalog
 from .contracts import MAX_CLIP_US, MIN_CLIP_US, EditRequest, Layout, RunRequest, Word
-from .llm import PROVIDERS
+from .llm import PROVIDERS, codex_settings
 from .models import CATALOG, model_path
 from .pipeline import preflight
 from .storage import BusyError, Store
@@ -105,7 +105,9 @@ def create_app(settings):
             "models": models,
             "providers": {
                 key: {
-                    "model": spec["model"],
+                    "model": os.environ.get("CODEX_MODEL", spec["model"])
+                    if key == "codex"
+                    else spec["model"],
                     "configured": not spec["key"] or bool(os.environ.get(spec["key"])),
                     "available": not spec.get("unavailable"),
                     "reason": spec.get("unavailable", ""),
@@ -165,6 +167,7 @@ def create_app(settings):
             "channel_id": settings.youtube_channel_id,
             "asr_batch_size": settings.asr_batch_size,
             "asr_flash_attention": settings.asr_flash_attention,
+            **({"codex": codex_settings()} if body.provider == "codex" else {}),
         }
         return {"id": store.admit(config, idempotency_key)}
 

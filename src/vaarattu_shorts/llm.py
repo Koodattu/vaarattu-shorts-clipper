@@ -11,6 +11,7 @@ import queue
 import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -22,6 +23,7 @@ PROVIDERS = {
     "local": {"model": "selected GGUF", "key": None},
     "gemini": {"model": "gemini-3.8-flash", "key": "GEMINI_API_KEY"},
     "openai": {"model": "gpt-5.6-luna", "key": "OPENAI_API_KEY"},
+    "codex": {"model": "gpt-5.6-luna", "key": None},
     "zai": {"model": "glm-5.3-flash", "key": "ZAI_API_KEY"},
     "deepseek": {"model": "deepseek-v4-flash", "key": "DEEPSEEK_API_KEY"},
     "meta": {
@@ -35,6 +37,32 @@ MAX_OUTPUT = 4096
 
 class ModelOutputError(ValueError):
     """A completed model response cannot be used; other work may continue."""
+
+
+def codex_settings():
+    base_url = os.environ.get("CODEX_BASE_URL", "http://127.0.0.1:18080/v1").strip().rstrip("/")
+    model = os.environ.get("CODEX_MODEL", PROVIDERS["codex"]["model"]).strip()
+    try:
+        url = urlsplit(base_url)
+        valid = (
+            url.scheme in {"http", "https"}
+            and url.hostname in {"127.0.0.1", "localhost", "::1"}
+            and url.path == "/v1"
+            and url.username is None
+            and url.password is None
+            and not url.query
+            and not url.fragment
+            and (url.port is None or 1 <= url.port <= 65535)
+        )
+    except ValueError:
+        valid = False
+    if not valid:
+        raise ValueError(
+            "Set CODEX_BASE_URL to the local bridge's base URL, such as http://127.0.0.1:18080/v1."
+        )
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,119}", model):
+        raise ValueError("Set CODEX_MODEL to a model name supported by your bridge.")
+    return {"base_url": base_url, "model": model}
 
 
 def rates(provider, now=None):
@@ -67,7 +95,7 @@ def token_usage(provider, result):
             output_tokens += reasoning or 0
         cached = count(usage.get("cachedContentTokenCount"))
     else:
-        responses = provider == "openai"
+        responses = provider in {"openai", "codex"}
         input_tokens = count(usage.get("input_tokens" if responses else "prompt_tokens"))
         output_tokens = count(usage.get("output_tokens" if responses else "completion_tokens"))
         cached = count(
@@ -96,6 +124,8 @@ def check_provider(provider):
         raise ValueError(spec["unavailable"])
     if spec["key"] and not os.environ.get(spec["key"]):
         raise ValueError(f"Configure {spec['key']} in the backend environment first.")
+    if provider == "codex":
+        codex_settings()
 
 
 def full_offload(log: str) -> bool:
@@ -174,10 +204,24 @@ def local_server(settings, config, folder, check):
 
 
 class Evaluator:
-    def __init__(self, provider, store, run_id, folder, cap, check, client=None, context_size=16384):
+    def __init__(
+        self,
+        provider,
+        store,
+        run_id,
+        folder,
+        cap,
+        check,
+        client=None,
+        context_size=16384,
+        *,
+        codex_config=None,
+    ):
         self.provider, self.store, self.run_id = provider, store, run_id
         self.folder, self.cap, self.check, self.client = folder, cap, check, client
         self.context_size = context_size
+        self.codex = (codex_config or codex_settings()) if provider == "codex" else None
+        self.model = self.codex["model"] if self.codex else PROVIDERS[provider]["model"]
         # API requests use a conservative 64K envelope, independent of local GPU allocation.
         # API input_size is a UTF-8 byte bound; local input_size uses llama.cpp's tokenizer.
         self.discovery_budget = context_size - MAX_OUTPUT - 2048 if provider == "local" else 48000
@@ -194,7 +238,9 @@ class Evaluator:
 
         thread = threading.Thread(target=send, daemon=True)
         thread.start()
-        deadline = time.monotonic() + (900 if self.provider == "local" else 180)
+        deadline = time.monotonic() + (
+            900 if self.provider == "local" else 330 if self.provider == "codex" else 180
+        )
         while True:
             self.check()
             try:
@@ -237,7 +283,7 @@ class Evaluator:
 
     def _request(self, system, prompt, schema, reasoning_effort="none"):
         p = self.provider
-        model = PROVIDERS[p]["model"]
+        model = self.model
         messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
         shape = {
             "type": "json_schema",
@@ -258,7 +304,7 @@ class Evaluator:
                     "stream": False,
                 },
             )
-        key = os.environ[PROVIDERS[p]["key"]]
+        key = os.environ.get("CODEX_API_KEY", "") if p == "codex" else os.environ[PROVIDERS[p]["key"]]
         if p == "gemini":
             return (
                 f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
@@ -274,28 +320,35 @@ class Evaluator:
                     },
                 },
             )
-        if p == "openai":
-            return (
-                "https://api.openai.com/v1/responses",
-                {"Authorization": f"Bearer {key}"},
-                {
-                    "model": model,
-                    "instructions": system,
-                    "input": prompt,
-                    "store": False,
-                    "service_tier": "default",
-                    "max_output_tokens": MAX_OUTPUT,
-                    "reasoning": {"effort": reasoning_effort},
-                    "text": {
-                        "format": {
-                            "type": "json_schema",
-                            "name": "selection",
-                            "strict": True,
-                            "schema": schema,
-                        }
-                    },
+        if p in {"openai", "codex"}:
+            body = {
+                "model": model,
+                "instructions": system,
+                "input": prompt,
+                "store": False,
+                "service_tier": "default",
+                "max_output_tokens": MAX_OUTPUT,
+                "reasoning": {"effort": reasoning_effort},
+                "text": {
+                    "format": {
+                        "type": "json_schema",
+                        "name": "selection",
+                        "strict": True,
+                        "schema": schema,
+                    }
                 },
-            )
+            }
+            if p == "codex":
+                # The bridge removes max_output_tokens upstream; it cannot enforce that cap.
+                body.pop("max_output_tokens")
+                body.pop("service_tier")
+                body["stream"] = False
+                return (
+                    self.codex["base_url"] + "/responses",
+                    {"Authorization": f"Bearer {key}"} if key else {},
+                    body,
+                )
+            return "https://api.openai.com/v1/responses", {"Authorization": f"Bearer {key}"}, body
         endpoints = {
             "zai": "https://api.z.ai/api/paas/v4/chat/completions",
             "deepseek": "https://api.deepseek.com/chat/completions",
@@ -321,7 +374,7 @@ class Evaluator:
                 if not p.get("thought")
             )
             return text
-        if self.provider == "openai":
+        if self.provider in {"openai", "codex"}:
             if result.get("status") != "completed":
                 raise ValueError("The API refused or truncated the selection response.")
             text = "".join(
@@ -343,13 +396,14 @@ class Evaluator:
             json.dumps(
                 [
                     self.provider,
-                    PROVIDERS[self.provider]["model"],
+                    self.model,
                     system,
                     prompt,
                     schema,
                     reasoning_effort,
                     MAX_OUTPUT,
                     self.context_size,
+                    *([self.codex["base_url"]] if self.codex else []),
                 ],
                 ensure_ascii=False,
                 sort_keys=True,
@@ -379,7 +433,7 @@ class Evaluator:
             reserve = 0
             if self.provider != "local":
                 reserve = (size * input_rate + MAX_OUTPUT * output_rate) / 1e6
-            model = PROVIDERS[self.provider]["model"]
+            model = self.model
             if self.provider == "local":
                 model = self.store.get(self.run_id)["config"].get("local_model", "local")
             request_id = self.store.reserve(
@@ -391,14 +445,19 @@ class Evaluator:
                     "model": model,
                     "step": key,
                     "attempt": attempt + 1,
-                    "input_usd_per_million": input_rate,
-                    "output_usd_per_million": output_rate,
+                    "input_usd_per_million": None if self.codex else input_rate,
+                    "output_usd_per_million": None if self.codex else output_rate,
                     "pricing_checked": "2026-09-06",
                     "prompt_sha256": fingerprint,
                     "request_sha256": hashlib.sha256(
                         json.dumps(body, ensure_ascii=False, sort_keys=True).encode("utf-8")
                     ).hexdigest(),
-                    "reasoning_effort": reasoning_effort if self.provider == "openai" else None,
+                    "reasoning_effort": reasoning_effort if self.provider in {"openai", "codex"} else None,
+                    **(
+                        {"pricing_basis": "codex_subscription", "output_token_limit_enforced": False}
+                        if self.codex
+                        else {}
+                    ),
                 },
             )
             response = None
@@ -407,7 +466,9 @@ class Evaluator:
                 if self.client:
                     response = self.post(self.client, url, headers, body)
                 else:
-                    with httpx.Client(timeout=httpx.Timeout(120, connect=15), trust_env=False) as client:
+                    with httpx.Client(
+                        timeout=httpx.Timeout(300 if self.codex else 120, connect=15), trust_env=False
+                    ) as client:
                         response = self.post(client, url, headers, body)
                 if response.status_code >= 400:
                     # Keep reservation when billed status is uncertain. No hidden retry or provider switch.
@@ -422,7 +483,7 @@ class Evaluator:
                 measured = token_usage(self.provider, raw)
                 measured["elapsed_seconds"] = round(time.monotonic() - started, 3)
                 input_tokens, output_tokens = measured["input_tokens"], measured["output_tokens"]
-                actual = 0 if self.provider == "local" else None
+                actual = 0 if self.provider in {"local", "codex"} else None
                 if input_tokens is not None and output_tokens is not None:
                     actual = (input_tokens * input_rate + output_tokens * output_rate) / 1e6
                 # Record billed work even when its content is truncated, refused or invalid JSON.
@@ -432,10 +493,10 @@ class Evaluator:
                     {
                         "usage": raw.get("usageMetadata" if self.provider == "gemini" else "usage"),
                         **measured,
-                        "rates": [input_rate, output_rate],
+                        "rates": None if self.codex else [input_rate, output_rate],
                         "provider": self.provider,
                         "request_id": request_id,
-                        "estimated_cost_usd": actual,
+                        "estimated_cost_usd": None if self.codex else actual,
                     },
                 )
                 try:
