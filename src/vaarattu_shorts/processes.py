@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ctypes
 import os
+import errno
 import signal
 import subprocess
 import time
@@ -16,6 +17,10 @@ class Interrupted(Exception):
 
 
 class ToolError(Exception):
+    pass
+
+
+class LockBusyError(ToolError):
     pass
 
 
@@ -195,9 +200,19 @@ def lock(path: Path, name: str | None = None):
                     handle.write(b"0")
                     handle.flush()
                     handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                try:
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                except OSError as exc:
+                    if exc.errno in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
+                        raise LockBusyError("Another process holds this lock.") from exc
+                    raise
             else:
                 import fcntl
 
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                try:
+                    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except OSError as exc:
+                    if exc.errno in (errno.EACCES, errno.EAGAIN):
+                        raise LockBusyError("Another process holds this lock.") from exc
+                    raise
             yield

@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import sys
+from contextlib import ExitStack
 from pathlib import Path
 
 from .config import load_settings
@@ -80,9 +81,16 @@ def main():
     if args.command == "web":
         uvicorn.run(create_app(settings), host="127.0.0.1", port=settings.port, log_level="warning")
         return
-    from .processes import OwnedProcess, lock
+    from .processes import LockBusyError, OwnedProcess, lock
 
-    with lock(settings.work / "launcher.lock"):
+    with ExitStack() as stack:
+        try:
+            stack.enter_context(lock(settings.work / "launcher.lock"))
+        except LockBusyError:
+            print(
+                f"Vaarattu Shorts is already running for this project. Open http://127.0.0.1:{settings.port}"
+            )
+            return
         with OwnedProcess(
             [sys.executable, "-m", "vaarattu_shorts", "--project", settings.root, "worker"],
             cwd=settings.root,
