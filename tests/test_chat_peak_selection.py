@@ -85,14 +85,19 @@ def test_peak_pass_adds_candidates_keeps_full_scan_and_verifies_without_activity
         def call(self, system, prompt, schema, key, *, validate=None, reasoning_effort=None):
             calls.append((key, prompt, reasoning_effort))
             if key.startswith("discovery-"):
-                result = Proposals(candidates=[candidate()] if key.startswith("discovery-360000000-") else [])
+                result = Proposals(
+                    feedback="Fixture section feedback.",
+                    candidates=[candidate()] if key.startswith("discovery-360000000-") else [],
+                )
             elif key.startswith("chat-peak-"):
                 assert "480.0..540.0, 540.0..600.0" in prompt
                 if peak_error == "quota":
                     raise ValueError("quota unavailable")
                 if peak_error == "unreadable":
                     raise ModelOutputError("fixture")
-                result = Proposals(candidates=[candidate(), candidate(550)])
+                result = Proposals(
+                    feedback="Fixture section feedback.", candidates=[candidate(), candidate(550)]
+                )
             else:
                 assert "active chatters" not in prompt and "SECOND DISCOVERY" not in prompt
                 assert "Activity bucket intervals" not in prompt
@@ -153,19 +158,21 @@ def test_hook_and_payoff_are_preferences_but_content_and_context_are_required(se
         def call(self, system, prompt, schema, key, **kwargs):
             result = candidate(0)
             if schema is Proposals:
-                return Proposals(candidates=[result])
+                return Proposals(feedback="Fixture section feedback.", candidates=[result])
             for field, score in scores.items():
                 setattr(result.scores, field, score)
             return result
 
     result = discover.discover(speech(60), FakeEvaluator(), lambda _: None)
     assert result["verified"][0]["eligible"] == eligible
+    if not eligible:
+        assert any("score is below 3/4" in reason for reason in result["verified"][0]["exclusion_reasons"])
     for field, score in scores.items():
         assert result["verified"][0]["candidate"]["scores"][field] == score
 
 
-@pytest.mark.parametrize("trim_start,eligible", [(3, True), (15, False)])
-def test_opening_can_trim_preamble_inside_idea_passage_but_not_switch_ideas(
+@pytest.mark.parametrize("trim_start,eligible", [(3, True), (15, True), (40, False)])
+def test_refinement_can_move_within_proposal_but_not_outside_it(
     settings, store, monkeypatch, trim_start, eligible
 ):
     monkeypatch.setenv("OPENAI_API_KEY", "fixture")
@@ -175,9 +182,17 @@ def test_opening_can_trim_preamble_inside_idea_passage_but_not_switch_ideas(
     def handle(request):
         calls.append(request)
         refined = candidate(0).model_copy(
-            update={"start_word_id": f"w{trim_start}", "idea_word_id": f"w{trim_start}"}
+            update={
+                "start_word_id": f"w{trim_start}",
+                "idea_word_id": f"w{trim_start}",
+                "end_word_id": "w49" if trim_start == 40 else "w29",
+            }
         )
-        value = Proposals(candidates=[candidate(0)]) if len(calls) == 1 else refined
+        value = (
+            Proposals(feedback="Fixture section feedback.", candidates=[candidate(0)])
+            if len(calls) == 1
+            else refined
+        )
         return httpx.Response(
             200,
             json={
@@ -190,8 +205,11 @@ def test_opening_can_trim_preamble_inside_idea_passage_but_not_switch_ideas(
         evaluator = Evaluator("openai", store, run, settings.work, 1, lambda: None, client)
         result = discover.discover(speech(60), evaluator, lambda _: None)
     assert result["verified"][0]["eligible"] == eligible
+    if not eligible:
+        assert result["issues"][0]["reason"] == "verification_invalid_anchors"
+        assert "outside the proposed excerpt" in result["issues"][0]["detail"]
     if eligible:
-        assert result["verified"][0]["start_us"] == 3000000
+        assert result["verified"][0]["start_us"] == trim_start * 1000000
 
 
 @pytest.mark.parametrize("confirmed", [False, True])

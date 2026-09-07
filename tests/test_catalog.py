@@ -242,7 +242,7 @@ def test_ui_run_admission_snapshots_channel(settings, monkeypatch):
                 json={"video": OLD, "layout_id": layout},
                 headers={**headers, "Idempotency-Key": "another-run"},
             ).status_code
-            == 409
+            == 202
         )
 
 

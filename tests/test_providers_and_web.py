@@ -53,7 +53,11 @@ def test_api_parse_repair_and_budget_are_real_orchestration(settings, store, mon
                 "choices": [
                     {
                         "finish_reason": "stop",
-                        "message": {"content": "bad json" if len(calls) == 1 else '{"candidates":[]}'},
+                        "message": {
+                            "content": "bad json"
+                            if len(calls) == 1
+                            else '{"candidates":[],"feedback":"Game mechanics without a standalone point."}'
+                        },
                     }
                 ],
                 "usage": {"prompt_tokens": 100, "completion_tokens": 10},

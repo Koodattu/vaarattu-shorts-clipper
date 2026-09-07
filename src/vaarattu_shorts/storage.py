@@ -44,8 +44,9 @@ class Store:
                     spent REAL NOT NULL DEFAULT 0, reserved REAL NOT NULL DEFAULT 0,
                     result TEXT NOT NULL DEFAULT '{}'
                 );
-                CREATE UNIQUE INDEX IF NOT EXISTS one_active ON runs((1))
-                    WHERE state IN ('queued','running','paused');
+                DROP INDEX IF EXISTS one_active;
+                CREATE TABLE IF NOT EXISTS preferences(key TEXT PRIMARY KEY, value INTEGER NOT NULL);
+                INSERT OR IGNORE INTO preferences VALUES('max_concurrent_jobs', 1);
                 CREATE TABLE IF NOT EXISTS layouts(id TEXT PRIMARY KEY, body TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS clips(
                     id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id),
@@ -173,9 +174,6 @@ class Store:
                 if json.loads(old["config"]) != config:
                     raise ValueError("This request key belongs to a different run.")
                 return old["id"]
-            active = db.execute("SELECT id FROM runs WHERE state IN ('queued','running','paused')").fetchone()
-            if active:
-                raise BusyError(active["id"])
             run_id = uuid.uuid4().hex
             db.execute(
                 "INSERT INTO runs(id,request_key,config,state,created,updated) VALUES(?,?,?,'queued',?,?)",
@@ -201,12 +199,11 @@ class Store:
             db.execute("BEGIN IMMEDIATE")
             run = self.unpack(db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone())
             state, intent = run["state"], run["intent"]
-            if action == "resume" and state in {"paused", "failed", "cancelled"}:
-                other = db.execute(
-                    "SELECT id FROM runs WHERE state IN ('queued','running','paused') AND id<>?", (run_id,)
-                ).fetchone()
-                if other:
-                    raise BusyError(other["id"])
+            stage, result = run["stage"], run["result"]
+            if action == "recheck" and state == "completed":
+                state, intent, stage = "queued", "", "recheck"
+                result = {**result, "selection_recheck_requested": True}
+            elif action == "resume" and state in {"paused", "failed", "cancelled"}:
                 state, intent = "queued", ""
             elif action in {"pause", "cancel"} and state in {"queued", "running", "paused"}:
                 if state == "running":
@@ -216,7 +213,8 @@ class Store:
             else:
                 raise ValueError("This action is unavailable for the current run.")
             db.execute(
-                "UPDATE runs SET state=?,intent=?,updated=? WHERE id=?", (state, intent, time.time(), run_id)
+                "UPDATE runs SET state=?,intent=?,stage=?,result=?,updated=? WHERE id=?",
+                (state, intent, stage, json.dumps(result), time.time(), run_id),
             )
 
     def recover(self):
@@ -227,9 +225,23 @@ class Store:
                 "WHEN 'pause' THEN 'paused' ELSE 'queued' END,intent='' WHERE state='running'"
             )
 
+    def concurrency(self):
+        with self.connect() as db:
+            return db.execute("SELECT value FROM preferences WHERE key='max_concurrent_jobs'").fetchone()[0]
+
+    def set_concurrency(self, value):
+        if type(value) is not int or not 1 <= value <= 4:
+            raise ValueError("Choose 1–4 concurrent jobs.")
+        with self.connect() as db:
+            db.execute("UPDATE preferences SET value=? WHERE key='max_concurrent_jobs'", (value,))
+
     def claim(self):
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            limit = db.execute("SELECT value FROM preferences WHERE key='max_concurrent_jobs'").fetchone()[0]
+            running = db.execute("SELECT COUNT(*) FROM runs WHERE state='running'").fetchone()[0]
+            if running >= limit:
+                return None
             row = db.execute("SELECT id FROM runs WHERE state='queued' ORDER BY created LIMIT 1").fetchone()
             if row:
                 db.execute("UPDATE runs SET state='running',updated=? WHERE id=?", (time.time(), row["id"]))
@@ -354,7 +366,9 @@ class Store:
             clip = self.unpack(db.execute("SELECT * FROM clips WHERE id=?", (clip_id,)).fetchone())
             if clip["revision"] != expected_revision:
                 raise ValueError("This clip changed. Reload it before saving.")
-            active = db.execute("SELECT id FROM runs WHERE state IN ('queued','running','paused')").fetchone()
+            active = db.execute(
+                "SELECT id FROM runs WHERE id=? AND state IN ('queued','running','paused')", (clip["run_id"],)
+            ).fetchone()
             if active:
                 raise BusyError(active["id"])
             revision = expected_revision + 1

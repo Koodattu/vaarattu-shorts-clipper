@@ -1,57 +1,59 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Vaarattu Shorts</title><link rel="stylesheet" href="/static/style.css"></head>
-<body><main>
-<header><div><p class="eyebrow">VAARATTU / STUDIO</p><h1>Find the good conversations.</h1>
-<p>One recording. Finnish captions. Shorts ready for your review and publishing.</p></div><span class="badge">LOCAL WORKSPACE</span></header>
-<p id="error" role="alert" hidden></p>
-<section class="panel" aria-labelledby="channel-heading">
-<div class="section-head"><h2 id="channel-heading">Channel videos</h2><button id="fetch-videos" type="button" class="secondary">Fetch latest videos</button></div>
-<p id="channel-status" class="muted" aria-live="polite"></p>
-<div class="grid"><label>Search saved videos<input id="video-search" type="search" placeholder="Title or video ID"></label>
-<label>Processing status<select id="video-filter"><option value="all">All videos</option><option value="unprocessed">Not yet processed</option><option value="processed">Processed</option></select></label></div>
-<div id="channel-videos" class="channel-videos"></div>
-<div class="actions"><button id="show-videos" type="button" class="secondary" hidden>Show more saved videos</button><button id="older-videos" type="button" class="secondary" hidden>Load older videos from YouTube</button></div>
-<p class="muted">Selecting a video fills the form below. Only Run video starts processing. Completed videos stay marked even if no suitable clips were found.</p>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#101316"><title>Vaarattu Shorts</title><link rel="stylesheet" href="/static/style.css?v=workspace-1"></head>
+<body>
+<a class="skip-link" href="#workspace">Skip to workspace</a>
+<aside class="sidebar">
+<a class="brand" href="#library" aria-label="Vaarattu Shorts home"><span class="brand-mark" aria-hidden="true">V /</span><span>vaarattu<span class="brand-sub">Shorts studio</span></span></a>
+<nav aria-label="Workspace">
+<a id="nav-library" href="#library" aria-current="page"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m10 8 6 4-6 4Z"/></svg>Video library<span id="library-count" class="nav-count" aria-hidden="true">—</span></a>
+<a id="nav-process" href="#process"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>New run</a>
+<a id="nav-results" href="#results"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 17V7m5 13V4m6 12V8m5 10V6"/></svg>Runs &amp; clips<span id="runs-count" class="nav-count" aria-hidden="true">—</span></a>
+<a id="nav-layouts" href="#layouts"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M5 9h14"/></svg>Layout presets</a>
+</nav>
+<div class="sidebar-foot"><span class="local-status"><i aria-hidden="true"></i>Local workspace</span><p>Your recordings.<br>Your final cut.</p><span class="sidebar-format">9:16 · Finnish captions</span></div>
+</aside>
+<main id="workspace" tabindex="-1">
+<header class="topbar"><div>Studio <span aria-hidden="true">/</span> <span id="view-label">Video library</span></div><span>Review here. Publish when ready.</span></header>
+<div class="workspace-body">
+<p id="error" role="alert" hidden></p><p id="notice" role="status" hidden></p>
+<section id="view-library" class="workspace-view" aria-labelledby="channel-heading">
+<div class="page-head"><div><h1 id="channel-heading" tabindex="-1">Video library</h1><p>Find the next conversation worth keeping.</p></div><a class="button" href="#process">New run <span aria-hidden="true">↗</span></a></div>
+<div class="library-toolbar"><div><h2>Your channel</h2><p id="channel-status" class="muted" aria-live="polite">Loading saved videos…</p></div><button id="fetch-videos" type="button" class="secondary">Fetch latest videos</button></div>
+<div class="library-filters"><label>Search saved videos<input id="video-search" type="search" placeholder="Search by title or video ID"></label><label>Processing status<select id="video-filter"><option value="all">All videos</option><option value="unprocessed">Not yet processed</option><option value="processed">Processed</option></select></label></div>
+<div class="library-columns" aria-hidden="true"><span>Recording</span><span>Status</span><span>Actions</span></div>
+<div id="channel-videos" class="channel-videos" role="region" aria-label="Saved videos" tabindex="0"><div class="loading-placeholder">Loading your library…</div></div>
+<div class="library-footer"><p id="video-page" class="muted" aria-live="polite"></p><div class="actions"><button id="previous-videos" type="button" class="secondary" hidden>Previous</button><button id="show-videos" type="button" class="secondary" hidden>Next page</button><button id="older-videos" type="button" class="text-button" hidden>Load older from YouTube</button></div></div>
 </section>
-<section class="panel"><h2>Process a video</h2><form id="run-form">
-<label>YouTube video<input id="video" type="text" required placeholder="Select above or paste a video URL from your channel"></label>
-<div class="grid"><label>Find moments with<select id="provider"></select></label>
-<label>Local model<select id="local-model"><option value="gemma4-31b">Gemma 4 · 31B Q4</option><option value="gemma4-26b-a4b">Gemma 4 · 26B-A4B Q4</option></select></label>
-<label>Context<select id="context"><option value="16384">16K</option><option value="32768">32K · requires more memory</option></select></label>
-<label>API spending limit (USD)<input id="budget" type="number" min="0" max="100" step="0.01" value="0"></label>
-<label>Layout<select id="layout" required></select></label></div>
-<p class="muted">Finds short, self-contained moments for a general audience, usually 15–45 seconds. No clip quota: only worthwhile moments are exported, and some recordings may produce none.</p>
-<p class="muted">Speech recognition: faster-whisper Turbo, Finnish, on this GPU. It unloads before the local language model starts.</p>
-<p id="codex-note" class="muted" hidden>Uses your running Codex bridge and its ChatGPT login. Codex allowance applies; API spending limits do not control subscription or credit charges.</p>
-<details><summary>Optional chat peak review</summary><p>After the full transcript scan, separately examine speech around chat spikes. Enter a confirmed stream and measured timing offset to enable this extra pass. Peaks alone never make a clip eligible.</p>
-<div class="grid"><label>Stream ID<input id="stream-id" type="number" min="1"></label><label>Stream seconds at YouTube time zero<input id="stream-offset" type="number" step="0.001"></label></div>
-<label class="check"><input id="alignment" type="checkbox">I checked the mapping near the beginning and end.</label></details>
-<div class="actions"><button id="run-button" type="submit">Run video</button><span id="setup-status" class="muted"></span></div>
-</form></section>
-<details class="panel" id="layout-panel"><summary>Camera and gameplay layout</summary>
-<p>Load a frame from this recording, without player borders or controls. Or use “Use this frame for layout” in the clip editor. Draw the camera rectangle, then the gameplay rectangle. Save a new preset when the stream layout changes.</p>
-<p>Output: 1080 × 1920 at 30 fps. Camera: 1080 × 608 (approximately 16:9). Gameplay: 1080 × 1312. Both panels fill edge to edge; the preview shows any center cropping.</p>
-<input id="frame-file" type="file" accept="image/*"><div class="actions"><button id="draw-camera" type="button">Draw camera</button><button id="draw-game" class="secondary" type="button">Draw gameplay</button></div>
-<canvas id="crop-canvas" width="960" height="540"></canvas>
-<p id="crop-mode" class="muted">Draw camera · fixed panel shape</p>
-<p>Vertical layout preview</p><canvas id="layout-preview" width="270" height="480"></canvas>
-<form id="layout-form"><label>Preset name<input id="layout-name" required placeholder="Current stream layout"></label>
-<div class="grid"><label>Camera: x, y, width, height<input id="camera-rect" required placeholder="Draw on the screenshot"></label>
-<label>Gameplay: x, y, width, height<input id="game-rect" required placeholder="Draw on the screenshot"></label></div>
-<p class="muted">Coordinates are fractions of the source image, between 0 and 1. Existing coordinates can also be entered directly.</p>
-<label class="check"><input id="calibrated" type="checkbox" required>I checked these crops against this recording's layout.</label>
-<label class="check"><input id="solo-host" type="checkbox">This source is predominantly my own voice; no guest or played-video segment is expected.</label>
-<button type="submit">Save layout</button></form></details>
-<section class="panel"><div class="section-head"><h2>Processing and results</h2><button class="secondary" id="open-output">Open output folder</button></div>
-<div id="runs"></div><div id="run-detail"></div><div id="clips" class="clips"></div></section>
-<section id="editor" class="panel" hidden><h2>Edit clip</h2><p id="editor-title"></p><video id="source-player" controls preload="metadata"></video>
-<button id="use-source-frame" type="button" class="secondary">Use this frame for layout</button>
-<form id="edit-form"><div class="grid"><label>Start in original VOD (seconds)<input id="edit-start" type="number" step="0.001" required></label>
-<label>End in original VOD (seconds)<input id="edit-end" type="number" step="0.001" required></label></div>
-<label>Title<input id="edit-title" required maxlength="200"></label><label>Caption words (keep the ID before each |)<textarea id="edit-words" rows="12"></textarea></label>
-<label>Layout<select id="edit-layout" required></select></label>
-<label class="check"><input id="reviewed" type="checkbox" required>I checked the source, meaning, camera and captions for this edit.</label>
-<button type="submit">Save and render revision</button></form></section>
-<footer><span id="cache-path"></span><p>The app never publishes automatically. A completed run can correctly produce no clips.</p></footer>
-</main><script src="/static/layout.js" defer></script><script src="/static/app.js" defer></script></body></html>
+<section id="view-process" class="workspace-view" aria-labelledby="process-heading" hidden>
+<div class="page-head"><div><h1 id="process-heading" tabindex="-1">New run</h1><p>Turn one recording into a collection of moments.</p></div><a class="text-link" href="#library">← Back to library</a></div>
+<div class="process-workspace"><form id="run-form" class="form-surface">
+<label>Concurrent jobs<select id="job-concurrency"><option value="1">1 job</option><option value="2">2 jobs</option><option value="3">3 jobs</option><option value="4">4 jobs</option></select></label><p class="muted">Extra jobs wait in the queue. GPU stages take turns; downloads, API calls and rendering can overlap. Lowering the limit lets active jobs finish.</p>
+<div class="form-section"><h2>Source recording</h2><div id="selected-video" class="selected-video" hidden></div><label>YouTube video<input id="video" type="text" required placeholder="Paste a video URL from your channel"></label></div>
+<div class="form-section"><h2>Discovery &amp; output</h2><div class="grid"><label>Find moments with<select id="provider"></select></label><label>Layout preset<select id="layout" required></select></label></div><p id="layout-required" class="muted" hidden>Create a layout preset before starting your first run. <a href="#layouts">Set up a layout →</a></p><a class="text-link" href="#layouts">Manage layout presets →</a>
+<div id="local-settings" class="grid settings-row"><label>Local model<select id="local-model"><option value="gemma4-31b">Gemma 4 · 31B Q4</option><option value="gemma4-26b-a4b">Gemma 4 · 26B-A4B Q4</option></select></label><label>Context<select id="context"><option value="16384">16K</option><option value="32768">32K · requires more memory</option></select></label></div>
+<label id="budget-field" class="settings-row">API spending limit (USD)<input id="budget" type="number" min="0" max="100" step="0.01" value="0"></label><p id="codex-note" class="muted" hidden>Uses your running Codex bridge and its ChatGPT login. Codex allowance applies; API spending limits do not control subscription or credit charges.</p></div>
+<details class="form-section disclosure"><summary>Optional chat peak review</summary><p>Also review speech around chat spikes. Add a confirmed stream and timing offset. The full transcript is always scanned.</p><div class="grid"><label>Stream ID<input id="stream-id" type="number" min="1"></label><label>Stream seconds at YouTube time zero<input id="stream-offset" type="number" step="0.001"></label></div><label class="check"><input id="alignment" type="checkbox">I checked the mapping near the beginning and end.</label></details>
+<div class="form-submit"><div><button id="run-button" type="submit">Run video <span aria-hidden="true">→</span></button><p id="setup-status" class="muted"></p><p id="run-availability" class="muted" hidden>Other jobs are active. This recording can join the queue. <a href="#results">View progress →</a></p></div><span class="muted">Starts processing this recording.</span></div>
+</form><aside class="process-guide" aria-label="About your output"><h2>A short worth watching.</h2><p>Self-contained conversations, with the camera above the gameplay and Finnish captions.</p><div class="output-diagram" aria-label="Vertical output: camera above gameplay"><div>Camera<span>1080 × 608</span></div><div>Gameplay<span>1080 × 1312</span></div></div><div class="output-spec"><span>1080 × 1920</span><span>30 fps</span></div><h3>Quality over quantity</h3><p>Usually 15–45 seconds. Only worthwhile moments are exported; some recordings may produce none.</p><details class="disclosure"><summary>How processing works</summary><p>Finnish speech is transcribed locally with faster-whisper Turbo on your GPU. It unloads before the local language model starts. Review the resulting clips before publishing.</p></details></aside></div>
+</section>
+<section id="view-results" class="workspace-view" aria-labelledby="results-heading" hidden>
+<div class="page-head"><div><h1 id="results-heading" tabindex="-1">Runs &amp; clips</h1><p>Follow the progress. Review the moments. Make the final cut.</p></div><button class="secondary" id="open-output" type="button">Open output folder ↗</button></div>
+<div class="results-workspace"><aside class="run-history" aria-label="Run history"><h2>Run history</h2><div id="runs"></div></aside><div class="results-main"><p id="run-announcement" class="sr-only" role="status"></p><div id="run-detail"></div><div class="section-head clips-heading"><h2 id="clip-review-heading">Clips to review</h2><span id="clip-count" class="muted" aria-live="polite"></span></div><div id="clips" class="clips"></div><div class="library-footer"><span id="clip-page" class="muted" aria-live="polite"></span><div class="actions"><button id="previous-clips" type="button" class="secondary" hidden>Previous clips</button><button id="next-clips" type="button" class="secondary" hidden>Next clips</button></div></div></div></div>
+</section>
+<section id="view-layouts" class="workspace-view" aria-labelledby="layouts-heading" hidden>
+<div class="page-head"><div><h1 id="layouts-heading" tabindex="-1">Layout presets</h1><p>Frame the camera. Keep the gameplay in view.</p></div><a id="layout-return" class="text-link" href="#process">Back to new run →</a></div>
+<div id="layout-panel"><div class="layout-toolbar"><label>Saved presets<select id="preset-select"><option value="">New preset</option></select></label><p class="muted">Load a preset to inspect its coordinates, or start a new one.</p></div>
+<div class="crop-workspace"><div class="crop-source"><div class="section-head"><h2>Source frame</h2><span class="muted">Original recording</span></div><label class="file-field">Load a screenshot<input id="frame-file" type="file" accept="image/*"></label><p class="muted">Use a frame without player controls, or capture one in the clip editor.</p><div class="crop-controls"><div class="actions"><button id="draw-camera" type="button" disabled aria-pressed="true">Draw camera</button><button id="draw-game" class="secondary" type="button" disabled aria-pressed="false">Draw gameplay</button></div><p id="crop-mode" class="muted">Draw camera · fixed panel shape</p></div><div class="crop-stage"><canvas id="crop-canvas" width="960" height="540" aria-label="Source image crop editor"></canvas><div id="frame-empty" class="canvas-empty"><span aria-hidden="true">＋</span><strong>Start with a frame</strong><p>Load a screenshot to position your crops.</p></div></div></div>
+<aside class="crop-output"><div class="section-head"><h2>Output preview</h2><span class="muted">9:16</span></div><div class="preview-stage"><canvas id="layout-preview" width="270" height="480" aria-label="Vertical output preview"></canvas><div id="preview-empty" class="preview-empty"><span>Camera</span><span>Gameplay</span></div></div><p class="muted">1080 × 1920 · 30 fps<br>Both panels fill edge to edge.</p></aside></div>
+<form id="layout-form" class="preset-form"><div class="form-section"><h2>Save this composition</h2><label>Preset name<input id="layout-name" required placeholder="e.g. Main stream camera"></label><div class="grid"><label>Camera: x, y, width, height<input id="camera-rect" required placeholder="Draw on the screenshot"></label><label>Gameplay: x, y, width, height<input id="game-rect" required placeholder="Draw on the screenshot"></label></div><p class="muted">Coordinates are fractions of the source image, from 0 to 1. You can also enter them directly.</p><label class="check"><input id="calibrated" type="checkbox" required>I checked these crops against this recording's layout.</label><label class="check"><input id="solo-host" type="checkbox">This source is predominantly my own voice; no guest or played-video segment is expected.</label></div><button id="save-layout" type="submit">Save new preset</button><p id="layout-saved" class="muted" role="status"></p></form></div>
+</section>
+<section id="editor" class="workspace-view" aria-labelledby="editor-heading" hidden>
+<div class="page-head"><div><h1 id="editor-heading" tabindex="-1">Edit clip</h1><p id="editor-title"></p></div><a class="text-link" href="#results">← Back to clips</a></div>
+<div class="editor-workspace"><div class="editor-source"><h2>Original recording</h2><video id="source-player" controls preload="metadata"></video><p id="source-unavailable" class="muted" hidden>The source preview is unavailable for this clip. Check the original recording before saving.</p><button id="use-source-frame" type="button" class="secondary">Use this frame for layout</button><p class="muted">Preview the context around the moment before adjusting your cut.</p></div>
+<form id="edit-form" class="form-surface"><div class="form-section"><h2>Timing &amp; title</h2><div class="grid"><label>Start in original VOD (seconds)<input id="edit-start" type="number" step="0.001" required></label><label>End in original VOD (seconds)<input id="edit-end" type="number" step="0.001" required></label></div><label>Title<input id="edit-title" required maxlength="200"></label><label>Layout preset<select id="edit-layout" required></select></label></div><div class="form-section"><h2>Finnish captions</h2><label>Caption words (keep the ID before each |)<textarea id="edit-words" rows="10" spellcheck="false"></textarea></label></div><div class="form-section"><label class="check"><input id="reviewed" type="checkbox" required>I checked the source, meaning, camera and captions for this edit.</label><button id="save-edit" type="submit">Save and render revision</button></div></form></div>
+</section>
+<footer><span>Vaarattu Shorts · Nothing publishes automatically.</span><details><summary>Workspace details</summary><span id="cache-path"></span></details></footer>
+</div></main>
+<script src="/static/layout.js" defer></script><script src="/static/app.js?v=workspace-1" defer></script><script src="/static/workspace.js?v=workspace-1" defer></script>
+</body></html>

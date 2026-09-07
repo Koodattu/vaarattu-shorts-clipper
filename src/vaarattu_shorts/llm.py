@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from .models import model_path
-from .processes import OwnedProcess, ToolError, lock
+from .processes import OwnedProcess, ToolError, waiting_lock
 from .storage import atomic_json
 
 PROVIDERS = {
@@ -37,6 +37,10 @@ MAX_OUTPUT = 4096
 
 class ModelOutputError(ValueError):
     """A completed model response cannot be used; other work may continue."""
+
+
+class ModelAnchorError(ValueError):
+    """A fixed, safe explanation of an invalid source reference."""
 
 
 def codex_settings():
@@ -136,7 +140,7 @@ def full_offload(log: str) -> bool:
 @contextmanager
 def local_server(settings, config, folder, check):
     model = model_path(settings, config["local_model"], verify=True)
-    with lock(settings.work / "gpu.lock", "Local\\VaarattuShortsGpu"):
+    with waiting_lock(settings.work / "gpu.lock", "Local\\VaarattuShortsGpu", check):
         with socket.socket() as sock:
             sock.bind(("127.0.0.1", 0))
             port = sock.getsockname()[1]
@@ -507,18 +511,22 @@ class Evaluator:
                     if validate:
                         validate(parsed)
                 except ValueError as exc:
-                    raise ModelOutputError("The model's response could not be validated.") from exc
+                    raise ModelOutputError(
+                        str(exc)
+                        if isinstance(exc, ModelAnchorError)
+                        else "The model's response could not be validated."
+                    ) from exc
                 atomic_json(cache, parsed.model_dump())
                 return parsed
             except (httpx.TransportError, httpx.HTTPStatusError) as exc:
                 raise ValueError(
                     "The model service could not complete the request. Completed work is saved."
                 ) from exc
-            except ModelOutputError:
+            except ModelOutputError as exc:
                 if attempt or response is None or response.status_code >= 400:
                     raise
                 prompt += (
-                    "\nThe previous response was invalid or incomplete. Return valid JSON matching the schema. "
+                    f"\nValidation problem: {exc} Return valid JSON matching the schema. "
                     "Use only supplied anchors in their original order and keep the proposed idea inside the clip."
                 )
         raise AssertionError("Unreachable")

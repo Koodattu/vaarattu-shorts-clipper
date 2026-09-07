@@ -98,7 +98,16 @@ def test_truncated_response_and_repair_are_counted_and_cached(settings, store, m
             200,
             json={
                 "status": "incomplete" if len(calls) == 1 else "completed",
-                "output": [{"content": [{"type": "output_text", "text": '{"candidates":[]}'}]}],
+                "output": [
+                    {
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": '{"candidates":[],"feedback":"Game mechanics without a standalone point."}',
+                            }
+                        ]
+                    }
+                ],
                 "usage": {
                     "input_tokens": 100,
                     "output_tokens": 30,
@@ -139,7 +148,17 @@ def test_unknown_usage_keeps_budget_reserved(settings, store, monkeypatch, timeo
         if timeout:
             raise httpx.ReadTimeout("test")
         return httpx.Response(
-            200, json={"choices": [{"finish_reason": "stop", "message": {"content": '{"candidates":[]}'}}]}
+            200,
+            json={
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {
+                            "content": '{"candidates":[],"feedback":"Game mechanics without a standalone point."}'
+                        },
+                    }
+                ]
+            },
         )
 
     with httpx.Client(transport=httpx.MockTransport(handle)) as client:
@@ -165,7 +184,14 @@ def test_local_usage_has_no_api_cost(settings, store, monkeypatch):
             lambda request: httpx.Response(
                 200,
                 json={
-                    "choices": [{"finish_reason": "stop", "message": {"content": '{"candidates":[]}'}}],
+                    "choices": [
+                        {
+                            "finish_reason": "stop",
+                            "message": {
+                                "content": '{"candidates":[],"feedback":"Game mechanics without a standalone point."}'
+                            },
+                        }
+                    ],
                     "usage": {"prompt_tokens": 100, "completion_tokens": 10},
                 },
             )

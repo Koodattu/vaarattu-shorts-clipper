@@ -60,11 +60,12 @@ def test_invalid_proposals_do_not_lose_valid_siblings_or_retry(settings, store, 
         if len(bodies) == 1:
             return response(
                 Proposals(
-                    candidates=[candidate(), candidate(400), candidate(end_word_id="invented")]
+                    feedback="Fixture section feedback.",
+                    candidates=[candidate(), candidate(400), candidate(end_word_id="invented")],
                 ).model_dump_json()
             )
         if len(bodies) == 2:
-            return response('{"candidates":[]}')
+            return response('{"candidates":[],"feedback":"Game mechanics without a standalone point."}')
         return response(candidate().model_dump_json())
 
     with httpx.Client(transport=httpx.MockTransport(handle)) as client:
@@ -89,7 +90,9 @@ def test_unreadable_section_gets_one_repair_then_later_sections_continue(setting
         if len(calls) <= 2:
             return response("not JSON")
         if len(calls) == 3:
-            return response(Proposals(candidates=[candidate(360)]).model_dump_json())
+            return response(
+                Proposals(feedback="Fixture section feedback.", candidates=[candidate(360)]).model_dump_json()
+            )
         return response(candidate(360).model_dump_json())
 
     with httpx.Client(transport=httpx.MockTransport(handle)) as client:
@@ -117,9 +120,9 @@ def test_bad_verification_does_not_stop_other_candidates(settings, store):
         def call(self, system, prompt, schema, key, **kwargs):
             if schema is Proposals:
                 return (
-                    Proposals(candidates=[candidate(), candidate(60)])
+                    Proposals(feedback="Fixture section feedback.", candidates=[candidate(), candidate(60)])
                     if key.startswith("discovery-0-")
-                    else Proposals(candidates=[])
+                    else Proposals(feedback="Fixture section feedback.", candidates=[])
                 )
             if key.startswith("verify-0-"):
                 raise ModelOutputError("Invalid anchors after repair")

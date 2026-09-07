@@ -8,7 +8,7 @@ import re
 
 from .contracts import Word
 from .models import model_path
-from .processes import lock, run_tool
+from .processes import run_tool, waiting_lock
 from .storage import atomic_json, digest
 from .youtube import pcm
 
@@ -186,7 +186,7 @@ def transcribe(settings, source, duration, profile, folder, check, progress):
             }
         )
         progress(i / max(1, (duration_us + core_us - 1) // core_us) * 0.15)
-    with lock(settings.work / "gpu.lock", "Local\\VaarattuShortsGpu"):
+    with waiting_lock(settings.work / "gpu.lock", "Local\\VaarattuShortsGpu", check):
         request = folder / "asr-request.json"
         atomic_json(
             request,

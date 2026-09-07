@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import sys
@@ -8,6 +9,34 @@ from contextlib import ExitStack
 from pathlib import Path
 
 from .config import load_settings
+
+
+def serve_web(settings):
+    import uvicorn
+
+    from .web import create_app
+
+    server = uvicorn.Server(
+        uvicorn.Config(
+            create_app(settings),
+            host="127.0.0.1",
+            port=settings.port,
+            log_level="info",
+            access_log=False,
+            timeout_graceful_shutdown=5,
+        )
+    )
+    # Python's Windows proactor can fail before detaching a reset connection,
+    # leaving server.wait_closed() stuck. The UI needs only socket-based I/O;
+    # media subprocesses run separately in the owned worker.
+    loop_factory = asyncio.SelectorEventLoop if sys.platform == "win32" else None
+    try:
+        with asyncio.Runner(loop_factory=loop_factory) as runner:
+            runner.run(server.serve())
+    except KeyboardInterrupt:
+        pass
+    if not server.started:
+        raise SystemExit(3)
 
 
 def main():
@@ -75,11 +104,8 @@ def main():
 
         work(settings, args.once)
         return
-    import uvicorn
-    from .web import create_app
-
     if args.command == "web":
-        uvicorn.run(create_app(settings), host="127.0.0.1", port=settings.port, log_level="warning")
+        serve_web(settings)
         return
     from .processes import LockBusyError, OwnedProcess, lock
 
@@ -97,7 +123,7 @@ def main():
             env=settings.environment(),
             log=settings.work / "logs" / "worker.log",
         ):
-            uvicorn.run(create_app(settings), host="127.0.0.1", port=settings.port, log_level="warning")
+            serve_web(settings)
 
 
 if __name__ == "__main__":

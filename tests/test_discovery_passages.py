@@ -109,7 +109,7 @@ def test_six_hour_dense_finnish_stays_in_six_minute_api_windows(tmp_path):
 def test_budget_splits_ownership_without_shrinking_context(tmp_path, monkeypatch):
     words = speech(720)
     evaluator = Evaluator("openai", None, "offline", tmp_path, 1, lambda: None)
-    evaluator.discovery_budget = 2500
+    evaluator.discovery_budget = 1800 + len(discovery_prompt([], 0, 720000000))
     monkeypatch.setattr(evaluator, "request_size", lambda system, prompt, schema: len(prompt))
     planned = list(windows(words, 720000000, evaluator))
     assert len(planned) > 2
@@ -140,7 +140,7 @@ def test_context_that_cannot_fit_fails_instead_of_losing_speech(tmp_path):
     [
         ("accept", [], True),
         ("reject", [], False),
-        ("accept", ["speaker uncertain"], False),
+        ("accept", ["speaker uncertain"], True),
         ("needs_context", [], False),
     ],
 )
@@ -154,7 +154,7 @@ def test_two_pass_selection_is_blind_precise_and_reports_progress(tmp_path, outc
         def call(self, system, prompt, schema, key, *, validate=None, reasoning_effort="none"):
             calls.append((prompt, reasoning_effort))
             result = (
-                Proposals(candidates=[candidate()])
+                Proposals(feedback="Fixture section feedback.", candidates=[candidate()])
                 if schema is Proposals
                 else candidate(outcome=outcome, flags=flags)
             )

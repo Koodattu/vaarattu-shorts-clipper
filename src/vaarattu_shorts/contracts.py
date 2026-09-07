@@ -7,7 +7,7 @@ from urllib.parse import parse_qs, urlparse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 CHANNEL_ID = "UCUCV40VqBZqt83afjbbICvw"
-MIN_CLIP_US = 5000000
+MIN_CLIP_US = 2000000
 MAX_CLIP_US = 90000000  # Retain support for saved clips and manual edits.
 
 
@@ -118,6 +118,7 @@ class Candidate(Contract):
 
 class Proposals(Contract):
     candidates: list[Candidate]
+    feedback: str = Field(min_length=1, max_length=240, pattern=r"\S")
 
 
 class EditRequest(Contract):

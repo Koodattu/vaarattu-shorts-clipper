@@ -171,6 +171,8 @@ uv --cache-dir .cache/uv run --locked --extra asr vaarattu-shorts serve
 
 Open `http://127.0.0.1:8765`. `serve` starts the local FastAPI UI and one separate worker; neither is a scheduled service. Closing the browser preserves processing. Stopping the launcher stops its owned worker/model processes; completed checkpoints are recovered on the next launch. Separate `web` and `worker` commands are also available for separate terminals. Do not launch multiple workers for one workdir.
 
+Press **Ctrl+C** in the launcher terminal to stop. The terminal shows shutdown progress; active UI requests have five seconds to finish before cancellation and worker cleanup. A second Ctrl+C skips that request wait. On Windows, the UI uses the selector event loop to avoid Python proactor connection-reset cleanup failures that can hang shutdown.
+
 1. Save a layout: load a screenshot from the recording in the crop editor, draw camera and gameplay rectangles, and confirm the layout/source assumptions. This is a one-time preset per known source layout, not per-clip approval. No guessed camera coordinates are built into the app.
 2. Select one video from the channel library or paste its URL, then choose a saved layout and local LLM or configured API. STT is fixed to Turbo. Start with 16K local context; 32K is available only if it actually fits.
 3. Press Run. The worker validates metadata/channel identity, downloads full audio, checkpoints transcription, exits the ASR process, runs discovery/verification, exits the local LLM, downloads selected video ranges, verifies timing at two audio anchors, renders vertical shorts and captions, checks output and promotes eligible packages.

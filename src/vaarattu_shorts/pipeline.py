@@ -167,12 +167,16 @@ class Pipeline:
             # Completed selection belongs to its saved clips; upgrade only unfinished selection.
             selection_version = json.loads(selection_checkpoint.read_text("utf-8")).get("version")
         selection = self.stage("selection", selection_stage, selection_version)
+        return self.export_selection(selection, transcript, metadata, source)
+
+    def export_selection(self, selection, transcript, metadata, source):
         legacy_selection = selection.get("version") in {None, "passages-v2"}
         enrichment = selection.get("chat")
         if enrichment is None:
             # Older completed selections retain their original stage chain and ranking behavior.
             enrichment = self.stage("chat", lambda: (stream_data.enrich(metadata, self.config), []))
-        existing_ids = {clip["id"] for clip in self.store.clips(self.run_id)}
+        existing = self.store.clips(self.run_id)
+        existing_ids = {clip["id"] for clip in existing}
         candidates = [item for item in selection["verified"] if item["eligible"]]
         candidates.sort(
             key=lambda item: (
@@ -187,6 +191,14 @@ class Pipeline:
         )
         chosen = []
         for item in candidates:
+            if not legacy_selection and any(
+                max(
+                    0, min(item["end_us"], c["body"]["end_us"]) - max(item["start_us"], c["body"]["start_us"])
+                )
+                > 0
+                for c in existing
+            ):
+                continue
             if any(
                 max(0, min(item["end_us"], c["end_us"]) - max(item["start_us"], c["start_us"])) > 0
                 for c in chosen
@@ -196,7 +208,12 @@ class Pipeline:
             if legacy_selection and len(chosen) == self.config.get("max_clips"):
                 break
         for i, item in enumerate(chosen):
-            clip_id = hashlib.sha256(f"{self.run_id}:{i}".encode()).hexdigest()[:32]
+            identity = (
+                f"{self.run_id}:{i}"
+                if legacy_selection
+                else f"{self.run_id}:{item['candidate']['start_word_id']}:{item['candidate']['end_word_id']}"
+            )
+            clip_id = hashlib.sha256(identity.encode()).hexdigest()[:32]
             if clip_id in existing_ids:
                 continue
             words = [Word.model_validate(w) for w in transcript["words"]]
@@ -326,6 +343,12 @@ class Pipeline:
             "coverage": "partial" if missed else "complete",
             "outcome": "needs_attention" if missed or ((issues or timing_issues) and not clips) else outcome,
             "selection_issues": issues,
+            **{
+                key: selection.get(key)
+                if selection is not None
+                else self.store.get(self.run_id)["result"].get(key)
+                for key in ("section_feedback", "verified", "anchor_adjustments", "recovery_version")
+            },
             "transcript_timing_issues": timing_issues,
             "chat": enrichment,
             "chat_peak_review": selection.get("chat_peak_review")
@@ -360,6 +383,55 @@ class Pipeline:
             ),
         )
         return result
+
+    def recheck_selection(self):
+        # Keep original selection/checkpoints immutable; recovery has its own cache and checkpoint.
+        def saved(name):
+            path = self.folder / f"{name}.checkpoint.json"
+            data = json.loads(path.read_text("utf-8"))
+            for artifact in data["artifacts"]:
+                source = Path(artifact["path"])
+                if not source.is_file() or digest(source) != artifact["sha256"]:
+                    raise ValueError(
+                        "A saved processing file changed or is missing. Restore it before rechecking."
+                    )
+            self.chain = hashlib.sha256(f"{self.chain}:{digest(path)}".encode()).hexdigest()
+            return data["result"]
+
+        metadata, audio, transcript, previous = [
+            saved(name) for name in ("metadata", "audio", "transcript", "selection")
+        ]
+        folder = self.folder / "inference" / f"recovery-{discover.VERSION}-{self.chain[:16]}"
+        folder.mkdir(parents=True, exist_ok=True)
+
+        def operation():
+            manager = (
+                local_server(self.settings, self.config, folder, self.check)
+                if self.config["provider"] == "local"
+                else nullcontext(None)
+            )
+            with manager as client:
+                evaluator = Evaluator(
+                    self.config["provider"],
+                    self.store,
+                    self.run_id,
+                    folder,
+                    self.config["budget_usd"],
+                    self.check,
+                    client,
+                    self.config.get("context_size", 16384),
+                    codex_config=self.config.get("codex"),
+                )
+                selected = discover.discover(
+                    transcript, evaluator, self.progress, previous.get("chat"), seed=previous
+                )
+            selected["chat"] = previous.get("chat", {"status": "unavailable"})
+            selected["recovery_version"] = discover.VERSION
+            atomic_json(folder / "selection.json", selected)
+            return selected, [folder / "selection.json"]
+
+        selection = self.stage(f"recovery-{discover.VERSION}", operation, discover.VERSION)
+        return self.export_selection(selection, transcript, metadata, Path(audio["path"]))
 
     def rerender(self):
         audio = json.loads((self.folder / "audio.checkpoint.json").read_text("utf-8"))["result"]

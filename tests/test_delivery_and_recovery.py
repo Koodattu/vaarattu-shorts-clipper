@@ -9,7 +9,7 @@ from vaarattu_shorts.render import render_clip
 from vaarattu_shorts.storage import atomic_json, digest
 
 
-@pytest.mark.parametrize("duration", [8, 30])
+@pytest.mark.parametrize("duration", [4, 8, 30])
 @pytest.mark.parametrize("problem", ["caption", "transcript", "outside_clip"])
 def test_render_exports_with_caption_or_transcript_warnings(settings, monkeypatch, duration, problem):
     folder = settings.ready / ".staging" / "test"

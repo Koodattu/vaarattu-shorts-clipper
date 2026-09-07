@@ -4,10 +4,10 @@ import re
 
 from . import stream_data
 from .contracts import MIN_CLIP_US, Candidate, Proposals, Word
-from .llm import ModelOutputError
+from .llm import ModelAnchorError, ModelOutputError
 from .storage import atomic_json
 
-VERSION = "conversation-v5"
+VERSION = "conversation-v6"
 CORE_US = 360000000
 CONTEXT_US = 90000000
 
@@ -58,7 +58,11 @@ Include necessary setup and qualifications; stop at a natural boundary once the 
 Cut repeated setup, trailing repetition and tangents at the boundaries; never remove words internally.
 Reject a thought that cannot stand alone within 60 seconds without changing its meaning.
 There is no desired number of clips: return every distinct strong moment, or an empty list.
-Flags should record missing context or possible other speakers, not ordinary game vocabulary by itself.
+Flags are advisory review notes, NOT automatic vetoes. Ordinary game vocabulary or a topic label is
+not a rejection reason. Reject through outcome and scores only when missing essential context,
+wrong meaning/attribution or weak substance actually prevents the clip from working.
+Uncertain transcription can be noted while accepting a clear overall meaning; reject only if it
+changes or obscures the actual point. A brief joke can be 2..5 seconds; do not add filler to lengthen it.
 """
 
 
@@ -108,7 +112,11 @@ def discovery_prompt(context, start, end):
         "Read the surrounding context before deciding. Include necessary context; a strong hook and resolved "
         "payoff are bonuses, not requirements. Do not chase loudness "
         "or game events. Keep reasons and summaries brief. There is no quota; an empty list is correct "
-        "when nothing is worth sharing with a general audience.\n" + lines(context)
+        "when nothing is worth sharing with a general audience. Always return feedback: one concrete "
+        "Finnish sentence, at most 240 characters, about the topics and selection decision for this section. "
+        "If empty, name what was discussed and the specific reason it did not qualify; do not just say "
+        "'nothing worth clipping'. If something was selected, briefly state why it stood out.\n"
+        + lines(context)
     )
 
 
@@ -131,7 +139,7 @@ def validate_anchors(candidate, context, detail=None):
         or candidate.end_word_id not in ends
         or candidate.idea_word_id not in starts
     ):
-        raise ValueError("The model selected a boundary not shown in the supplied speech.")
+        raise ModelAnchorError("The model selected a boundary not shown in the supplied speech.")
 
 
 def resolve(candidate: Candidate, words: list[Word]):
@@ -141,9 +149,9 @@ def resolve(candidate: Candidate, words: list[Word]):
             index[key] for key in (candidate.start_word_id, candidate.end_word_id, candidate.idea_word_id)
         )
     except KeyError as exc:
-        raise ValueError("The model selected a word outside the supplied transcript.") from exc
+        raise ModelAnchorError("The model selected a word outside the supplied transcript.") from exc
     if not a <= c <= b:
-        raise ValueError("The model selected reversed or inconsistent boundaries.")
+        raise ModelAnchorError("The model selected reversed or inconsistent boundaries.")
     return words[a].start_us, words[b].end_us
 
 
@@ -180,23 +188,39 @@ def windows(words, duration, evaluator, regions=None, lead=""):
         yield start, end, context
 
 
-def discover(transcript, evaluator, progress, enrichment=None):
+def normalize_proposal(candidate, context):
+    """Expand real interior references to displayed passages without guessing missing IDs."""
+    resolve(candidate, context)
+    groups = {w.id: group for group in passages(context) for w in group}
+    return candidate.model_copy(
+        update={
+            "start_word_id": groups[candidate.start_word_id][0].id,
+            "end_word_id": groups[candidate.end_word_id][-1].id,
+            "idea_word_id": groups[candidate.idea_word_id][0].id,
+        }
+    )
+
+
+def discover(transcript, evaluator, progress, enrichment=None, seed=None):
     words = [Word.model_validate(w) for w in transcript["words"]]
     proposals = []
     coverage = []
     issues = []
     sources = {}
+    feedback = []
+    adjustments = []
 
     def identity(candidate):
         return candidate.start_word_id, candidate.end_word_id, candidate.idea_word_id
 
-    def record_issue(step, reason, candidate=None, interval=None):
+    def record_issue(step, reason, candidate=None, interval=None, detail=None):
         issues.append(
             {
                 "step": step,
                 "reason": reason,
                 "candidate": candidate.model_dump() if candidate else None,
                 "interval": interval,
+                **({"detail": detail} if detail else {}),
             }
         )
         atomic_json(evaluator.folder / "selection-issues.json", issues)
@@ -204,10 +228,16 @@ def discover(transcript, evaluator, progress, enrichment=None):
     def collect(result, context, start, end, step, source):
         for candidate in result.candidates:
             try:
+                original = candidate
+                candidate = normalize_proposal(candidate, context)
                 validate_anchors(candidate, context)
             except ValueError:
                 record_issue(step, "invalid_anchors", candidate)
                 continue
+            if candidate != original:
+                adjustments.append(
+                    {"step": step, "before": original.model_dump(), "after": candidate.model_dump()}
+                )
             idea = next(w for w in context if w.id == candidate.idea_word_id)
             if not start <= idea.start_us < end:
                 record_issue(step, "outside_section", candidate)
@@ -216,7 +246,7 @@ def discover(transcript, evaluator, progress, enrichment=None):
                 proposals.append(candidate)
                 sources.setdefault(identity(candidate), set()).add(source)
 
-    planned = list(windows(words, transcript["duration_us"], evaluator))
+    planned = [] if seed is not None else list(windows(words, transcript["duration_us"], evaluator))
     total = sum(bool(context) for _, _, context in planned)
     atomic_json(
         evaluator.folder / "discovery-plan.json",
@@ -245,6 +275,16 @@ def discover(transcript, evaluator, progress, enrichment=None):
                 progress(end / transcript["duration_us"] * 0.7)
                 continue
             completed += 1
+            feedback.append(
+                {
+                    "start_us": start,
+                    "end_us": end,
+                    "source": "transcript",
+                    "candidates": len(result.candidates),
+                    "feedback": result.feedback,
+                }
+            )
+            atomic_json(evaluator.folder / "section-feedback.json", feedback)
             collect(result, context, start, end, step, "transcript")
         coverage.append([start, end])
         progress(end / transcript["duration_us"] * 0.7)
@@ -254,7 +294,28 @@ def discover(transcript, evaluator, progress, enrichment=None):
         "checked": 0,
         "skipped": 0,
     }
-    if enrichment and enrichment.get("status") == "aligned":
+    if seed is not None:
+        coverage = seed.get("coverage", [])
+        feedback = seed.get("section_feedback", [])
+        peak_review = seed.get("chat_peak_review", peak_review)
+        saved = [
+            *seed.get("proposals", []),
+            *(
+                i["candidate"]
+                for i in seed.get("issues", [])
+                if i.get("candidate") and i["reason"] == "invalid_anchors"
+            ),
+        ]
+        collect(
+            Proposals(candidates=[Candidate.model_validate(c) for c in saved], feedback="Saved exclusions"),
+            words,
+            0,
+            transcript["duration_us"],
+            "recovery",
+            "saved_proposal",
+        )
+        issues.extend(i for i in seed.get("issues", []) if i["reason"] == "section_unreadable")
+    if seed is None and enrichment and enrichment.get("status") == "aligned":
         regions = stream_data.peak_regions(enrichment, transcript["duration_us"])
         peak_review["regions"] = regions
         peak_review["status"] = "complete" if regions else "no_peaks"
@@ -308,6 +369,16 @@ def discover(transcript, evaluator, progress, enrichment=None):
                     peak_review["skipped"] += 1
                     continue
                 peak_review["checked"] += 1
+                feedback.append(
+                    {
+                        "start_us": start,
+                        "end_us": end,
+                        "source": "chat_peak",
+                        "candidates": len(result.candidates),
+                        "feedback": result.feedback,
+                    }
+                )
+                atomic_json(evaluator.folder / "section-feedback.json", feedback)
                 collect(result, context, start, end, step, "chat_peak")
         if peak_review["skipped"]:
             peak_review["status"] = "partial"
@@ -317,7 +388,8 @@ def discover(transcript, evaluator, progress, enrichment=None):
     for candidate in proposals:
         a, b = resolve(candidate, words)
         # Coarse passage boundaries can add up to 15 seconds at either end; refine these in verification.
-        if not MIN_CLIP_US <= b - a <= 90000000:
+        if not 0 < b - a <= 90000000:
+            record_issue("shortlist", "proposal_too_long", candidate)
             continue
         duplicate = None
         for old in shortlist:
@@ -329,16 +401,20 @@ def discover(transcript, evaluator, progress, enrichment=None):
             sources[identity(duplicate)].update(sources[identity(candidate)])
             continue
         shortlist.append(candidate)
-    verified = []
+    verified = [v for v in seed.get("verified", []) if v["eligible"]] if seed is not None else []
+    if seed is not None:
+        shortlist = [
+            c
+            for c in shortlist
+            if not any(
+                max(0, min(resolve(c, words)[1], v["end_us"]) - max(resolve(c, words)[0], v["start_us"])) > 0
+                for v in verified
+            )
+        ]
     for i, candidate in enumerate(shortlist):
         start, end = resolve(candidate, words)
         final = candidate
-        idea_passage_ids = {
-            w.id
-            for group in passages(words)
-            if any(w.id == candidate.idea_word_id for w in group)
-            for w in group
-        }
+        proposed_ids = {w.id for w in words if start <= w.start_us and w.end_us <= end}
         evaluator.report(f"Checking clip {i + 1} of {len(shortlist)} against surrounding speech.")
         previous_context = None
         for attempt, padding in enumerate((CONTEXT_US, 180000000)):
@@ -366,8 +442,13 @@ def discover(transcript, evaluator, progress, enrichment=None):
                 "meaning-changing qualification. Explain briefly what makes the excerpt worth watching, "
                 "or the concrete substance/context/fidelity problem that prevents acceptance. "
                 "Refine complete first/last word anchors while retaining the original proposed idea. "
-                "The coarse idea ID marks a passage: you may advance it within that SAME passage to "
-                "the actual substantive words when removing a preamble, never to a different thought. "
+                "The coarse idea ID marks a passage: advance it to "
+                "the actual substantive words when removing a preamble. You may also refine to a later "
+                "part of the same proposed excerpt when that is the complete joke or point. Keep the idea "
+                "inside the proposed start/end interval; do not jump to unrelated surrounding speech. "
+                "Flags are advisory; use outcome=reject and explain the actual problem for a genuine "
+                "editorial rejection. A topic label, ordinary terminology or minor transcription noise "
+                "alone must not veto an understandable worthwhile clip. Short jokes of 2..5 seconds qualify. "
                 "Use needs_context only when more context could help. Keep valid anchors even when rejecting. "
                 "Lines show first..last word IDs and source seconds. Individual [word IDs] near the excerpt "
                 "allow precise cuts; elsewhere use line boundaries. Never invent an ID or a timestamp.\n"
@@ -380,8 +461,8 @@ def discover(transcript, evaluator, progress, enrichment=None):
 
             def validate_final(result):
                 validate_anchors(result, context, detail)
-                if result.idea_word_id not in idea_passage_ids:
-                    raise ValueError("The refined excerpt no longer contains the proposed idea.")
+                if result.idea_word_id not in proposed_ids:
+                    raise ModelAnchorError("The refined idea is outside the proposed excerpt.")
 
             try:
                 final = evaluator.call(
@@ -392,8 +473,14 @@ def discover(transcript, evaluator, progress, enrichment=None):
                     validate=validate_final,
                     reasoning_effort="low",
                 )
-            except ModelOutputError:
-                record_issue(f"verify-{i}-{attempt}", "verification_unreadable", candidate)
+            except ModelOutputError as exc:
+                anchor_error = isinstance(exc.__cause__, ModelAnchorError)
+                record_issue(
+                    f"verify-{i}-{attempt}",
+                    "verification_invalid_anchors" if anchor_error else "verification_unreadable",
+                    candidate,
+                    detail=str(exc) if anchor_error else None,
+                )
                 final = candidate.model_copy(
                     update={
                         "outcome": "needs_context",
@@ -404,20 +491,24 @@ def discover(transcript, evaluator, progress, enrichment=None):
             if final.outcome != "needs_context":
                 break
         a, b = resolve(final, words)
-        eligible = (
-            final.outcome == "accept"
-            and final.scores.standalone >= 3
-            and final.scores.fidelity >= 3
-            and final.scores.substance >= 3
-            and not final.flags
-            and MIN_CLIP_US <= b - a <= 60000000
-        )
+        exclusion_reasons = [
+            message
+            for passed, message in (
+                (final.outcome == "accept", "The model did not accept this excerpt."),
+                (final.scores.standalone >= 3, "Standalone score is below 3/4."),
+                (final.scores.fidelity >= 3, "Fidelity score is below 3/4."),
+                (final.scores.substance >= 3, "Substance score is below 3/4."),
+                (MIN_CLIP_US <= b - a <= 60000000, "The excerpt is outside the 2–60 second range."),
+            )
+            if not passed
+        ]
         verified.append(
             {
                 "candidate": final.model_dump(),
                 "start_us": a,
                 "end_us": b,
-                "eligible": eligible,
+                "eligible": not exclusion_reasons,
+                "exclusion_reasons": exclusion_reasons,
                 "discovery_sources": sorted(sources[identity(candidate)]),
             }
         )
@@ -432,4 +523,6 @@ def discover(transcript, evaluator, progress, enrichment=None):
         "coverage": coverage,
         "issues": issues,
         "chat_peak_review": peak_review,
+        "section_feedback": feedback,
+        "anchor_adjustments": adjustments,
     }

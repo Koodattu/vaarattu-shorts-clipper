@@ -3,7 +3,6 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 from vaarattu_shorts.contracts import Rect, RunRequest, video_id
-from vaarattu_shorts.storage import BusyError
 
 
 def test_channel_input_and_underscore_identity():
@@ -27,37 +26,36 @@ def test_only_turbo_and_valid_crops():
         Rect(x=float("nan"), y=0, width=0.2, height=0.5)
 
 
-def test_atomic_single_admission_and_idempotency(store):
-    def admit(i):
-        try:
-            return store.admit({"video": str(i)}, str(i))
-        except BusyError:
-            return None
-
+def test_atomic_queue_admission_claim_limit_and_idempotency(store):
     with ThreadPoolExecutor(max_workers=4) as pool:
-        results = list(pool.map(admit, range(4)))
-    assert sum(r is not None for r in results) == 1
+        results = list(pool.map(lambda i: store.admit({"video": str(i)}, str(i)), range(4)))
+    assert len(set(results)) == 4
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        claimed = list(pool.map(lambda _: store.claim(), range(4)))
+    assert sum(r is not None for r in claimed) == 1
     run = store.runs()[0]
     assert store.admit(run["config"], run["request_key"]) == run["id"]
     with pytest.raises(ValueError):
         store.admit({"changed": True}, run["request_key"])
 
 
-def test_pause_cancel_and_recovery_keep_slot(store):
+def test_paused_jobs_release_slots_but_running_pause_intent_does_not(store):
     first = store.admit({}, "first")
     store.claim()
     store.control(first, "pause")
     assert store.get(first)["state"] == "running"
-    with pytest.raises(BusyError):
-        store.admit({}, "second")
+    second = store.admit({}, "second")
+    assert store.claim() is None
     store.recover()
     assert store.get(first)["state"] == "paused"
+    assert store.claim() == second
     store.control(first, "resume")
+    assert store.claim() is None
+    store.update(second, state="completed")
     assert store.claim() == first
     store.control(first, "cancel")
     store.recover()
     assert store.get(first)["state"] == "cancelled"
-    assert store.admit({}, "second") != first
 
 
 def test_budget_reservations_are_atomic_and_ambiguous_remain_reserved(store):

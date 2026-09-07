@@ -22,7 +22,7 @@ const nodes=new Map(),draws=[];
 global.document={getElementById(id){
   if(!nodes.has(id))nodes.set(id,{value:"",width:960,height:540,clientWidth:960,clientHeight:540,clientLeft:1,clientTop:1,
     getContext:()=>({clearRect(){},strokeRect(){},drawImage(...args){draws.push({id,args});}}),
-    getBoundingClientRect:()=>({left:10,top:20}),scrollIntoView(){}});
+    getBoundingClientRect:()=>({left:10,top:20}),scrollIntoView(){},focus(){},pause(){},querySelectorAll(){return [];},setAttribute(name,value){this[name]=value;}});
   return nodes.get(id);
 }};
 global.fetch=async()=>{throw new Error("Offline fixture");};
@@ -32,6 +32,11 @@ global.fixturePreset=preset;
 vm.runInThisContext('setFrame({width:1920,height:1080},fixturePreset)');
 assert.equal(nodes.get("camera-rect").value,"0, 0.6, 0.3, 0.4");
 assert.equal(nodes.get("calibrated").checked,false);
+global.Image=class {constructor(){this.width=1920;this.height=1080;}set src(value){this.onload();}};
+global.URL={createObjectURL:()=>"blob:fixture",revokeObjectURL(){}};
+nodes.get("frame-file").onchange({target:{files:[{}]}});
+assert.equal(nodes.get("camera-rect").value,"0, 0.6, 0.3, 0.4","Loading a screenshot must preserve the selected crops");
+assert.equal(nodes.get("game-rect").value,"0.31, 0, 0.4, 1");
 assert.equal(draws.find(d=>d.id==="layout-preview").args[8],152);
 assert.equal(draws.filter(d=>d.id==="layout-preview")[1].args[6],152);
 assert.deepEqual(vm.runInThisContext('point({clientX:491,clientY:291})'),{x:0.5,y:0.5});

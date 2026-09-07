@@ -11,7 +11,7 @@ from fastapi import Body, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import catalog
+from . import catalog, discover
 from .contracts import MAX_CLIP_US, MIN_CLIP_US, EditRequest, Layout, RunRequest, Word
 from .llm import PROVIDERS, codex_settings
 from .models import CATALOG, model_path
@@ -86,7 +86,7 @@ def create_app(settings):
     @app.exception_handler(BusyError)
     async def busy(_, exc):
         return JSONResponse(
-            {"detail": "Finish or cancel the current video first.", "run_id": str(exc)}, status_code=409
+            {"detail": "Finish or cancel this clip's run before editing it.", "run_id": str(exc)}, status_code=409
         )
 
     @app.exception_handler(KeyError)
@@ -112,6 +112,7 @@ def create_app(settings):
                 models[name] = False
         return {
             "token": token,
+            "max_concurrent_jobs": store.concurrency(),
             "models": models,
             "providers": {
                 key: {
@@ -128,6 +129,11 @@ def create_app(settings):
             "model_cache": str(settings.models),
             "asr": {"batch_size": settings.asr_batch_size, "flash_attention": settings.asr_flash_attention},
         }
+
+    @app.post("/api/concurrency")
+    def concurrency(max_concurrent_jobs: int = Body(embed=True, ge=1, le=4)):
+        store.set_concurrency(max_concurrent_jobs)
+        return {"max_concurrent_jobs": store.concurrency()}
 
     @app.get("/api/videos")
     def videos():
@@ -184,8 +190,12 @@ def create_app(settings):
     @app.get("/api/runs/{run_id}")
     def get_run(run_id: str):
         usage = store.usage(run_id)
+        run = store.get(run_id)
         return {
-            **store.get(run_id),
+            **run,
+            "can_recheck": run["state"] == "completed"
+            and run["result"].get("recovery_version") != discover.VERSION
+            and (settings.work / "runs" / run_id / "selection.checkpoint.json").is_file(),
             "usage": {k: v for k, v in usage.items() if k != "requests"},
             "clips": [public_clip(c) for c in store.clips(run_id)],
         }
@@ -199,8 +209,13 @@ def create_app(settings):
 
     @app.post("/api/runs/{run_id}/{action}")
     def control(run_id: str, action: str):
-        if action not in {"pause", "resume", "cancel"}:
+        if action not in {"pause", "resume", "cancel", "recheck"}:
             raise HTTPException(404, "Action not found.")
+        if action == "recheck":
+            if not (settings.work / "runs" / run_id / "selection.checkpoint.json").is_file():
+                raise ValueError("This run has no saved selection to recheck.")
+            if store.get(run_id)["result"].get("recovery_version") == discover.VERSION:
+                raise ValueError("Saved exclusions have already been rechecked with these selection rules.")
         store.control(run_id, action)
         return {"ok": True}
 
@@ -227,7 +242,7 @@ def create_app(settings):
             not MIN_CLIP_US <= edit.end_us - edit.start_us <= MAX_CLIP_US
             or edit.end_us > transcript["duration_us"]
         ):
-            raise ValueError("Choose a 5–90 second interval within this VOD.")
+            raise ValueError("Choose a 2–90 second interval within this VOD.")
         canonical = [Word.model_validate(w) for w in transcript["words"]]
         if any(
             (w.start_us < edit.start_us < w.end_us) or (w.start_us < edit.end_us < w.end_us)

@@ -240,7 +240,7 @@ def render_clip(settings, section, mapping, body, layout, words, folder, check):
         or end - start > MAX_CLIP_US
         or local_start + duration > mapping["section_duration"] + 0.05
     ):
-        raise ValueError("The chosen boundaries fall outside the verified section or 5–90 second range.")
+        raise ValueError("The chosen boundaries fall outside the verified section or 2–90 second range.")
     layout = Layout.model_validate(layout)
     info = probe(settings, section, folder, check)
     video = next(s for s in info["streams"] if s["codec_type"] == "video")
@@ -372,7 +372,7 @@ def render_clip(settings, section, mapping, body, layout, words, folder, check):
         **body,
         "mapping": mapping,
         "layout": layout.model_dump(),
-        "flags": sorted(set(flags)),
+        "flags": sorted(set([*flags, *body.get("selection", {}).get("flags", [])])),
         "status": "ready",
         "video_sha256": digest(output),
     }

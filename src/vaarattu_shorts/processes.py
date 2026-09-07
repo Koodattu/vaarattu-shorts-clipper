@@ -4,9 +4,10 @@ import ctypes
 import os
 import errno
 import signal
+import stat
 import subprocess
 import time
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
 
@@ -142,7 +143,15 @@ class OwnedProcess:
             if self.log.exists() and self.log.stat().st_size > 64 * 1024 * 1024:
                 raise ToolError("The external tool produced excessive diagnostics.")
             if byte_limit and watch:
-                size = sum(p.stat().st_size for p in watch.rglob("*") if p.is_file())
+                size = 0
+                for path in watch.rglob("*"):
+                    try:
+                        info = path.stat()
+                    except FileNotFoundError:
+                        # Downloaders rename temporary files while this directory is being sampled.
+                        continue
+                    if stat.S_ISREG(info.st_mode):
+                        size += info.st_size
                 if size > byte_limit:
                     raise ToolError("The download exceeded the configured size limit.")
             time.sleep(0.2)
@@ -167,6 +176,19 @@ def run_tool(args, settings, folder: Path, name: str, check=lambda: None, **kwar
 
 
 @contextmanager
+def waiting_lock(path: Path, name: str, check):
+    with ExitStack() as stack:
+        while True:
+            check()
+            try:
+                stack.enter_context(lock(path, name))
+                break
+            except LockBusyError:
+                time.sleep(0.2)
+        yield
+
+
+@contextmanager
 def lock(path: Path, name: str | None = None):
     path.parent.mkdir(parents=True, exist_ok=True)
     if os.name == "nt" and name:
@@ -184,7 +206,9 @@ def lock(path: Path, name: str | None = None):
         result = kernel.WaitForSingleObject(handle, 0)
         if result not in (0, 0x80):
             kernel.CloseHandle(handle)
-            raise ToolError("Another clipper is using the GPU. Retry when it finishes.")
+            if result == 0x102:
+                raise LockBusyError("Another clipper is using the GPU.")
+            raise ToolError("Unable to acquire the GPU resource lock.")
         try:
             yield
         finally:

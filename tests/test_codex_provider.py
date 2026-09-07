@@ -16,7 +16,7 @@ def codex_environment(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "must-not-go-to-bridge")
 
 
-def response(text='{"candidates":[]}', usage=True):
+def response(text='{"candidates":[],"feedback":"Game mechanics without a standalone point."}', usage=True):
     result = {
         "status": "completed",
         "output": [{"type": "message", "content": [{"type": "output_text", "text": text}]}],
@@ -82,7 +82,13 @@ def test_codex_repairs_bad_content_and_preserves_missing_usage(settings, store):
     def handle(request):
         requests.append(request)
         return httpx.Response(
-            200, json=response("bad" if len(requests) == 1 else '{"candidates":[]}', usage=False)
+            200,
+            json=response(
+                "bad"
+                if len(requests) == 1
+                else '{"candidates":[],"feedback":"Game mechanics without a standalone point."}',
+                usage=False,
+            ),
         )
 
     with httpx.Client(transport=httpx.MockTransport(handle)) as client:

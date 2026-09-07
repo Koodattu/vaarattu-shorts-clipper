@@ -58,7 +58,7 @@ def test_all_distinct_proposals_are_verified_and_exported_without_count_quota(
         def call(self, system, prompt, schema, step, *, validate=None, reasoning_effort=None):
             calls.append(step)
             result = (
-                Proposals(candidates=candidates)
+                Proposals(feedback="Fixture section feedback.", candidates=candidates)
                 if schema == Proposals
                 else candidates[int(step.split("-")[1])]
             )

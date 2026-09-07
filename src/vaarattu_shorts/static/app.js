@@ -2,9 +2,41 @@
 const $ = id => document.getElementById(id);
 let token = "", activeRun = null, editing = null, polling = false;
 let savedLayouts = [];
-let library = null, videoLimit = 20, fetchingVideos = false;
+let submittingRun = false, concurrencyLimit = 1;
+let library = null, videoPage = 0, fetchingVideos = false;
+const videoPageSize = 8, clipPageSize = 4;
+let clipPage = 0, displayedRun = null;
+let runList = [], detailSignature = "", clipsSignature = "", runListSignature = "", currentView = "library";
 const labels = {local:"Local · Gemma 4",gemini:"Gemini 3.8 Flash",openai:"GPT-5.6 Luna",codex:"Codex",zai:"GLM-5.3-Flash",deepseek:"DeepSeek V4 Flash",meta:"Meta Muse Spark 1.3"};
-function error(message){$("error").textContent=message;$("error").hidden=!message;}
+function showView(view){
+  const names={library:"Video library",process:"New run",results:"Runs & clips",layouts:"Layout presets",editor:"Edit clip"};
+  if(!names[view])return;
+  if(currentView!==view){
+    $("notice").hidden=true;
+    $("source-player").pause();
+    for(const video of $("clips").querySelectorAll("video"))video.pause();
+    if(view==="layouts"){
+      const fromEditor=currentView==="editor"&&editing;
+      $("layout-return").href=fromEditor?"#editor":"#process";
+      $("layout-return").textContent=fromEditor?"Back to clip editor →":"Back to new run →";
+    }
+  }
+  currentView=view;
+  for(const key of ["library","process","results","layouts"]){
+    $("view-"+key).hidden=key!==view;
+    $("nav-"+key).setAttribute("aria-current",key===(view==="editor"?"results":view)?"page":"false");
+  }
+  $("editor").hidden=view!=="editor";
+  $("view-label").textContent=names[view];
+  const heading=$(view==="library"?"channel-heading":view==="process"?"process-heading":view==="results"?"results-heading":view==="layouts"?"layouts-heading":"editor-heading");
+  heading.focus({preventScroll:true});
+  $("workspace").scrollIntoView({behavior:"auto"});
+}
+function goView(view){
+  showView(view);
+  if(typeof window!=="undefined"&&window.location.hash!=="#"+view)window.history.pushState(null,"","#"+view);
+}
+function error(message){$("error").textContent=message;$("error").hidden=!message;if(message){$("notice").hidden=true;$("error").scrollIntoView({behavior:"auto"});}}
 async function api(path, options={}){
   const response=await fetch(path,{...options,headers:{"Content-Type":"application/json","X-Local-Token":token,...options.headers}});
   const value=await response.json();
@@ -13,25 +45,41 @@ async function api(path, options={}){
 }
 function action(label, fn, secondary=true){const button=document.createElement("button");button.type="button";button.textContent=label;if(secondary)button.className="secondary";button.onclick=()=>Promise.resolve(fn()).catch(e=>error(e.message));return button;}
 function text(tag, value, className){const node=document.createElement(tag);node.textContent=value;if(className)node.className=className;return node;}
-async function layouts(){const list=await api("/api/layouts");savedLayouts=list;for(const id of ["layout","edit-layout"]){const selected=$(id).value;$(id).replaceChildren();for(const item of list){const o=document.createElement("option");o.value=item.id;o.textContent=item.body.name;$(id).append(o);}if(list.some(l=>l.id===selected))$(id).value=selected;}}
-async function init(){const state=await api("/api/status");token=state.token;$("cache-path").textContent=`Model cache: ${state.model_cache}`;
+async function layouts(){const list=await api("/api/layouts");savedLayouts=list;for(const id of ["layout","edit-layout","preset-select"]){const selected=$(id).value;$(id).replaceChildren();if(id==="preset-select"){const empty=text("option","New preset");empty.value="";$(id).append(empty);}for(const item of list){const o=document.createElement("option");o.value=item.id;o.textContent=item.body.name;$(id).append(o);}if(list.some(l=>l.id===selected))$(id).value=selected;}$("layout-required").hidden=Boolean(list.length);}
+async function init(){const state=await api("/api/status");token=state.token;concurrencyLimit=state.max_concurrent_jobs||1;$("job-concurrency").value=String(concurrencyLimit);$("cache-path").textContent=`Model cache: ${state.model_cache}`;
   for(const [key,info] of Object.entries(state.providers)){const o=document.createElement("option");o.value=key;o.textContent=(key==="codex"?`Codex · ${info.model}`:labels[key])+(!info.available?" · unavailable":!info.configured?" · key missing":"");o.disabled=!info.available||!info.configured;$("provider").append(o);}
   $("setup-status").textContent=state.models.turbo?"Turbo is prepared.":"Prepare Turbo and your selected LLM before running. See docs/setup.md.";
-  $("provider").onchange=()=>{const codex=$("provider").value==="codex";$("budget").disabled=codex;$("codex-note").hidden=!codex;};$("provider").onchange();
+  $("provider").onchange=()=>{const codex=$("provider").value==="codex",local=$("provider").value==="local";$("budget").disabled=codex;$("budget-field").hidden=codex||local;$("local-settings").hidden=!local;$("codex-note").hidden=!codex;};$("provider").onchange();
   await layouts();await refresh();
 }
-$("run-form").onsubmit=async event=>{event.preventDefault();error("");$("run-button").disabled=true;try{
+$("job-concurrency").onchange=async()=>{const select=$("job-concurrency");select.disabled=true;try{const result=await api("/api/concurrency",{method:"POST",body:JSON.stringify({max_concurrent_jobs:Number(select.value)})});concurrencyLimit=result.max_concurrent_jobs;await refresh();}catch(e){select.value=String(concurrencyLimit);error(e.message);}finally{select.disabled=false;}};
+$("run-form").onsubmit=async event=>{event.preventDefault();if(submittingRun)return;submittingRun=true;error("");$("run-button").disabled=true;try{
   const body={video:$("video").value,asr:"turbo",provider:$("provider").value,local_model:$("local-model").value,context_size:Number($("context").value),budget_usd:$("provider").value==="codex"?0:Number($("budget").value),layout_id:$("layout").value,stream_id:$("stream-id").value?Number($("stream-id").value):null,stream_offset_seconds:$("stream-offset").value?Number($("stream-offset").value):null,alignment_confirmed:$("alignment").checked};
-  const result=await api("/api/runs",{method:"POST",headers:{"Idempotency-Key":crypto.randomUUID()},body:JSON.stringify(body)});activeRun=result.id;await refresh();
-}catch(e){error(e.message);$("run-button").disabled=false;}};
-async function refresh(){const runs=await api("/api/runs");const active=runs.find(r=>["queued","running","paused"].includes(r.state));$("run-button").disabled=Boolean(active);$("runs").replaceChildren();
-  for(const run of runs.slice(0,8)){const row=text("div","","run-row");row.append(text("span",`${run.config.video} · ${run.state}`),action("View",async()=>{activeRun=run.id;await detail();}));$("runs").append(row);}
-  if(!activeRun&&runs.length)activeRun=(active||runs[0]).id;await detail();await loadLibrary();
+  const result=await api("/api/runs",{method:"POST",headers:{"Idempotency-Key":crypto.randomUUID()},body:JSON.stringify(body)});activeRun=result.id;await refresh();goView("results");
+}catch(e){error(e.message);}finally{submittingRun=false;$("run-button").disabled=false;}};
+function paintRuns(){
+  const signature=JSON.stringify([activeRun,runList.map(run=>[run.id,run.state,run.config.video]),library?.videos.map(video=>[video.id,video.title])]);
+  if(signature===runListSignature)return;runListSignature=signature;
+  $("runs").replaceChildren();$("runs-count").textContent=runList.length;
+  if(!runList.length)$("runs").append(text("p","Your runs will appear here.","muted"));
+  for(const run of runList){
+    const video=library?.videos.find(v=>v.id===run.config.video||v.url===run.config.video);
+    const row=action("",async()=>{activeRun=run.id;paintRuns();await detail();});
+    row.className="run-row"+(run.id===activeRun?" selected":"");row.setAttribute("aria-pressed",String(run.id===activeRun));
+    row.append(text("strong",video?.title||run.config.video),text("span",run.state.charAt(0).toUpperCase()+run.state.slice(1)));
+    $("runs").append(row);
+  }
+}
+async function refresh(){const runs=await api("/api/runs");const active=runs.find(r=>["queued","running"].includes(r.state));$("run-button").disabled=submittingRun;$("run-availability").hidden=!active;
+  if(!activeRun&&runs.length)activeRun=(active||runs[0]).id;
+  const changed=JSON.stringify(runList)!==JSON.stringify(runs);runList=runs;
+  await loadLibrary();if(changed||!$("runs").children.length)paintRuns();await detail();
   if(active&&!polling){polling=true;setTimeout(async()=>{polling=false;try{await refresh();}catch(e){error(e.message);}},2000);}
 }
-async function loadLibrary(){library=await api("/api/videos");paintLibrary();}
+async function loadLibrary(){const next=await api("/api/videos");if(JSON.stringify(next)!==JSON.stringify(library)){library=next;paintLibrary();}}
 function paintLibrary(){
   if(!library)return;
+  $("library-count").textContent=library.videos.length;
   $("fetch-videos").disabled=fetchingVideos||!library.configured;
   $("older-videos").disabled=fetchingVideos||!library.configured;
   $("older-videos").hidden=!library.has_older;
@@ -40,48 +88,111 @@ function paintLibrary(){
   const query=$("video-search").value.trim().toLocaleLowerCase(), filter=$("video-filter").value;
   const items=library.videos.filter(v=>(filter==="all"||(filter==="processed"?v.processed:!v.processed))&&`${v.title} ${v.id}`.toLocaleLowerCase().includes(query));
   const box=$("channel-videos");box.replaceChildren();
-  if(!items.length)box.append(text("p",library.videos.length?"No saved videos match these filters.":"No channel videos saved yet.","muted"));
-  for(const video of items.slice(0,videoLimit)){
+  videoPage=Math.min(videoPage,Math.max(0,Math.ceil(items.length/videoPageSize)-1));
+  if(!items.length){const empty=text("div","","empty-state");empty.append(text("h3",library.videos.length?"No saved videos match these filters.":"No channel videos saved yet."),text("p",library.videos.length?"Try another title or choose All videos.":"Fetch your channel videos, or start a new run with a video URL."));box.append(empty);}
+  for(const video of items.slice(videoPage*videoPageSize,(videoPage+1)*videoPageSize)){
     const row=text("article","","channel-video");
     const img=document.createElement("img");img.src=`https://i.ytimg.com/vi/${video.id}/mqdefault.jpg`;img.alt="";img.loading="lazy";img.width=160;img.height=90;row.append(img);
-    const info=text("div","","channel-video-info");info.append(text("h3",video.title));
+    const info=text("div","","channel-video-info");const title=text("h3",video.title);title.title=video.title;info.append(title);
     const seconds=video.duration;const duration=seconds?`${Math.floor(seconds/3600)}:${String(Math.floor(seconds/60)%60).padStart(2,"0")}:${String(seconds%60).padStart(2,"0")}`:"Duration unavailable";
     info.append(text("p",`${video.published?new Date(video.published).toLocaleDateString():"Date unavailable"} · ${duration}`,"muted"));
     const states={not_started:"Not started",queued:"Queued",running:"Processing",paused:"Paused",failed:"Failed",cancelled:"Cancelled",completed:video.outcome==="no_candidates"?"No suitable clips":video.outcome==="needs_attention"?"Clips need attention":"Completed"};
-    info.append(text("p",`${video.processed?"Processed · ":""}${states[video.state]||video.state}${video.available?"":" · Recording unavailable"}`,"muted"));
-    const buttons=text("div","","actions");const select=action(video.processed?"Select again":"Select video",()=>{$("video").value=video.url;$("run-form").scrollIntoView({behavior:"smooth"});$("video").focus();});select.disabled=!video.available;buttons.append(select);
-    if(video.run_id)buttons.append(action("View run",async()=>{activeRun=video.run_id;await detail();$("run-detail").scrollIntoView({behavior:"smooth"});}));
-    if(video.completed_run_id&&video.completed_run_id!==video.run_id)buttons.append(action("Previous results",async()=>{activeRun=video.completed_run_id;await detail();$("run-detail").scrollIntoView({behavior:"smooth"});}));
-    const link=document.createElement("a");link.href=video.url;link.target="_blank";link.rel="noopener";link.textContent="YouTube";buttons.append(link);info.append(buttons);row.append(info);box.append(row);
+    const status=text("p",`${video.processed?"Processed · ":""}${states[video.state]||video.state}${video.available?"":" · Recording unavailable"}`,"video-status"+(video.outcome==="needs_attention"||video.state==="failed"?" attention":video.processed?" complete":["running","queued"].includes(video.state)?" active":""));
+    const buttons=text("div","","video-actions");const select=action(video.processed?"Select again":"Select video",()=>{$("video").value=video.url;paintSelectedVideo();goView("process");$("video").focus();});select.disabled=!video.available;buttons.append(select);
+    if(video.run_id)buttons.append(action("View run",async()=>{activeRun=video.run_id;paintRuns();await detail();goView("results");}));
+    if(video.completed_run_id&&video.completed_run_id!==video.run_id)buttons.append(action("Previous results",async()=>{activeRun=video.completed_run_id;paintRuns();await detail();goView("results");}));
+    const link=document.createElement("a");link.href=video.url;link.target="_blank";link.rel="noopener";link.textContent="↗";link.title="Open on YouTube";link.setAttribute("aria-label",`Open ${video.title} on YouTube`);buttons.append(link);row.append(info,status,buttons);box.append(row);
   }
-  $("show-videos").hidden=items.length<=videoLimit;
+  $("show-videos").hidden=(videoPage+1)*videoPageSize>=items.length;
+  $("previous-videos").hidden=videoPage===0;
+  $("video-page").textContent=items.length?`${videoPage*videoPageSize+1}–${Math.min((videoPage+1)*videoPageSize,items.length)} of ${items.length} videos`:"0 videos";
 }
+function paintSelectedVideo(){const video=library?.videos.find(v=>v.url===$("video").value||v.id===$("video").value);const box=$("selected-video");box.replaceChildren();box.hidden=!video;if(video){const img=document.createElement("img");img.src=`https://i.ytimg.com/vi/${video.id}/mqdefault.jpg`;img.alt="";box.append(img,text("p",video.title));}}
+$("video").oninput=paintSelectedVideo;
 async function fetchVideos(action){if(fetchingVideos)return;fetchingVideos=true;error("");paintLibrary();try{library=await api(`/api/videos/${action}`,{method:"POST"});}catch(e){error(e.message);}finally{fetchingVideos=false;paintLibrary();}}
 $("fetch-videos").onclick=()=>fetchVideos("refresh");
 $("older-videos").onclick=()=>fetchVideos("older");
-$("show-videos").onclick=()=>{videoLimit+=20;paintLibrary();};
-for(const id of ["video-search","video-filter"])$(id).oninput=()=>{videoLimit=20;paintLibrary();};
-async function detail(){if(!activeRun){$("run-detail").textContent="No videos processed yet.";return;}const run=await api(`/api/runs/${activeRun}`);const box=$("run-detail");box.replaceChildren(text("h3",`${run.stage} · ${run.state}`));
-  const progress=document.createElement("progress");progress.max=1;progress.value=run.progress;box.append(progress,text("p",run.message||"Completed stages are saved automatically."));
-  box.append(text("p",`Turbo · CUDA FP16 · ${run.config.asr_batch_size?`batch size ${run.config.asr_batch_size}`:"unbatched"}${run.config.asr_flash_attention?" · Flash Attention requested":""}`,"muted"));
+$("show-videos").onclick=()=>{videoPage++;paintLibrary();$("channel-videos").scrollTop=0;};
+$("previous-videos").onclick=()=>{videoPage--;paintLibrary();$("channel-videos").scrollTop=0;};
+for(const id of ["video-search","video-filter"])$(id).oninput=()=>{videoPage=0;paintLibrary();};
+async function detail(){
+  if(!activeRun){$("run-detail").replaceChildren(text("h3","Your first run starts here"),text("p","Choose a recording from the library, then start a new run. Its progress and clips will appear here.","muted"));$("clips").replaceChildren();$("clip-count").textContent="0 clips";return;}
+  const run=await api(`/api/runs/${activeRun}`);
+  if(run.id!==activeRun)return;
+  const signature=JSON.stringify(run);if(signature===detailSignature)return;detailSignature=signature;
+  const box=$("run-detail"),usageOpen=$("run-usage")?.open;
+  const stages={metadata:"Reading recording details",audio:"Preparing audio",transcript:"Transcribing speech",selection:"Finding moments",chat:"Reviewing chat peaks",render:"Rendering clips"};
+  const states={completed:"Run completed",queued:"Waiting to start",paused:"Run paused",failed:"Run needs attention",cancelled:"Run cancelled"};
+  box.replaceChildren(text("h2",states[run.state]||(run.stage.startsWith("recovery-")?"Rechecking moments":stages[run.stage]||"Processing recording")));
+  $("run-announcement").textContent=`${run.state} · ${Math.round(run.progress*100)}%. ${run.message||""}`;
+  const progress=document.createElement("progress");progress.max=1;progress.value=run.progress;progress.setAttribute("aria-label","Run progress");box.append(progress,text("p",run.message||"Completed stages are saved automatically."));
+  const usageDetails=text("details","","usage-details disclosure");usageDetails.id="run-usage";usageDetails.open=Boolean(usageOpen);
+  usageDetails.append(text("summary","Processing details & usage"));
+  usageDetails.append(text("p",`Turbo · CUDA FP16 · ${run.config.asr_batch_size?`batch size ${run.config.asr_batch_size}`:"unbatched"}${run.config.asr_flash_attention?" · Flash Attention requested":""}`,"muted"));
   const usage=run.usage, count=n=>n.toLocaleString();
-  if(run.config.provider==="codex")box.append(text("p",`Codex · ${run.config.codex?.model||"gpt-5.6-luna"} · subscription usage · monetary cost unavailable.`,"muted"));
-  else box.append(text("p",`Estimated API cost: $${usage.estimated_cost_usd.toFixed(4)} · pending / uncertain: $${usage.reserved_usd.toFixed(4)} · limit: $${usage.budget_usd.toFixed(2)}`,"muted"));
-  box.append(text("p",`${count(usage.request_count)} model requests · ${count(usage.input_tokens)} input tokens · ${count(usage.output_tokens)} output tokens (includes reasoning)`));
+  if(run.config.provider==="codex")usageDetails.append(text("p",`Codex · ${run.config.codex?.model||"gpt-5.6-luna"} · subscription usage · monetary cost unavailable.`,"muted"));
+  else usageDetails.append(text("p",`Estimated API cost: $${usage.estimated_cost_usd.toFixed(4)} · pending / uncertain: $${usage.reserved_usd.toFixed(4)} · limit: $${usage.budget_usd.toFixed(2)}`,"muted"));
+  usageDetails.append(text("p",`${count(usage.request_count)} model requests · ${count(usage.input_tokens)} input tokens · ${count(usage.output_tokens)} output tokens (includes reasoning)`));
   const reported=field=>usage.reported_counts[field]?`${count(usage[field])} (${usage.reported_counts[field]}/${usage.request_count} requests reported)` :"not reported";
-  box.append(text("p",`Cached input: ${reported("cached_input_tokens")} · reasoning: ${reported("reasoning_tokens")}. These are included in the input/output totals.`,"muted"));
-  if(usage.unreported_requests)box.append(text("p",`${usage.unreported_requests} requests have incomplete usage. Token totals include only reported counts.`,"muted"));
-  box.append(text("p",run.config.provider==="codex"?"Token counts are reported by the bridge. Codex plan limits and any credit charges apply separately; no dollar spending cap is enforced here.":"Costs use conservative rates; provider discounts and taxes can change the invoice. Local inference has no API charge.","muted"));
-  const usageLink=document.createElement("a");usageLink.href=`/api/runs/${run.id}/usage`;usageLink.download=`usage-${run.id}.json`;usageLink.textContent="Download usage report";box.append(usageLink);
+  usageDetails.append(text("p",`Cached input: ${reported("cached_input_tokens")} · reasoning: ${reported("reasoning_tokens")}. These are included in the input/output totals.`,"muted"));
+  if(usage.unreported_requests)usageDetails.append(text("p",`${usage.unreported_requests} requests have incomplete usage. Token totals include only reported counts.`,"muted"));
+  usageDetails.append(text("p",run.config.provider==="codex"?"Token counts are reported by the bridge. Codex plan limits and any credit charges apply separately; no dollar spending cap is enforced here.":"Costs use conservative rates; provider discounts and taxes can change the invoice. Local inference has no API charge.","muted"));
+  const usageLink=document.createElement("a");usageLink.href=`/api/runs/${run.id}/usage`;usageLink.download=`usage-${run.id}.json`;usageLink.textContent="Download usage report";usageDetails.append(usageLink);
+  box.append(usageDetails);
   const controls=text("div","","actions");for(const [label,op,states] of [["Pause","pause",["running","queued"]],["Resume / retry","resume",["paused","failed","cancelled"]],["Cancel","cancel",["running","queued","paused"]]])if(states.includes(run.state))controls.append(action(label,async()=>{await api(`/api/runs/${run.id}/${op}`,{method:"POST"});await refresh();}));box.append(controls);
+  if(run.can_recheck){
+    const recovery=text("details","","disclosure");recovery.append(text("summary","Recheck excluded moments"));
+    recovery.append(text("p","Reuses saved suggestions and transcription, keeps existing clips, and makes new model requests only to recheck exclusions. Your current run's provider and spending limit apply.","muted"));
+    recovery.append(action("Recheck excluded moments",async()=>{await api(`/api/runs/${run.id}/recheck`,{method:"POST"});await refresh();}));box.append(recovery);
+  }
+  const decisions=run.result.verified||[], feedback=run.result.section_feedback||[];
+  if(decisions.length||feedback.length){
+    const audit=text("details","","disclosure");audit.append(text("summary","Selection feedback and decisions"));
+    const stamp=us=>{const n=Math.floor(us/1e6);return `${Math.floor(n/3600)}:${String(Math.floor(n/60)%60).padStart(2,"0")}:${String(n%60).padStart(2,"0")}`;};
+    for(const item of feedback)audit.append(text("p",`${stamp(item.start_us)}–${stamp(item.end_us)} · ${item.source==="chat_peak"?"Chat peak":"Transcript"} · ${item.candidates} suggestions — ${item.feedback}`));
+    if(!feedback.length)audit.append(text("p","This older scan did not save section feedback. Rechecking exclusions does not rescan empty sections.","muted"));
+    for(const item of decisions){
+      const c=item.candidate;audit.append(text("h4",`${stamp(item.start_us)} · ${c.title_fi} · ${item.eligible?"Selected":"Not selected"}`));
+      audit.append(text("p",c.reason));
+      audit.append(text("p",`Model: ${c.outcome} · Standalone ${c.scores.standalone}/4 · Substance ${c.scores.substance}/4 · Fidelity ${c.scores.fidelity}/4 · ${((item.end_us-item.start_us)/1e6).toFixed(1)} seconds`,"muted"));
+      for(const reason of item.exclusion_reasons||[])audit.append(text("p",reason));
+      for(const flag of c.flags||[])audit.append(text("p",flag,"muted"));
+    }
+    box.append(audit);
+  }
   if(run.state==="completed"&&!run.clips.length)box.append(text("p",run.result.coverage==="partial"?"Some speech sections could not be evaluated. No clips are ready.":"No suitable clips were found in this recording."));
   const peaks=run.result.chat_peak_review;
-  if(peaks){const notes={timing_unconfirmed:"Chat peak review skipped: confirm the stream ID and VOD timing offset before starting a new run.",unavailable:"Chat peak review unavailable; the full transcript scan still ran.",stream_unavailable:"The selected stream was unavailable for chat peak review.",no_peaks:"Chat peak review: no distinct spikes found in the available data."};box.append(text("p",notes[peaks.status]||`Chat peak review: ${peaks.checked} sections checked, ${peaks.skipped} skipped. Peaks do not change the clip quality threshold.`,"muted"));}
-  const grid=$("clips");grid.replaceChildren();for(const clip of run.clips){const card=text("article","","clip");if(clip.has_preview){const video=document.createElement("video");video.controls=true;video.preload="metadata";video.src=`/api/artifacts/${clip.id}/video?revision=${clip.revision}`;card.append(video);}card.append(text("h3",clip.title),text("p",`${clip.status} · ${((clip.end_us-clip.start_us)/1e6).toFixed(1)} seconds · VOD ${(clip.start_us/1e6).toFixed(1)}–${(clip.end_us/1e6).toFixed(1)}s`));for(const flag of clip.flags||[])card.append(text("p",flag));const link=document.createElement("a");link.href=`${clip.source_url}&t=${Math.floor(clip.start_us/1e6)}`;link.target="_blank";link.rel="noopener";link.textContent="Original VOD";card.append(link,action("Edit",()=>openEditor(clip.id)));if(["held","ready"].includes(clip.status))card.append(action(clip.status==="held"?"Retry render":"Render new revision",async()=>{await api(`/api/clips/${clip.id}/retry`,{method:"POST",body:JSON.stringify({expected_revision:clip.revision})});await refresh();}));if(clip.status==="ready"&&clip.has_preview){const download=document.createElement("a");download.href=`/api/artifacts/${clip.id}/video?revision=${clip.revision}`;download.download="short.mp4";download.textContent="Download vertical video";card.append(download);}grid.append(card);}
+  if(peaks){const notes={timing_unconfirmed:"Chat peak review skipped: confirm the stream ID and VOD timing offset before starting a new run.",unavailable:"Chat peak review unavailable; the full transcript scan still ran.",stream_unavailable:"The selected stream was unavailable for chat peak review.",no_peaks:"Chat peak review: no distinct spikes found in the available data."};usageDetails.append(text("p",notes[peaks.status]||`Chat peak review: ${peaks.checked} sections checked, ${peaks.skipped} skipped. Peaks do not change the clip quality threshold.`,"muted"));}
+  const nextClipsSignature=JSON.stringify([run.id,run.clips,run.clips.length?null:run.state]);
+  if(nextClipsSignature===clipsSignature)return;clipsSignature=nextClipsSignature;
+  if(displayedRun?.id!==run.id)clipPage=0;displayedRun=run;paintClips();
 }
+function paintClips(){
+  const run=displayedRun;
+  clipPage=Math.min(clipPage,Math.max(0,Math.ceil(run.clips.length/clipPageSize)-1));
+  const grid=$("clips");grid.replaceChildren();$("clip-count").textContent=`${run.clips.length} ${run.clips.length===1?"clip":"clips"}`;
+  if(!run.clips.length)grid.append(text("p",["queued","running","paused"].includes(run.state)?"Clips will appear here as processing finishes.":"No clips are ready for review from this run.","muted"));
+  $("clip-page").textContent=run.clips.length?`${clipPage*clipPageSize+1}–${Math.min((clipPage+1)*clipPageSize,run.clips.length)} of ${run.clips.length} clips`:"";
+  $("previous-clips").hidden=clipPage===0;$("next-clips").hidden=(clipPage+1)*clipPageSize>=run.clips.length;
+  for(const clip of run.clips.slice(clipPage*clipPageSize,(clipPage+1)*clipPageSize)){
+    const card=text("article","","clip"),body=text("div","","clip-body");
+    if(clip.has_preview){const video=document.createElement("video");video.controls=true;video.preload="metadata";video.src=`/api/artifacts/${clip.id}/video?revision=${clip.revision}`;video.setAttribute("aria-label",clip.title);card.append(video);}
+    else card.append(text("div","Preview unavailable","clip-no-preview"));
+    body.append(text("h3",clip.title),text("p",`${clip.status==="held"?"Needs review":clip.status} · ${((clip.end_us-clip.start_us)/1e6).toFixed(1)} seconds`),text("p",`Original VOD ${(clip.start_us/1e6).toFixed(1)}–${(clip.end_us/1e6).toFixed(1)}s`));
+    for(const flag of clip.flags||[])body.append(text("p",flag,"clip-flag"));
+    const buttons=text("div","","actions");buttons.append(action("Edit clip",()=>openEditor(clip.id),false));
+    if(["held","ready"].includes(clip.status))buttons.append(action(clip.status==="held"?"Retry render":"Render new revision",async()=>{await api(`/api/clips/${clip.id}/retry`,{method:"POST",body:JSON.stringify({expected_revision:clip.revision})});await refresh();}));
+    const link=document.createElement("a");link.href=`${clip.source_url}&t=${Math.floor(clip.start_us/1e6)}`;link.target="_blank";link.rel="noopener";link.textContent="Original VOD ↗";buttons.append(link);body.append(buttons);
+    if(clip.status==="ready"&&clip.has_preview){const download=document.createElement("a");download.href=`/api/artifacts/${clip.id}/video?revision=${clip.revision}`;download.download="short.mp4";download.textContent="Download vertical video ↓";body.append(download);}
+    card.append(body);grid.append(card);
+  }
+}
+$("previous-clips").onclick=()=>{clipPage--;paintClips();$("clip-review-heading").scrollIntoView({behavior:"auto",block:"start"});};
+$("next-clips").onclick=()=>{clipPage++;paintClips();$("clip-review-heading").scrollIntoView({behavior:"auto",block:"start"});};
+
 $("open-output").onclick=()=>api("/api/output/open",{method:"POST"}).catch(e=>error(e.message));
-async function openEditor(id){editing=await api(`/api/clips/${id}`);const preset=savedLayouts.find(l=>JSON.stringify(l.body)===JSON.stringify(editing.layout));if(preset)$("edit-layout").value=preset.id;else $("edit-layout").value="";$("use-source-frame").disabled=!editing.has_source;$("editor").hidden=false;$("editor-title").textContent=editing.title;$("edit-start").value=editing.start_us/1e6;$("edit-end").value=editing.end_us/1e6;$("edit-title").value=editing.title;$("reviewed").checked=false;$("edit-words").value=editing.words.map(w=>`${w.id} | ${w.text}`).join("\n");$("source-player").hidden=!editing.has_source;if(editing.has_source){$("source-player").src=`/api/artifacts/${id}/source`;$("source-player").onloadedmetadata=()=>{$("source-player").currentTime=Math.max(0,(editing.start_us-editing.section_origin_us)/1e6-3);};}$("editor").scrollIntoView({behavior:"smooth"});}
-$("edit-form").onsubmit=async event=>{event.preventDefault();try{const words=$("edit-words").value.split("\n").filter(Boolean).map(line=>{const split=line.indexOf("|");const id=line.slice(0,split).trim();const original=editing.words.find(w=>w.id===id);if(split<0||!original)throw new Error("Keep each original caption word ID before the |.");return {...original,text:line.slice(split+1).trim()};});const result=await api(`/api/clips/${editing.id}/edit`,{method:"POST",body:JSON.stringify({expected_revision:editing.revision,start_us:Math.round(Number($("edit-start").value)*1e6),end_us:Math.round(Number($("edit-end").value)*1e6),title:$("edit-title").value,words,layout_id:$("edit-layout").value,reviewed:$("reviewed").checked})});activeRun=result.run_id;$("editor").hidden=true;await refresh();}catch(e){error(e.message);}};
+async function openEditor(id){editing=await api(`/api/clips/${id}`);const preset=savedLayouts.find(l=>JSON.stringify(l.body)===JSON.stringify(editing.layout));if(preset)$("edit-layout").value=preset.id;else $("edit-layout").value="";$("use-source-frame").disabled=!editing.has_source;$("editor").hidden=false;$("editor-title").textContent=editing.title;$("edit-start").value=editing.start_us/1e6;$("edit-end").value=editing.end_us/1e6;$("edit-title").value=editing.title;$("reviewed").checked=false;$("edit-words").value=editing.words.map(w=>`${w.id} | ${w.text}`).join("\n");$("source-player").hidden=!editing.has_source;if(editing.has_source){$("source-player").src=`/api/artifacts/${id}/source`;$("source-player").onloadedmetadata=()=>{$("source-player").currentTime=Math.max(0,(editing.start_us-editing.section_origin_us)/1e6-3);};}$("source-unavailable").hidden=editing.has_source;goView("editor");}
+$("edit-form").onsubmit=async event=>{event.preventDefault();error("");$("save-edit").disabled=true;$("save-edit").textContent="Saving revision…";try{const words=$("edit-words").value.split("\n").filter(Boolean).map(line=>{const split=line.indexOf("|");const id=line.slice(0,split).trim();const original=editing.words.find(w=>w.id===id);if(split<0||!original)throw new Error("Keep each original caption word ID before the |.");return {...original,text:line.slice(split+1).trim()};});const result=await api(`/api/clips/${editing.id}/edit`,{method:"POST",body:JSON.stringify({expected_revision:editing.revision,start_us:Math.round(Number($("edit-start").value)*1e6),end_us:Math.round(Number($("edit-end").value)*1e6),title:$("edit-title").value,words,layout_id:$("edit-layout").value,reviewed:$("reviewed").checked})});activeRun=result.run_id;$("editor").hidden=true;detailSignature="";await refresh();goView("results");$("notice").textContent="Revision saved. Follow its render in Runs & clips.";$("notice").hidden=false;}catch(e){error(e.message);}finally{$("save-edit").disabled=false;$("save-edit").textContent="Save and render revision";}};
 let frame=null,drawMode="camera",origin=null,rectangles={};const canvas=$("crop-canvas"),ctx=canvas.getContext("2d");
 function paint(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
@@ -97,19 +208,28 @@ function paint(){
   }
 }
 function setFrame(image,layout=null){
+  $("frame-empty").hidden=true;$("preview-empty").hidden=true;$("draw-camera").disabled=false;$("draw-game").disabled=false;
   frame=image;canvas.height=Math.round(canvas.width*image.height/image.width);
   rectangles=layout?{camera:layout.camera,game:layout.gameplay}:{};
   for(const [key,id] of [["camera","camera-rect"],["game","game-rect"]])$(id).value=rectangles[key]?[rectangles[key].x,rectangles[key].y,rectangles[key].width,rectangles[key].height].join(", "):"";
   $("calibrated").checked=false;paint();
 }
-$("frame-file").onchange=event=>{const file=event.target.files[0];if(!file)return;const url=URL.createObjectURL(file);const img=new Image();img.onload=()=>{setFrame(img);URL.revokeObjectURL(url);};img.src=url;};
+$("frame-file").onchange=event=>{const file=event.target.files[0];if(!file)return;const url=URL.createObjectURL(file);const img=new Image();img.onload=()=>{const preset=rectangles.camera&&rectangles.game?{camera:rectangles.camera,gameplay:rectangles.game}:savedLayouts.find(l=>l.id===$("preset-select").value)?.body;setFrame(img,preset);URL.revokeObjectURL(url);};img.onerror=()=>{URL.revokeObjectURL(url);error("This image could not be opened. Try another screenshot.");};img.src=url;};
 $("use-source-frame").onclick=()=>{
   const video=$("source-player");if(video.readyState<2){error("Wait for the source picture to load.");return;}
   video.pause();const image=document.createElement("canvas");image.width=video.videoWidth;image.height=video.videoHeight;image.getContext("2d").drawImage(video,0,0);
-  setFrame(image,editing.layout);$("layout-panel").open=true;$("layout-panel").scrollIntoView({behavior:"smooth"});
+  setFrame(image,editing.layout);$("layout-name").value=editing.layout.name;$("solo-host").checked=editing.layout.solo_host;$("preset-select").value=savedLayouts.find(l=>JSON.stringify(l.body)===JSON.stringify(editing.layout))?.id||"";goView("layouts");
 };
-$("draw-camera").onclick=()=>{drawMode="camera";$("crop-mode").textContent="Draw camera · fixed panel shape";};
-$("draw-game").onclick=()=>{drawMode="game";$("crop-mode").textContent="Draw gameplay · fixed panel shape";};
+function setDrawMode(mode){drawMode=mode;$("crop-mode").textContent=`Draw ${mode==="camera"?"camera":"gameplay"} · fixed panel shape`;for(const [id,key] of [["draw-camera","camera"],["draw-game","game"]]){$(id).className=key===mode?"":"secondary";$(id).setAttribute("aria-pressed",String(key===mode));}}
+$("draw-camera").onclick=()=>setDrawMode("camera");
+$("draw-game").onclick=()=>setDrawMode("game");
+$("preset-select").onchange=()=>{
+  const preset=savedLayouts.find(l=>l.id===$("preset-select").value)?.body;
+  $("layout-name").value=preset?preset.name:"";$("solo-host").checked=Boolean(preset?.solo_host);$("calibrated").checked=false;$("layout-saved").textContent="";
+  rectangles=preset?{camera:preset.camera,game:preset.gameplay}:{};
+  for(const [key,id] of [["camera","camera-rect"],["game","game-rect"]]){const r=rectangles[key];$(id).value=r?[r.x,r.y,r.width,r.height].join(", "):"";}
+  paint();
+};
 function point(event){const b=canvas.getBoundingClientRect();return{x:Math.max(0,Math.min(1,(event.clientX-b.left-canvas.clientLeft)/canvas.clientWidth)),y:Math.max(0,Math.min(1,(event.clientY-b.top-canvas.clientTop)/canvas.clientHeight))};}
 canvas.onpointerdown=event=>{if(!frame)return;origin=point(event);canvas.setPointerCapture(event.pointerId);};
 canvas.onpointermove=event=>{
@@ -122,5 +242,5 @@ for(const [id,key] of [["camera-rect","camera"],["game-rect","game"]])$(id).onin
   const [x,y,width,height]=$(id).value.split(",").map(Number);
   if([x,y,width,height].every(Number.isFinite)&&x>=0&&y>=0&&width>0&&height>0&&x+width<=1&&y+height<=1){rectangles[key]={x,y,width,height};paint();}
 };
-$("layout-form").onsubmit=async event=>{event.preventDefault();try{const rect=id=>{const values=$(id).value.split(",").map(Number);if(values.length!==4||values.some(n=>!Number.isFinite(n)))throw new Error("Enter four crop coordinates.");const[x,y,width,height]=values;return{x,y,width,height};};const result=await api("/api/layouts",{method:"POST",body:JSON.stringify({name:$("layout-name").value,camera:rect("camera-rect"),gameplay:rect("game-rect"),calibrated:$("calibrated").checked,solo_host:$("solo-host").checked})});await layouts();$("layout").value=result.id;if(editing)$("edit-layout").value=result.id;error("");}catch(e){error(e.message);}};
+$("layout-form").onsubmit=async event=>{event.preventDefault();const forEditor=editing&&$("layout-return").href.endsWith("#editor");error("");$("layout-saved").textContent="";$("save-layout").disabled=true;$("save-layout").textContent="Saving preset…";try{const rect=id=>{const values=$(id).value.split(",").map(Number);if(values.length!==4||values.some(n=>!Number.isFinite(n)))throw new Error("Enter four crop coordinates.");const[x,y,width,height]=values;return{x,y,width,height};};const result=await api("/api/layouts",{method:"POST",body:JSON.stringify({name:$("layout-name").value,camera:rect("camera-rect"),gameplay:rect("game-rect"),calibrated:$("calibrated").checked,solo_host:$("solo-host").checked})});await layouts();$("layout").value=result.id;if(forEditor)$("edit-layout").value=result.id;$("preset-select").value=result.id;$("layout-saved").textContent="Preset saved and selected for your next run"+(forEditor?" and this clip.":".");error("");}catch(e){error(e.message);}finally{$("save-layout").disabled=false;$("save-layout").textContent="Save new preset";}};
 init().catch(e=>error(e.message));
