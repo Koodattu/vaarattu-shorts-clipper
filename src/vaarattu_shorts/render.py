@@ -229,6 +229,15 @@ def crop(rect, width, height):
     return f"crop={w}:{h}:{x}:{y}"
 
 
+def panel_filter(height, fit):
+    if fit == "contain":
+        return (
+            f"scale=1080:{height}:force_original_aspect_ratio=decrease:force_divisible_by=2,"
+            f"pad=1080:{height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1"
+        )
+    return f"scale=1080:{height}:force_original_aspect_ratio=increase,crop=1080:{height},setsar=1"
+
+
 def render_clip(settings, section, mapping, body, layout, words, folder, check):
     folder.mkdir(parents=True, exist_ok=True)
     start, end = body["start_us"], body["end_us"]
@@ -259,9 +268,8 @@ def render_clip(settings, section, mapping, body, layout, words, folder, check):
     camera, gameplay = crop(layout.camera, width, height), crop(layout.gameplay, width, height)
     filters = (
         f"[0:v]trim=start={local_start:.6f}:duration={duration:.6f},setpts=PTS-STARTPTS,split=2[c][g];"
-        f"[c]{camera},scale=1080:608:force_original_aspect_ratio=increase,"
-        "crop=1080:608,setsar=1[cam];"
-        f"[g]{gameplay},scale=1080:1312:force_original_aspect_ratio=increase,crop=1080:1312,setsar=1[game];"
+        f"[c]{camera},{panel_filter(layout.camera_height, layout.camera_fit)}[cam];"
+        f"[g]{gameplay},{panel_filter(1920 - layout.camera_height, layout.gameplay_fit)}[game];"
         "[cam][game]vstack,subtitles=filename=captions.ass,fps=30,format=yuv420p[v];"
         f"[0:a]atrim=start={local_start:.6f}:duration={duration:.6f},asetpts=PTS-STARTPTS,aresample=48000[a]"
     )

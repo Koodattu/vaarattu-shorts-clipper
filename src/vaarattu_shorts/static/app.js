@@ -45,12 +45,12 @@ async function api(path, options={}){
 }
 function action(label, fn, secondary=true){const button=document.createElement("button");button.type="button";button.textContent=label;if(secondary)button.className="secondary";button.onclick=()=>Promise.resolve(fn()).catch(e=>error(e.message));return button;}
 function text(tag, value, className){const node=document.createElement(tag);node.textContent=value;if(className)node.className=className;return node;}
-async function layouts(){const list=await api("/api/layouts");savedLayouts=list;for(const id of ["layout","edit-layout","preset-select"]){const selected=$(id).value;$(id).replaceChildren();if(id==="preset-select"){const empty=text("option","New preset");empty.value="";$(id).append(empty);}for(const item of list){const o=document.createElement("option");o.value=item.id;o.textContent=item.body.name;$(id).append(o);}if(list.some(l=>l.id===selected))$(id).value=selected;}$("layout-required").hidden=Boolean(list.length);}
+async function layouts(){const list=await api("/api/layouts");savedLayouts=list;for(const id of ["layout","edit-layout","preset-select"]){const selected=$(id).value;$(id).replaceChildren();if(id==="preset-select"){const empty=text("option","New preset");empty.value="";$(id).append(empty);}for(const item of list){const o=document.createElement("option");o.value=item.id;o.textContent=item.body.name;$(id).append(o);}if(list.some(l=>l.id===selected))$(id).value=selected;else if(id==="edit-layout")$(id).value="";}$("layout-required").hidden=Boolean(list.length);}
 async function init(){const state=await api("/api/status");token=state.token;concurrencyLimit=state.max_concurrent_jobs||1;$("job-concurrency").value=String(concurrencyLimit);$("cache-path").textContent=`Model cache: ${state.model_cache}`;
   for(const [key,info] of Object.entries(state.providers)){const o=document.createElement("option");o.value=key;o.textContent=(key==="codex"?`Codex · ${info.model}`:labels[key])+(!info.available?" · unavailable":!info.configured?" · key missing":"");o.disabled=!info.available||!info.configured;$("provider").append(o);}
   $("setup-status").textContent=state.models.turbo?"Turbo is prepared.":"Prepare Turbo and your selected LLM before running. See docs/setup.md.";
   $("provider").onchange=()=>{const codex=$("provider").value==="codex",local=$("provider").value==="local";$("budget").disabled=codex;$("budget-field").hidden=codex||local;$("local-settings").hidden=!local;$("codex-note").hidden=!codex;};$("provider").onchange();
-  await layouts();await refresh();
+  await layouts();restoreLayout();await refresh();
 }
 $("job-concurrency").onchange=async()=>{const select=$("job-concurrency");select.disabled=true;try{const result=await api("/api/concurrency",{method:"POST",body:JSON.stringify({max_concurrent_jobs:Number(select.value)})});concurrencyLimit=result.max_concurrent_jobs;await refresh();}catch(e){select.value=String(concurrencyLimit);error(e.message);}finally{select.disabled=false;}};
 $("run-form").onsubmit=async event=>{event.preventDefault();if(submittingRun)return;submittingRun=true;error("");$("run-button").disabled=true;try{
@@ -191,56 +191,220 @@ $("previous-clips").onclick=()=>{clipPage--;paintClips();$("clip-review-heading"
 $("next-clips").onclick=()=>{clipPage++;paintClips();$("clip-review-heading").scrollIntoView({behavior:"auto",block:"start"});};
 
 $("open-output").onclick=()=>api("/api/output/open",{method:"POST"}).catch(e=>error(e.message));
-async function openEditor(id){editing=await api(`/api/clips/${id}`);const preset=savedLayouts.find(l=>JSON.stringify(l.body)===JSON.stringify(editing.layout));if(preset)$("edit-layout").value=preset.id;else $("edit-layout").value="";$("use-source-frame").disabled=!editing.has_source;$("editor").hidden=false;$("editor-title").textContent=editing.title;$("edit-start").value=editing.start_us/1e6;$("edit-end").value=editing.end_us/1e6;$("edit-title").value=editing.title;$("reviewed").checked=false;$("edit-words").value=editing.words.map(w=>`${w.id} | ${w.text}`).join("\n");$("source-player").hidden=!editing.has_source;if(editing.has_source){$("source-player").src=`/api/artifacts/${id}/source`;$("source-player").onloadedmetadata=()=>{$("source-player").currentTime=Math.max(0,(editing.start_us-editing.section_origin_us)/1e6-3);};}$("source-unavailable").hidden=editing.has_source;goView("editor");}
+function sameLayout(a,b){
+  const defaults={camera_height:608,camera_fit:"cover",gameplay_fit:"cover",camera_ratio:"panel",gameplay_ratio:"panel"};
+  const normalize=value=>{const v={...defaults,...value};return Object.keys(v).sort().map(key=>[key,key==="camera"||key==="gameplay"?[v[key].x,v[key].y,v[key].width,v[key].height]:v[key]]);};
+  return JSON.stringify(normalize(a))===JSON.stringify(normalize(b));
+}
+async function openEditor(id){editing=await api(`/api/clips/${id}`);const preset=savedLayouts.find(l=>sameLayout(l.body,editing.layout));if(preset)$("edit-layout").value=preset.id;else $("edit-layout").value="";$("use-source-frame").disabled=!editing.has_source;$("editor").hidden=false;$("editor-title").textContent=editing.title;$("edit-start").value=editing.start_us/1e6;$("edit-end").value=editing.end_us/1e6;$("edit-title").value=editing.title;$("reviewed").checked=false;$("edit-words").value=editing.words.map(w=>`${w.id} | ${w.text}`).join("\n");$("source-player").hidden=!editing.has_source;if(editing.has_source){$("source-player").src=`/api/artifacts/${id}/source`;$("source-player").onloadedmetadata=()=>{$("source-player").currentTime=Math.max(0,(editing.start_us-editing.section_origin_us)/1e6-3);};}$("source-unavailable").hidden=editing.has_source;goView("editor");}
 $("edit-form").onsubmit=async event=>{event.preventDefault();error("");$("save-edit").disabled=true;$("save-edit").textContent="Saving revision…";try{const words=$("edit-words").value.split("\n").filter(Boolean).map(line=>{const split=line.indexOf("|");const id=line.slice(0,split).trim();const original=editing.words.find(w=>w.id===id);if(split<0||!original)throw new Error("Keep each original caption word ID before the |.");return {...original,text:line.slice(split+1).trim()};});const result=await api(`/api/clips/${editing.id}/edit`,{method:"POST",body:JSON.stringify({expected_revision:editing.revision,start_us:Math.round(Number($("edit-start").value)*1e6),end_us:Math.round(Number($("edit-end").value)*1e6),title:$("edit-title").value,words,layout_id:$("edit-layout").value,reviewed:$("reviewed").checked})});activeRun=result.run_id;$("editor").hidden=true;detailSignature="";await refresh();goView("results");$("notice").textContent="Revision saved. Follow its render in Runs & clips.";$("notice").hidden=false;}catch(e){error(e.message);}finally{$("save-edit").disabled=false;$("save-edit").textContent="Save and render revision";}};
-let frame=null,drawMode="camera",origin=null,rectangles={};const canvas=$("crop-canvas"),ctx=canvas.getContext("2d");
+let frame=null,frameName="",frameVersion=0,frameLoading=false,drawMode="camera",gesture=null,redraw=false,rectangles={};
+let composition={camera_height:608,camera_fit:"cover",gameplay_fit:"cover",camera_ratio:"panel",gameplay_ratio:"panel"};
+const canvas=$("crop-canvas"),ctx=canvas.getContext("2d");
+function settingKey(kind){return `${drawMode==="camera"?"camera":"gameplay"}_${kind}`;}
+function syncRectangles(){
+  for(const [key,id] of [["camera","camera-rect"],["game","game-rect"]]){
+    const r=rectangles[key];$(id).value=r?[r.x,r.y,r.width,r.height].join(", "):"";$(id).setCustomValidity("");
+  }
+}
+function syncComposition(layout={}){
+  composition={camera_height:layout.camera_height??608,camera_fit:layout.camera_fit??"cover",gameplay_fit:layout.gameplay_fit??"cover",camera_ratio:layout.camera_ratio??"panel",gameplay_ratio:layout.gameplay_ratio??"panel"};
+  $("camera-height").value=String(composition.camera_height);updatePanelLabel();setDrawMode(drawMode);
+}
+function updatePanelLabel(){
+  const percent=Math.round(composition.camera_height/1920*100);
+  $("camera-height-label").textContent=`${percent}% camera · ${100-percent}% gameplay`;
+}
 function paint(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
-  const preview=$("layout-preview"), out=preview.getContext("2d");
-  out.clearRect(0,0,preview.width,preview.height);
+  const preview=$("layout-preview"),out=preview.getContext("2d"),panels=layoutPanels(composition.camera_height);
+  out.fillStyle="#000";out.fillRect(0,0,preview.width,preview.height);
   if(!frame)return;
   ctx.drawImage(frame,0,0,canvas.width,canvas.height);
   for(const [key,r] of Object.entries(rectangles)){
-    ctx.strokeStyle=key==="camera"?"#b5ed82":"#8ad7ff";ctx.lineWidth=3;
+    ctx.strokeStyle=key==="camera"?"#b5ed82":"#8ad7ff";ctx.fillStyle=ctx.strokeStyle;ctx.lineWidth=key===drawMode?3:1.5;
     ctx.strokeRect(r.x*canvas.width,r.y*canvas.height,r.width*canvas.width,r.height*canvas.height);
-    const panel=cropPanels[key], source=panelSource(r,frame.width,frame.height,key);
-    if(source.width>=2&&source.height>=2)out.drawImage(frame,source.x,source.y,source.width,source.height,0,key==="camera"?0:152,270,panel.height/4);
+    ctx.font="16px sans-serif";ctx.fillText(key==="camera"?"Camera":"Gameplay",r.x*canvas.width+8,Math.max(20,r.y*canvas.height-8));
+    if(key===drawMode)for(const corner of cropCorners(r))ctx.fillRect(corner.x*canvas.width-5,corner.y*canvas.height-5,10,10);
+    const fit=composition[key==="camera"?"camera_fit":"gameplay_fit"];
+    const panel=panels[key],source=panelSource(r,frame.width,frame.height,key,composition.camera_height,fit);
+    if(source.width<2||source.height<2)continue;
+    const scale=preview.width/1080,panelY=key==="camera"?0:composition.camera_height*scale;
+    let w=preview.width,h=panel.height*scale;
+    if(fit==="contain"){const factor=Math.min(w/source.width,h/source.height);w=source.width*factor;h=source.height*factor;}
+    out.drawImage(frame,source.x,source.y,source.width,source.height,(preview.width-w)/2,panelY+(panel.height*scale-h)/2,w,h);
   }
 }
 function setFrame(image,layout=null){
-  $("frame-empty").hidden=true;$("preview-empty").hidden=true;$("draw-camera").disabled=false;$("draw-game").disabled=false;
+  frameVersion++;frameLoading=false;gesture=null;redraw=false;
   frame=image;canvas.height=Math.round(canvas.width*image.height/image.width);
-  rectangles=layout?{camera:layout.camera,game:layout.gameplay}:{};
-  for(const [key,id] of [["camera","camera-rect"],["game","game-rect"]])$(id).value=rectangles[key]?[rectangles[key].x,rectangles[key].y,rectangles[key].width,rectangles[key].height].join(", "):"";
-  $("calibrated").checked=false;paint();
+  $("frame-empty").hidden=true;$("preview-empty").hidden=true;
+  for(const id of ["draw-camera","draw-game","redraw-crop"])$(id).disabled=false;
+  rectangles={};if(layout?.camera)rectangles.camera={...layout.camera};if(layout?.gameplay)rectangles.game={...layout.gameplay};
+  syncRectangles();$("calibrated").checked=false;paint();
 }
-$("frame-file").onchange=event=>{const file=event.target.files[0];if(!file)return;const url=URL.createObjectURL(file);const img=new Image();img.onload=()=>{const preset=rectangles.camera&&rectangles.game?{camera:rectangles.camera,gameplay:rectangles.game}:savedLayouts.find(l=>l.id===$("preset-select").value)?.body;setFrame(img,preset);URL.revokeObjectURL(url);};img.onerror=()=>{URL.revokeObjectURL(url);error("This image could not be opened. Try another screenshot.");};img.src=url;};
+function clearFrame(){
+  frameVersion++;frameLoading=false;frame=null;frameName="";gesture=null;
+  $("frame-empty").hidden=false;$("preview-empty").hidden=false;
+  $("frame-name").textContent="A screenshot copy is saved locally with the preset.";
+  $("frame-file").value="";
+  for(const id of ["draw-camera","draw-game","redraw-crop"])$(id).disabled=true;
+  paint();
+}
+function loadFrame(url,name,layout,revoke=false){
+  const version=++frameVersion;frameLoading=true;
+  const img=new Image();
+  const release=()=>{if(revoke)URL.revokeObjectURL(url);};
+  img.onload=()=>{
+    release();if(version!==frameVersion)return;
+    setFrame(img,layout);frameName=name;$("frame-name").textContent=`${name} · saved with the preset`;
+  };
+  img.onerror=()=>{release();if(version!==frameVersion)return;frameLoading=false;error("This image could not be opened. Choose the screenshot again.");};
+  img.src=url;
+}
+function chooseFrame(file){
+  if(!file)return;
+  if(!file.type.startsWith("image/")){error("Choose an image file for the screenshot.");return;}
+  error("");
+  const preset={camera:rectangles.camera,gameplay:rectangles.game};
+  loadFrame(URL.createObjectURL(file),file.name,preset,true);
+}
+$("frame-file").onchange=event=>chooseFrame(event.target.files[0]);
+$("frame-drop").ondragover=event=>{event.preventDefault();event.dataTransfer.dropEffect="copy";$("frame-drop").classList.add("drag-over");};
+$("frame-drop").ondragleave=()=>$("frame-drop").classList.remove("drag-over");
+$("frame-drop").ondrop=event=>{event.preventDefault();$("frame-drop").classList.remove("drag-over");chooseFrame(event.dataTransfer.files[0]);};
 $("use-source-frame").onclick=()=>{
   const video=$("source-player");if(video.readyState<2){error("Wait for the source picture to load.");return;}
   video.pause();const image=document.createElement("canvas");image.width=video.videoWidth;image.height=video.videoHeight;image.getContext("2d").drawImage(video,0,0);
-  setFrame(image,editing.layout);$("layout-name").value=editing.layout.name;$("solo-host").checked=editing.layout.solo_host;$("preset-select").value=savedLayouts.find(l=>JSON.stringify(l.body)===JSON.stringify(editing.layout))?.id||"";goView("layouts");
+  syncComposition(editing.layout);setFrame(image,editing.layout);frameName=`Clip frame at ${video.currentTime.toFixed(1)}s`;
+  $("frame-name").textContent=`${frameName} · saved with the preset`;
+  $("layout-name").value=editing.layout.name;$("solo-host").checked=editing.layout.solo_host;
+  $("preset-select").value=savedLayouts.find(l=>sameLayout(l.body,editing.layout))?.id||"";
+  updatePresetActions();goView("layouts");
 };
-function setDrawMode(mode){drawMode=mode;$("crop-mode").textContent=`Draw ${mode==="camera"?"camera":"gameplay"} · fixed panel shape`;for(const [id,key] of [["draw-camera","camera"],["draw-game","game"]]){$(id).className=key===mode?"":"secondary";$(id).setAttribute("aria-pressed",String(key===mode));}}
-$("draw-camera").onclick=()=>setDrawMode("camera");
-$("draw-game").onclick=()=>setDrawMode("game");
+function setDrawMode(mode){
+  drawMode=mode;redraw=false;
+  $("crop-mode").textContent=`${mode==="camera"?"Camera":"Gameplay"} · drag inside to move, drag a corner to resize. Draw outside to replace.`;
+  for(const [id,key] of [["draw-camera","camera"],["draw-game","game"]]){$(id).className=key===mode?"":"secondary";$(id).setAttribute("aria-pressed",String(key===mode));}
+  $("crop-ratio").value=composition[settingKey("ratio")];$("crop-fit").value=composition[settingKey("fit")];
+}
+$("draw-camera").onclick=()=>{setDrawMode("camera");paint();};
+$("draw-game").onclick=()=>{setDrawMode("game");paint();};
+$("redraw-crop").onclick=()=>{redraw=true;$("crop-mode").textContent="Drag to replace the selected crop. Press Escape to cancel.";canvas.focus();};
+function updatePresetActions(){
+  $("delete-layout").disabled=!$("preset-select").value;
+  const exists=savedLayouts.some(l=>l.body.name.trim().toLowerCase()===$("layout-name").value.trim().toLowerCase());
+  $("save-layout").textContent=exists?"Replace preset":"Save preset";
+}
+function rememberLayout(){
+  try{localStorage.setItem("layout-preset",$("preset-select").value);}catch{ /* Saving the preset does not require browser storage. */ }
+}
+function restoreLayout(){
+  let id;try{id=localStorage.getItem("layout-preset");}catch{return;}
+  if(savedLayouts.some(l=>l.id===id)){$("preset-select").value=id;$("preset-select").onchange();}
+}
+$("layout-name").oninput=updatePresetActions;
 $("preset-select").onchange=()=>{
-  const preset=savedLayouts.find(l=>l.id===$("preset-select").value)?.body;
+  rememberLayout();
+  const item=savedLayouts.find(l=>l.id===$("preset-select").value),preset=item?.body;
+  clearFrame();syncComposition(preset);
   $("layout-name").value=preset?preset.name:"";$("solo-host").checked=Boolean(preset?.solo_host);$("calibrated").checked=false;$("layout-saved").textContent="";
-  rectangles=preset?{camera:preset.camera,game:preset.gameplay}:{};
-  for(const [key,id] of [["camera","camera-rect"],["game","game-rect"]]){const r=rectangles[key];$(id).value=r?[r.x,r.y,r.width,r.height].join(", "):"";}
-  paint();
+  rectangles=preset?{camera:{...preset.camera},game:{...preset.gameplay}}:{};
+  syncRectangles();updatePresetActions();paint();
+  if(item?.screenshot_name)loadFrame(`/api/layouts/${item.id}/screenshot`,item.screenshot_name,preset);
+};
+$("delete-layout").onclick=async()=>{
+  const id=$("preset-select").value,item=savedLayouts.find(l=>l.id===id);if(!item)return;
+  if(!window.confirm(`Delete preset “${item.body.name}” and its saved screenshot? Existing runs and clips keep their layouts.`))return;
+  $("delete-layout").disabled=true;
+  try{await api(`/api/layouts/${id}`,{method:"DELETE"});await layouts();$("preset-select").value="";$("preset-select").onchange();$("layout-saved").textContent="Preset deleted. Existing runs and clips are unchanged.";}
+  catch(e){error(e.message);}finally{updatePresetActions();}
+};
+function changed(){syncRectangles();$("calibrated").checked=false;$("layout-saved").textContent="";paint();}
+$("camera-height").oninput=()=>{composition.camera_height=Number($("camera-height").value);updatePanelLabel();$("calibrated").checked=false;$("layout-saved").textContent="";paint();};
+$("crop-fit").onchange=()=>{composition[settingKey("fit")]=$("crop-fit").value;changed();};
+$("crop-ratio").onchange=()=>{
+  const previous=composition[settingKey("ratio")];
+  composition[settingKey("ratio")]=$("crop-ratio").value;
+  const r=rectangles[drawMode];
+  if(frame&&r&&$("crop-ratio").value!=="free"){
+    const ratio=cropRatio(drawMode,frame.width,frame.height,$("crop-ratio").value,composition.camera_height);
+    const width=Math.min(r.width,(1-r.y)*ratio),height=width/ratio;
+    if(width*frame.width<32||height*frame.height<32){composition[settingKey("ratio")]=previous;$("crop-ratio").value=previous;error("This shape would make the crop too small. Draw a larger crop.");return;}
+    rectangles[drawMode]={...r,width,height};
+  }
+  changed();
 };
 function point(event){const b=canvas.getBoundingClientRect();return{x:Math.max(0,Math.min(1,(event.clientX-b.left-canvas.clientLeft)/canvas.clientWidth)),y:Math.max(0,Math.min(1,(event.clientY-b.top-canvas.clientTop)/canvas.clientHeight))};}
-canvas.onpointerdown=event=>{if(!frame)return;origin=point(event);canvas.setPointerCapture(event.pointerId);};
+function hitCrop(p){
+  const keys=[drawMode,drawMode==="camera"?"game":"camera"];
+  for(const key of keys){
+    const r=rectangles[key];if(!r)continue;
+    const corner=cropCorners(r).findIndex(c=>Math.abs(c.x-p.x)*canvas.clientWidth<=10&&Math.abs(c.y-p.y)*canvas.clientHeight<=10);
+    if(corner>=0)return {key,kind:"resize",anchor:cropCorners(r)[(corner+2)%4]};
+    if(p.x>=r.x&&p.x<=r.x+r.width&&p.y>=r.y&&p.y<=r.y+r.height)return {key,kind:"move"};
+  }
+  return {key:drawMode,kind:"draw",anchor:p};
+}
+canvas.onpointerdown=event=>{
+  if(!frame||frameLoading||event.button>0)return;
+  event.preventDefault();canvas.focus();const p=point(event),hit=redraw?{key:drawMode,kind:"draw",anchor:p}:hitCrop(p);
+  setDrawMode(hit.key);gesture={...hit,start:p,before:rectangles[hit.key]?{...rectangles[hit.key]}:null};
+  canvas.setPointerCapture(event.pointerId);paint();
+};
 canvas.onpointermove=event=>{
-  if(!origin)return;
-  const r=panelRectangle(origin,point(event),drawMode,frame.width,frame.height);
-  rectangles[drawMode]=r;$(drawMode==="camera"?"camera-rect":"game-rect").value=[r.x,r.y,r.width,r.height].map(n=>n.toFixed(8)).join(", ");paint();
+  if(!frame)return;
+  const p=point(event);
+  if(!gesture){canvas.style.cursor=redraw?"crosshair":({move:"move",resize:"nwse-resize",draw:"crosshair"})[hitCrop(p).kind];return;}
+  const g=gesture;
+  const r=g.kind==="move"?moveRectangle(g.before,p.x-g.start.x,p.y-g.start.y):panelRectangle(g.anchor,p,g.key,frame.width,frame.height,composition[settingKey("ratio")],composition.camera_height);
+  if(r.width*frame.width<32||r.height*frame.height<32)return;
+  rectangles[g.key]=r;changed();
 };
-canvas.onpointerup=canvas.onpointercancel=()=>{origin=null;};
+function cancelGesture(){
+  if(gesture){if(gesture.before)rectangles[gesture.key]=gesture.before;else delete rectangles[gesture.key];gesture=null;changed();}
+  setDrawMode(drawMode);paint();
+}
+canvas.onpointerup=()=>{gesture=null;};
+canvas.onpointercancel=cancelGesture;
+canvas.onlostpointercapture=()=>{gesture=null;};
+canvas.onkeydown=event=>{
+  if(event.key==="Escape"){cancelGesture();return;}
+  const direction={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[event.key];
+  if(!direction||!frame||!rectangles[drawMode])return;
+  event.preventDefault();const step=event.shiftKey?10:1;
+  rectangles[drawMode]=moveRectangle(rectangles[drawMode],direction[0]*step/frame.width,direction[1]*step/frame.height);changed();
+};
+function readRectangle(id){
+  const values=$(id).value.split(",").map(v=>v.trim()===""?NaN:Number(v));
+  if(values.length!==4||values.some(n=>!Number.isFinite(n)))throw new Error("Enter four crop coordinates.");
+  const [x,y,width,height]=values;
+  if(x<0||y<0||width<=0||height<=0||x+width>1.000001||y+height>1.000001)throw new Error("Keep both crops inside the source frame.");
+  if(frame&&(Math.floor(width*frame.width/2)*2<32||Math.floor(height*frame.height/2)*2<32))throw new Error("Each crop must be at least 32 pixels wide and tall. Enlarge the crop.");
+  return {x,y,width,height};
+}
 for(const [id,key] of [["camera-rect","camera"],["game-rect","game"]])$(id).oninput=()=>{
-  const [x,y,width,height]=$(id).value.split(",").map(Number);
-  if([x,y,width,height].every(Number.isFinite)&&x>=0&&y>=0&&width>0&&height>0&&x+width<=1&&y+height<=1){rectangles[key]={x,y,width,height};paint();}
+  $("calibrated").checked=false;$("layout-saved").textContent="";
+  try{rectangles[key]=readRectangle(id);$(id).setCustomValidity("");paint();}catch(e){$(id).setCustomValidity(e.message);}
 };
-$("layout-form").onsubmit=async event=>{event.preventDefault();const forEditor=editing&&$("layout-return").href.endsWith("#editor");error("");$("layout-saved").textContent="";$("save-layout").disabled=true;$("save-layout").textContent="Saving preset…";try{const rect=id=>{const values=$(id).value.split(",").map(Number);if(values.length!==4||values.some(n=>!Number.isFinite(n)))throw new Error("Enter four crop coordinates.");const[x,y,width,height]=values;return{x,y,width,height};};const result=await api("/api/layouts",{method:"POST",body:JSON.stringify({name:$("layout-name").value,camera:rect("camera-rect"),gameplay:rect("game-rect"),calibrated:$("calibrated").checked,solo_host:$("solo-host").checked})});await layouts();$("layout").value=result.id;if(forEditor)$("edit-layout").value=result.id;$("preset-select").value=result.id;$("layout-saved").textContent="Preset saved and selected for your next run"+(forEditor?" and this clip.":".");error("");}catch(e){error(e.message);}finally{$("save-layout").disabled=false;$("save-layout").textContent="Save new preset";}};
+function screenshotCopy(){
+  if(!frame)return null;
+  const copy=document.createElement("canvas"),scale=Math.min(1,1600/frame.width,1600/frame.height);
+  copy.width=Math.round(frame.width*scale);copy.height=Math.round(frame.height*scale);
+  copy.getContext("2d").drawImage(frame,0,0,copy.width,copy.height);
+  let data=copy.toDataURL("image/jpeg",0.85);
+  if(data.length>1800000)data=copy.toDataURL("image/jpeg",0.5);
+  if(data.length>1800000)throw new Error("This screenshot is too large to save. Choose a smaller image.");
+  return {name:(frameName||"Screenshot").slice(0,255),data};
+}
+$("layout-form").onsubmit=async event=>{
+  event.preventDefault();const forEditor=editing&&$("layout-return").href.endsWith("#editor");error("");$("layout-saved").textContent="";
+  if(frameLoading){error("Wait for the screenshot to finish loading before saving.");return;}
+  $("save-layout").disabled=true;$("save-layout").textContent="Saving preset…";
+  try{
+    const result=await api("/api/layouts",{method:"POST",body:JSON.stringify({name:$("layout-name").value.trim(),camera:readRectangle("camera-rect"),gameplay:readRectangle("game-rect"),calibrated:$("calibrated").checked,solo_host:$("solo-host").checked,...composition,screenshot:screenshotCopy()})});
+    await layouts();$("layout").value=result.id;if(forEditor)$("edit-layout").value=result.id;$("preset-select").value=result.id;rememberLayout();
+    $("layout-saved").textContent="Preset saved and selected for your next run"+(forEditor?" and this clip.":".");error("");
+  }catch(e){error(e.message);}finally{$("save-layout").disabled=false;updatePresetActions();}
+};
 init().catch(e=>error(e.message));

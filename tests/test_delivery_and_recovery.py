@@ -11,7 +11,9 @@ from vaarattu_shorts.storage import atomic_json, digest
 
 @pytest.mark.parametrize("duration", [4, 8, 30])
 @pytest.mark.parametrize("problem", ["caption", "transcript", "outside_clip"])
-def test_render_exports_with_caption_or_transcript_warnings(settings, monkeypatch, duration, problem):
+@pytest.mark.parametrize("composition", [{}, {"camera_height": 960, "camera_fit": "contain", "gameplay_fit": "cover"},
+                                         {"camera_height": 400, "camera_fit": "cover", "gameplay_fit": "contain"}])
+def test_render_exports_with_caption_or_transcript_warnings(settings, monkeypatch, duration, problem, composition):
     folder = settings.ready / ".staging" / "test"
     folder.mkdir(parents=True)
     source = settings.work / "source.mkv"
@@ -50,6 +52,7 @@ def test_render_exports_with_caption_or_transcript_warnings(settings, monkeypatc
         "gameplay": {"x": 0.3, "y": 0.3, "width": 0.7, "height": 0.7},
         "calibrated": True,
         "solo_host": True,
+        **composition,
     }
     words = [
         Word(
@@ -83,9 +86,19 @@ def test_render_exports_with_caption_or_transcript_warnings(settings, monkeypatc
     graph = (folder / "filters.txt").read_text("utf-8")
     assert f"trim=start=0.000000:duration={duration:.6f}" in graph
     assert "vstack" in graph and "captions.ass" in graph
-    assert "pad=" not in graph
-    assert "scale=1080:608:force_original_aspect_ratio=increase,crop=1080:608" in graph
-    assert "scale=1080:1312:force_original_aspect_ratio=increase,crop=1080:1312" in graph
+    if not composition:
+        assert "pad=" not in graph
+        assert "scale=1080:608:force_original_aspect_ratio=increase,crop=1080:608" in graph
+        assert "scale=1080:1312:force_original_aspect_ratio=increase,crop=1080:1312" in graph
+    else:
+        height = composition["camera_height"]
+        for panel, size in [("camera", height), ("gameplay", 1920 - height)]:
+            if composition[panel + "_fit"] == "contain":
+                assert f"scale=1080:{size}:force_original_aspect_ratio=decrease:force_divisible_by=2" in graph
+                assert f"pad=1080:{size}:(ow-iw)/2:(oh-ih)/2:color=black" in graph
+            else:
+                assert f"scale=1080:{size}:force_original_aspect_ratio=increase,crop=1080:{size}" in graph
+        assert result["layout"]["camera_height"] == height
     assert "fps=30" in graph
     assert any("libx264" in args for args in commands)
 

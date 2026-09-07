@@ -61,8 +61,16 @@ def test_concurrency_endpoint_is_guarded_bounded_and_persistent(settings):
         headers = {"X-Local-Token": status["token"]}
         assert client.post("/api/concurrency", json={"max_concurrent_jobs": 2}).status_code == 403
         for value in [0, 5]:
-            assert client.post("/api/concurrency", json={"max_concurrent_jobs": value}, headers=headers).status_code == 422
-        assert client.post("/api/concurrency", json={"max_concurrent_jobs": 2}, headers=headers).status_code == 200
+            assert (
+                client.post(
+                    "/api/concurrency", json={"max_concurrent_jobs": value}, headers=headers
+                ).status_code
+                == 422
+            )
+        assert (
+            client.post("/api/concurrency", json={"max_concurrent_jobs": 2}, headers=headers).status_code
+            == 200
+        )
     assert Store(settings.work / "state.sqlite3").concurrency() == 2
 
 

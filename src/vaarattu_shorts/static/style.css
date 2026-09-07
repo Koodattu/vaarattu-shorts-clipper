@@ -59,3 +59,5 @@ label{display:block;color:var(--muted);font-size:.93rem;line-height:1.5;min-widt
 
 #clip-review-heading{scroll-margin-top:var(--space-xl)}
 @media(max-width:800px){#clip-review-heading{scroll-margin-top:160px}}
+
+.frame-drop{margin-block:var(--space-lg);padding:var(--space-lg);border:2px dashed var(--line);border-radius:var(--radius)}.frame-drop.drag-over{border-color:var(--accent);background:var(--accent-soft)}.frame-drop .file-field{margin-top:0}.frame-drop p{margin-top:var(--space-sm);overflow-wrap:anywhere}.crop-controls .grid{margin-top:var(--space-lg)}.panel-size{margin-top:var(--space-lg)}.panel-size output{font-size:.85rem;color:var(--muted)}#crop-canvas{cursor:crosshair;width:100%}#crop-canvas:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}.layout-toolbar{flex-wrap:wrap}

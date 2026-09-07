@@ -52,6 +52,27 @@ class Layout(Contract):
     gameplay: Rect
     calibrated: bool = False
     solo_host: bool = False
+    camera_height: int = Field(default=608, ge=192, le=1728, multiple_of=2)
+    camera_fit: Literal["cover", "contain"] = "cover"
+    gameplay_fit: Literal["cover", "contain"] = "cover"
+    camera_ratio: Literal["panel", "free", "16:9", "4:3", "1:1", "9:16"] = "panel"
+    gameplay_ratio: Literal["panel", "free", "16:9", "4:3", "1:1", "9:16"] = "panel"
+
+    @model_validator(mode="after")
+    def named(self):
+        self.name = self.name.strip()
+        if not self.name:
+            raise ValueError("Enter a preset name.")
+        return self
+
+
+class LayoutScreenshot(Contract):
+    name: str = Field(min_length=1, max_length=255)
+    data: str = Field(max_length=1_800_000, pattern=r"^data:image/jpeg;base64,")
+
+
+class LayoutSave(Layout):
+    screenshot: LayoutScreenshot | None = None
 
 
 class RunRequest(Contract):

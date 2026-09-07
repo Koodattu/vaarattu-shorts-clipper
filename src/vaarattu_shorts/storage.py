@@ -48,6 +48,10 @@ class Store:
                 CREATE TABLE IF NOT EXISTS preferences(key TEXT PRIMARY KEY, value INTEGER NOT NULL);
                 INSERT OR IGNORE INTO preferences VALUES('max_concurrent_jobs', 1);
                 CREATE TABLE IF NOT EXISTS layouts(id TEXT PRIMARY KEY, body TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS layout_frames(
+                    layout_id TEXT PRIMARY KEY REFERENCES layouts(id) ON DELETE CASCADE,
+                    name TEXT NOT NULL, image BLOB NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS clips(
                     id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id),
                     revision INTEGER NOT NULL, body TEXT NOT NULL
@@ -330,7 +334,10 @@ class Store:
 
     def layouts(self):
         with self.connect() as db:
-            return [self.unpack(r) for r in db.execute("SELECT * FROM layouts")]
+            return [self.unpack(r) for r in db.execute(
+                "SELECT layouts.*, layout_frames.name AS screenshot_name FROM layouts "
+                "LEFT JOIN layout_frames ON layouts.id=layout_frames.layout_id"
+            )]
 
     def layout(self, layout_id):
         with self.connect() as db:
@@ -338,11 +345,40 @@ class Store:
                 "body"
             ]
 
-    def add_layout(self, body):
-        layout_id = uuid.uuid4().hex
+    def add_layout(self, body, screenshot=None):
+        body = {**body, "name": body["name"].strip()}
+        if not body["name"]:
+            raise ValueError("Enter a preset name.")
         with self.connect() as db:
-            db.execute("INSERT INTO layouts VALUES(?,?)", (layout_id, json.dumps(body)))
+            db.execute("BEGIN IMMEDIATE")
+            matches = [r["id"] for r in db.execute("SELECT * FROM layouts ORDER BY rowid")
+                       if json.loads(r["body"])["name"].strip().casefold() == body["name"].casefold()]
+            layout_id = matches[0] if matches else uuid.uuid4().hex
+            db.execute(
+                "INSERT INTO layouts VALUES(?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body",
+                (layout_id, json.dumps(body)),
+            )
+            if screenshot is not None:
+                db.execute(
+                    "INSERT INTO layout_frames VALUES(?,?,?) ON CONFLICT(layout_id) "
+                    "DO UPDATE SET name=excluded.name, image=excluded.image",
+                    (layout_id, screenshot[0], screenshot[1]),
+                )
+            for duplicate in matches[1:]:
+                db.execute("DELETE FROM layouts WHERE id=?", (duplicate,))
         return layout_id
+
+    def layout_frame(self, layout_id):
+        with self.connect() as db:
+            row = db.execute("SELECT * FROM layout_frames WHERE layout_id=?", (layout_id,)).fetchone()
+            if row is None:
+                raise KeyError(layout_id)
+            return row["image"]
+
+    def delete_layout(self, layout_id):
+        with self.connect() as db:
+            if not db.execute("DELETE FROM layouts WHERE id=?", (layout_id,)).rowcount:
+                raise KeyError(layout_id)
 
     def clips(self, run_id):
         with self.connect() as db:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import os
 import secrets
@@ -8,11 +10,11 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from fastapi import Body, FastAPI, Header, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import catalog, discover
-from .contracts import MAX_CLIP_US, MIN_CLIP_US, EditRequest, Layout, RunRequest, Word
+from .contracts import MAX_CLIP_US, MIN_CLIP_US, EditRequest, LayoutSave, RunRequest, Word
 from .llm import PROVIDERS, codex_settings
 from .models import CATALOG, model_path
 from .pipeline import preflight
@@ -164,8 +166,26 @@ def create_app(settings):
         return store.layouts()
 
     @app.post("/api/layouts", status_code=201)
-    def add_layout(layout: Layout):
-        return {"id": store.add_layout(layout.model_dump())}
+    def add_layout(layout: LayoutSave):
+        screenshot = None
+        if layout.screenshot is not None:
+            try:
+                image = base64.b64decode(layout.screenshot.data.split(",", 1)[1], validate=True)
+            except (ValueError, binascii.Error):
+                raise ValueError("This screenshot could not be saved. Choose it again.") from None
+            if not image.startswith(b"\xff\xd8\xff") or not image.endswith(b"\xff\xd9"):
+                raise ValueError("This screenshot could not be saved. Choose it again.")
+            screenshot = (layout.screenshot.name, image)
+        return {"id": store.add_layout(layout.model_dump(exclude={"screenshot"}), screenshot)}
+
+    @app.get("/api/layouts/{layout_id}/screenshot")
+    def layout_screenshot(layout_id: str):
+        return Response(store.layout_frame(layout_id), media_type="image/jpeg")
+
+    @app.delete("/api/layouts/{layout_id}")
+    def delete_layout(layout_id: str):
+        store.delete_layout(layout_id)
+        return {"deleted": layout_id}
 
     @app.get("/api/runs")
     def runs():

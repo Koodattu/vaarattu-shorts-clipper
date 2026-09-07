@@ -110,11 +110,17 @@ test("Codex selection disables dollar cap and renders unknown costs", async()=>{
   let queued=false, submitted;
   const context=vm.createContext({
     crypto:{randomUUID:()=>"fixture-request"},
+    setTimeout:()=>0,
     document:{getElementById:id=>nodes.get(id),createElement:tag=>new Element(tag)},
     fetch:async(url,options)=>{
       let result;
-      if(url==="/api/status")result={token:"fixture",models:{turbo:true},providers:{
+      if(url==="/api/status")result={token:"fixture",max_concurrent_jobs:2,models:{turbo:true},providers:{
         codex:{model:"gpt-5.6-luna",configured:true,available:true}}};
+      else if(url==="/api/concurrency"){
+        assert.equal(options.method,"POST");
+        assert.deepEqual(JSON.parse(options.body),{max_concurrent_jobs:3});
+        result={max_concurrent_jobs:3};
+      }
       else if(url==="/api/layouts")result=[];
       else if(url==="/api/videos")result={configured:false,videos:[]};
       else if(url==="/api/runs"&&options.method==="POST"){
@@ -127,6 +133,10 @@ test("Codex selection disables dollar cap and renders unknown costs", async()=>{
   });
   vm.runInContext(fs.readFileSync(path.join(staticPath,"app.js"),"utf8"),context);
   await new Promise(setImmediate);
+  assert.equal(nodes.get("job-concurrency").value,"2");
+  nodes.get("job-concurrency").value="3";
+  await nodes.get("job-concurrency").onchange();
+  assert.equal(nodes.get("job-concurrency").disabled,false);
   assert.ok(find(nodes.get("provider"),"Codex · gpt-5.6-luna"));
   nodes.get("provider").value="codex";
   nodes.get("provider").onchange();
@@ -162,4 +172,12 @@ test("Codex selection disables dollar cap and renders unknown costs", async()=>{
   assert.equal(nodes.get("next-clips").hidden,true);
   nodes.get("previous-clips").onclick();
   assert.ok(find(nodes.get("clips"),"Moment 0"));
+  run.state="running";
+  await vm.runInContext('refresh()',context);
+  assert.equal(nodes.get("run-button").disabled,false,"Active jobs must not block submitting another video");
+  assert.equal(nodes.get("run-availability").hidden,false);
+  run.state="paused";
+  await vm.runInContext('refresh()',context);
+  assert.equal(nodes.get("run-button").disabled,false);
+  assert.equal(nodes.get("run-availability").hidden,true,"Paused jobs do not occupy a processing slot");
 });
