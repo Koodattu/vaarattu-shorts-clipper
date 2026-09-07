@@ -1,6 +1,7 @@
 "use strict";
 const $ = id => document.getElementById(id);
 let token = "", activeRun = null, editing = null, polling = false;
+let savedLayouts = [];
 let library = null, videoLimit = 20, fetchingVideos = false;
 const labels = {local:"Local · Gemma 4",gemini:"Gemini 3.8 Flash",openai:"GPT-5.6 Luna",codex:"Codex",zai:"GLM-5.3-Flash",deepseek:"DeepSeek V4 Flash",meta:"Meta Muse Spark 1.3"};
 function error(message){$("error").textContent=message;$("error").hidden=!message;}
@@ -12,7 +13,7 @@ async function api(path, options={}){
 }
 function action(label, fn, secondary=true){const button=document.createElement("button");button.type="button";button.textContent=label;if(secondary)button.className="secondary";button.onclick=()=>Promise.resolve(fn()).catch(e=>error(e.message));return button;}
 function text(tag, value, className){const node=document.createElement(tag);node.textContent=value;if(className)node.className=className;return node;}
-async function layouts(){const list=await api("/api/layouts");for(const id of ["layout","edit-layout"]){const selected=$(id).value;$(id).replaceChildren();for(const item of list){const o=document.createElement("option");o.value=item.id;o.textContent=item.body.name;$(id).append(o);}if(list.some(l=>l.id===selected))$(id).value=selected;}}
+async function layouts(){const list=await api("/api/layouts");savedLayouts=list;for(const id of ["layout","edit-layout"]){const selected=$(id).value;$(id).replaceChildren();for(const item of list){const o=document.createElement("option");o.value=item.id;o.textContent=item.body.name;$(id).append(o);}if(list.some(l=>l.id===selected))$(id).value=selected;}}
 async function init(){const state=await api("/api/status");token=state.token;$("cache-path").textContent=`Model cache: ${state.model_cache}`;
   for(const [key,info] of Object.entries(state.providers)){const o=document.createElement("option");o.value=key;o.textContent=(key==="codex"?`Codex · ${info.model}`:labels[key])+(!info.available?" · unavailable":!info.configured?" · key missing":"");o.disabled=!info.available||!info.configured;$("provider").append(o);}
   $("setup-status").textContent=state.models.turbo?"Turbo is prepared.":"Prepare Turbo and your selected LLM before running. See docs/setup.md.";
@@ -76,16 +77,50 @@ async function detail(){if(!activeRun){$("run-detail").textContent="No videos pr
   if(run.state==="completed"&&!run.clips.length)box.append(text("p",run.result.coverage==="partial"?"Some speech sections could not be evaluated. No clips are ready.":"No suitable clips were found in this recording."));
   const peaks=run.result.chat_peak_review;
   if(peaks){const notes={timing_unconfirmed:"Chat peak review skipped: confirm the stream ID and VOD timing offset before starting a new run.",unavailable:"Chat peak review unavailable; the full transcript scan still ran.",stream_unavailable:"The selected stream was unavailable for chat peak review.",no_peaks:"Chat peak review: no distinct spikes found in the available data."};box.append(text("p",notes[peaks.status]||`Chat peak review: ${peaks.checked} sections checked, ${peaks.skipped} skipped. Peaks do not change the clip quality threshold.`,"muted"));}
-  const grid=$("clips");grid.replaceChildren();for(const clip of run.clips){const card=text("article","","clip");if(clip.has_preview){const video=document.createElement("video");video.controls=true;video.preload="metadata";video.src=`/api/artifacts/${clip.id}/video`;card.append(video);}card.append(text("h3",clip.title),text("p",`${clip.status} · ${((clip.end_us-clip.start_us)/1e6).toFixed(1)} seconds · VOD ${(clip.start_us/1e6).toFixed(1)}–${(clip.end_us/1e6).toFixed(1)}s`));for(const flag of clip.flags||[])card.append(text("p",flag));const link=document.createElement("a");link.href=`${clip.source_url}&t=${Math.floor(clip.start_us/1e6)}`;link.target="_blank";link.rel="noopener";link.textContent="Original VOD";card.append(link,action("Edit",()=>openEditor(clip.id)));if(clip.status==="held")card.append(action("Retry render",async()=>{await api(`/api/clips/${clip.id}/retry`,{method:"POST",body:JSON.stringify({expected_revision:clip.revision})});await refresh();}));if(clip.status==="ready"&&clip.has_preview){const download=document.createElement("a");download.href=`/api/artifacts/${clip.id}/video`;download.download="short.mp4";download.textContent="Download vertical video";card.append(download);}grid.append(card);}
+  const grid=$("clips");grid.replaceChildren();for(const clip of run.clips){const card=text("article","","clip");if(clip.has_preview){const video=document.createElement("video");video.controls=true;video.preload="metadata";video.src=`/api/artifacts/${clip.id}/video?revision=${clip.revision}`;card.append(video);}card.append(text("h3",clip.title),text("p",`${clip.status} · ${((clip.end_us-clip.start_us)/1e6).toFixed(1)} seconds · VOD ${(clip.start_us/1e6).toFixed(1)}–${(clip.end_us/1e6).toFixed(1)}s`));for(const flag of clip.flags||[])card.append(text("p",flag));const link=document.createElement("a");link.href=`${clip.source_url}&t=${Math.floor(clip.start_us/1e6)}`;link.target="_blank";link.rel="noopener";link.textContent="Original VOD";card.append(link,action("Edit",()=>openEditor(clip.id)));if(["held","ready"].includes(clip.status))card.append(action(clip.status==="held"?"Retry render":"Render new revision",async()=>{await api(`/api/clips/${clip.id}/retry`,{method:"POST",body:JSON.stringify({expected_revision:clip.revision})});await refresh();}));if(clip.status==="ready"&&clip.has_preview){const download=document.createElement("a");download.href=`/api/artifacts/${clip.id}/video?revision=${clip.revision}`;download.download="short.mp4";download.textContent="Download vertical video";card.append(download);}grid.append(card);}
 }
 $("open-output").onclick=()=>api("/api/output/open",{method:"POST"}).catch(e=>error(e.message));
-async function openEditor(id){editing=await api(`/api/clips/${id}`);$("editor").hidden=false;$("editor-title").textContent=editing.title;$("edit-start").value=editing.start_us/1e6;$("edit-end").value=editing.end_us/1e6;$("edit-title").value=editing.title;$("reviewed").checked=false;$("edit-words").value=editing.words.map(w=>`${w.id} | ${w.text}`).join("\n");$("source-player").hidden=!editing.has_source;if(editing.has_source){$("source-player").src=`/api/artifacts/${id}/source`;$("source-player").onloadedmetadata=()=>{$("source-player").currentTime=Math.max(0,(editing.start_us-editing.section_origin_us)/1e6-3);};}$("editor").scrollIntoView({behavior:"smooth"});}
+async function openEditor(id){editing=await api(`/api/clips/${id}`);const preset=savedLayouts.find(l=>JSON.stringify(l.body)===JSON.stringify(editing.layout));if(preset)$("edit-layout").value=preset.id;else $("edit-layout").value="";$("use-source-frame").disabled=!editing.has_source;$("editor").hidden=false;$("editor-title").textContent=editing.title;$("edit-start").value=editing.start_us/1e6;$("edit-end").value=editing.end_us/1e6;$("edit-title").value=editing.title;$("reviewed").checked=false;$("edit-words").value=editing.words.map(w=>`${w.id} | ${w.text}`).join("\n");$("source-player").hidden=!editing.has_source;if(editing.has_source){$("source-player").src=`/api/artifacts/${id}/source`;$("source-player").onloadedmetadata=()=>{$("source-player").currentTime=Math.max(0,(editing.start_us-editing.section_origin_us)/1e6-3);};}$("editor").scrollIntoView({behavior:"smooth"});}
 $("edit-form").onsubmit=async event=>{event.preventDefault();try{const words=$("edit-words").value.split("\n").filter(Boolean).map(line=>{const split=line.indexOf("|");const id=line.slice(0,split).trim();const original=editing.words.find(w=>w.id===id);if(split<0||!original)throw new Error("Keep each original caption word ID before the |.");return {...original,text:line.slice(split+1).trim()};});const result=await api(`/api/clips/${editing.id}/edit`,{method:"POST",body:JSON.stringify({expected_revision:editing.revision,start_us:Math.round(Number($("edit-start").value)*1e6),end_us:Math.round(Number($("edit-end").value)*1e6),title:$("edit-title").value,words,layout_id:$("edit-layout").value,reviewed:$("reviewed").checked})});activeRun=result.run_id;$("editor").hidden=true;await refresh();}catch(e){error(e.message);}};
 let frame=null,drawMode="camera",origin=null,rectangles={};const canvas=$("crop-canvas"),ctx=canvas.getContext("2d");
-function paint(){ctx.clearRect(0,0,canvas.width,canvas.height);if(frame)ctx.drawImage(frame,0,0,canvas.width,canvas.height);for(const [key,r] of Object.entries(rectangles)){ctx.strokeStyle=key==="camera"?"#b5ed82":"#8ad7ff";ctx.lineWidth=3;ctx.strokeRect(r.x*canvas.width,r.y*canvas.height,r.width*canvas.width,r.height*canvas.height);}}
-$("frame-file").onchange=event=>{const file=event.target.files[0];if(!file)return;const url=URL.createObjectURL(file);const img=new Image();img.onload=()=>{frame=img;canvas.height=Math.round(canvas.width*img.height/img.width);paint();URL.revokeObjectURL(url);};img.src=url;};
-$("draw-camera").onclick=()=>{drawMode="camera";};$("draw-game").onclick=()=>{drawMode="game";};
-function point(event){const b=canvas.getBoundingClientRect();return{x:Math.max(0,Math.min(1,(event.clientX-b.left)/b.width)),y:Math.max(0,Math.min(1,(event.clientY-b.top)/b.height))};}
-canvas.onpointerdown=event=>{origin=point(event);canvas.setPointerCapture(event.pointerId);};canvas.onpointermove=event=>{if(!origin)return;const p=point(event);const r={x:Math.min(origin.x,p.x),y:Math.min(origin.y,p.y),width:Math.abs(origin.x-p.x),height:Math.abs(origin.y-p.y)};rectangles[drawMode]=r;$(drawMode==="camera"?"camera-rect":"game-rect").value=[r.x,r.y,r.width,r.height].map(n=>n.toFixed(5)).join(", ");paint();};canvas.onpointerup=()=>{origin=null;};
-$("layout-form").onsubmit=async event=>{event.preventDefault();try{const rect=id=>{const values=$(id).value.split(",").map(Number);if(values.length!==4||values.some(n=>!Number.isFinite(n)))throw new Error("Enter four crop coordinates.");const[x,y,width,height]=values;return{x,y,width,height};};const result=await api("/api/layouts",{method:"POST",body:JSON.stringify({name:$("layout-name").value,camera:rect("camera-rect"),gameplay:rect("game-rect"),calibrated:$("calibrated").checked,solo_host:$("solo-host").checked})});await layouts();$("layout").value=result.id;error("");}catch(e){error(e.message);}};
+function paint(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  const preview=$("layout-preview"), out=preview.getContext("2d");
+  out.clearRect(0,0,preview.width,preview.height);
+  if(!frame)return;
+  ctx.drawImage(frame,0,0,canvas.width,canvas.height);
+  for(const [key,r] of Object.entries(rectangles)){
+    ctx.strokeStyle=key==="camera"?"#b5ed82":"#8ad7ff";ctx.lineWidth=3;
+    ctx.strokeRect(r.x*canvas.width,r.y*canvas.height,r.width*canvas.width,r.height*canvas.height);
+    const panel=cropPanels[key], source=panelSource(r,frame.width,frame.height,key);
+    if(source.width>=2&&source.height>=2)out.drawImage(frame,source.x,source.y,source.width,source.height,0,key==="camera"?0:152,270,panel.height/4);
+  }
+}
+function setFrame(image,layout=null){
+  frame=image;canvas.height=Math.round(canvas.width*image.height/image.width);
+  rectangles=layout?{camera:layout.camera,game:layout.gameplay}:{};
+  for(const [key,id] of [["camera","camera-rect"],["game","game-rect"]])$(id).value=rectangles[key]?[rectangles[key].x,rectangles[key].y,rectangles[key].width,rectangles[key].height].join(", "):"";
+  $("calibrated").checked=false;paint();
+}
+$("frame-file").onchange=event=>{const file=event.target.files[0];if(!file)return;const url=URL.createObjectURL(file);const img=new Image();img.onload=()=>{setFrame(img);URL.revokeObjectURL(url);};img.src=url;};
+$("use-source-frame").onclick=()=>{
+  const video=$("source-player");if(video.readyState<2){error("Wait for the source picture to load.");return;}
+  video.pause();const image=document.createElement("canvas");image.width=video.videoWidth;image.height=video.videoHeight;image.getContext("2d").drawImage(video,0,0);
+  setFrame(image,editing.layout);$("layout-panel").open=true;$("layout-panel").scrollIntoView({behavior:"smooth"});
+};
+$("draw-camera").onclick=()=>{drawMode="camera";$("crop-mode").textContent="Draw camera · fixed panel shape";};
+$("draw-game").onclick=()=>{drawMode="game";$("crop-mode").textContent="Draw gameplay · fixed panel shape";};
+function point(event){const b=canvas.getBoundingClientRect();return{x:Math.max(0,Math.min(1,(event.clientX-b.left-canvas.clientLeft)/canvas.clientWidth)),y:Math.max(0,Math.min(1,(event.clientY-b.top-canvas.clientTop)/canvas.clientHeight))};}
+canvas.onpointerdown=event=>{if(!frame)return;origin=point(event);canvas.setPointerCapture(event.pointerId);};
+canvas.onpointermove=event=>{
+  if(!origin)return;
+  const r=panelRectangle(origin,point(event),drawMode,frame.width,frame.height);
+  rectangles[drawMode]=r;$(drawMode==="camera"?"camera-rect":"game-rect").value=[r.x,r.y,r.width,r.height].map(n=>n.toFixed(8)).join(", ");paint();
+};
+canvas.onpointerup=canvas.onpointercancel=()=>{origin=null;};
+for(const [id,key] of [["camera-rect","camera"],["game-rect","game"]])$(id).oninput=()=>{
+  const [x,y,width,height]=$(id).value.split(",").map(Number);
+  if([x,y,width,height].every(Number.isFinite)&&x>=0&&y>=0&&width>0&&height>0&&x+width<=1&&y+height<=1){rectangles[key]={x,y,width,height};paint();}
+};
+$("layout-form").onsubmit=async event=>{event.preventDefault();try{const rect=id=>{const values=$(id).value.split(",").map(Number);if(values.length!==4||values.some(n=>!Number.isFinite(n)))throw new Error("Enter four crop coordinates.");const[x,y,width,height]=values;return{x,y,width,height};};const result=await api("/api/layouts",{method:"POST",body:JSON.stringify({name:$("layout-name").value,camera:rect("camera-rect"),gameplay:rect("game-rect"),calibrated:$("calibrated").checked,solo_host:$("solo-host").checked})});await layouts();$("layout").value=result.id;if(editing)$("edit-layout").value=result.id;error("");}catch(e){error(e.message);}};
 init().catch(e=>error(e.message));

@@ -206,14 +206,15 @@ def test_render_rejects_missing_picture_at_clip_start(settings, monkeypatch):
         )
 
 
-def test_retry_queues_media_only_and_preserves_review_and_revision_guards(settings):
+@pytest.mark.parametrize("status", ["held", "ready"])
+def test_retry_queues_media_only_and_preserves_review_and_revision_guards(settings, status):
     app = create_app(settings)
     store = app.state.store
     run = store.admit({}, "retry")
     store.update(run, state="completed")
     clip_id = "a" * 32
     body = {
-        "status": "held",
+        "status": status,
         "reviewed": False,
         "flags": ["Timing failed"],
         "start_us": 0,

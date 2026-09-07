@@ -1,6 +1,19 @@
 # Video rendering, captions and delivery
 
-Status: proposed first implementation. No VOD sections or finished shorts were rendered in this planning pass.
+## Current implementation (2026-09-07)
+
+- Final output is 9:16, 1080×1920, constant 30 fps, H.264/AAC. Keep 30 fps for the speech-first baseline to limit encoding work and file size; 60 fps is a future option if smoother gameplay becomes a priority.
+- Camera fills a 1080×608 panel (approximately 16:9); gameplay fills the remaining 1080×1312 panel. Both use aspect-preserving scale-to-fill and centered cropping. No generated padding or stretching. Existing presets still work, but their selected area may be cropped further to fill these panels. Source borders already inside a selection must be excluded when calibrating.
+- The layout editor draws rectangles constrained to each panel's shape and shows a composed vertical preview. Preview uses the same even-pixel source rectangle rounding as the renderer (scaler rounding can differ by a pixel). The gameplay preview uses only the selected area; it never expands sideways to include excluded UI. Use a frame from the actual recording, not a screenshot with surrounding player borders or another VOD's layout.
+- In **Edit**, pause the source player and click **Use this frame for layout**. This captures the video's own pixel area and loads that clip's saved crops. Redraw the camera and gameplay regions, check the preview, save the preset, then return to **Save and render revision**. The editor selects the clip's existing preset when opened and the newly saved preset after calibration.
+- Captions use short phrases of up to four words / approximately 30 characters, balanced across at most two lines. Bold Arial has a base size of 86 (formerly 58), white text, warm-yellow current-word highlighting, black outline and shadow. Unusually long lines reduce size using a conservative character-width estimate, not font measurement; long Finnish compounds still generate review warnings. SRT remains plain phrase captions, while ASS contains the highlighting. Word timestamps remain the source of truth; pauses inside a phrase are neutral. Overlaps use one visible phrase and at most one highlighted word at a time. ASS timing resolution is 10 ms; final output samples this at 30 fps.
+- The highlighting approach was compared with `video-generator/src/video_generator/media.py:write_ass`. This implementation emits non-overlapping events instead of stacking a full phrase per active word, avoiding doubled captions when ASR timestamps overlap. It preserves the recorded words and does not use the other project's TTS reconciliation.
+- Caption speed, uncertain transcription, unconfirmed speaker/layout and scene-change warnings are advisory. Successfully encoded and technically validated files are **ready**, with warnings retained in metadata and UI, and are promoted to `workdir/ready/<clip_id>/<revision>/short.mp4`. Invalid media, failed download/alignment, bad crop bounds or failed encoding remain held because a usable export could not be verified.
+- **Retry render** on a held clip or **Render new revision** on a ready clip runs only the media delivery work, reusing a verified downloaded section when possible. It does not redo transcription or LLM selection. Existing exports are preserved under their previous revision. Browser preview URLs include the current revision to refresh the picture.
+
+For the two existing clips, restart the app yourself, calibrate using the source frame, and save/render a revision. No existing files or runtime state were changed and no app, inference or real rendering was started while implementing this update. Verified with offline Python tests and Node geometry checks; actual rendered appearance remains for the next user-run render.
+
+The sections below retain the broader original design. The current implementation above supersedes its former camera-padding, phrase-only caption and warning-based export-hold rules; proposed loudness normalization, font measurement and other unimplemented checks below are not claimed to have shipped.
 
 For the implemented range-cut, audio-alignment and retry behavior, see [the 2026-09-06 media fixes](clip-fixes.md). The sections below retain the original broader design; they do not establish that every proposed QC/processing feature has shipped.
 
@@ -24,17 +37,17 @@ Decode and re-encode the final exact cut. [FFmpeg's seeking documentation](https
 
 ## Two-panel vertical layout
 
-Default canvas: 1080×1920, square pixels, 30 fps constant output, H.264/yuv420p and AAC 48 kHz audio. Initial panel split: 1080×640 camera above 1080×1280 gameplay. The split is a starting visual choice, adjustable during preset calibration.
+Default canvas: 1080×1920, square pixels, 30 fps constant output, H.264/yuv420p and AAC 48 kHz audio. Initial panel split: 1080×608 camera above 1080×1312 gameplay. The split is a starting visual choice, adjustable during preset calibration.
 
 ```text
 ┌──────────────────────────┐
 │                          │
-│       CAMERA PANEL       │  640 px
+│       CAMERA PANEL       │  608 px
 │                          │
 ├──────────────────────────┤
 │                          │
 │                          │
-│     GAMEPLAY PANEL       │  1280 px
+│     GAMEPLAY PANEL       │  1312 px
 │                          │
 │   readable captions      │
 │                          │

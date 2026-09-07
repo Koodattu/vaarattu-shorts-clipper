@@ -103,8 +103,8 @@ def caption_cues(words, start_us, end_us):
     for word in selected:
         text = " ".join(w.text for w in [*group, word])
         if group and (
-            len(text) > 38
-            or len(group) >= 5
+            len(text) > 30
+            or len(group) >= 4
             or word.start_us - group[-1].end_us > 450000
             or word.end_us - group[0].start_us > 3000000
         ):
@@ -116,8 +116,9 @@ def caption_cues(words, start_us, end_us):
     result = []
     for group in cues:
         text = " ".join(w.text for w in group)
+        middle = None
         # Two short lines prevent long Finnish compounds from disappearing off the canvas.
-        if len(text) > 26 and len(group) > 1:
+        if len(text) > 20 and len(group) > 1:
             options = [
                 (abs(len(" ".join(w.text for w in group[:i])) - len(" ".join(w.text for w in group[i:]))), i)
                 for i in range(1, len(group))
@@ -125,7 +126,13 @@ def caption_cues(words, start_us, end_us):
             _, middle = min(options)
             text = " ".join(w.text for w in group[:middle]) + "\n" + " ".join(w.text for w in group[middle:])
         result.append(
-            {"start_us": group[0].start_us - start_us, "end_us": group[-1].end_us - start_us, "text": text}
+            {
+                "start_us": group[0].start_us - start_us,
+                "end_us": max(w.end_us for w in group) - start_us,
+                "text": text,
+                "words": group,
+                "line_break": middle,
+            }
         )
     return result
 
@@ -152,10 +159,11 @@ def captions(folder, words, start, end):
 ScriptType: v4.00+
 PlayResX: 1080
 PlayResY: 1920
-WrapStyle: 0
+WrapStyle: 2
+ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,58,&H00FFFFFF,&H00FFFFFF,&H00101010,&H80000000,-1,0,0,0,100,100,0,0,1,4,1,2,100,160,360,1
+Style: Default,Arial,86,&H00FFFFFF,&H0046C7FF,&H00101010,&H80000000,-1,0,0,0,100,100,0,0,1,5,2,2,90,90,360,1
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
@@ -171,11 +179,36 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             flags.append("Captions need a shorter line or timing adjustment.")
         if duration > 0 and len(cue["text"].replace("\n", " ")) / duration > 30:
             flags.append("Captions are too fast to read comfortably; inspect this excerpt.")
-        escaped = cue["text"].replace("\\", "＼").replace("{", "｛").replace("}", "｝")
-        escaped = "".join(c for c in escaped if c == "\n" or ord(c) >= 32).replace("\n", "\\N")
         srt.append(f"{i}\n{stamp(cue['start_us'])} --> {stamp(cue['end_us'])}\n{cue['text']}\n")
+    # One event per timing interval avoids stacking duplicate phrases during overlapping ASR words.
+    boundaries = sorted(
+        {max(0, (t - start) // 10000) * 10000 for w in selected for t in (w.start_us, w.end_us)}
+    )
+    for left, right in zip(boundaries, boundaries[1:]):
+        active = [c for c in cues if c["start_us"] // 10000 * 10000 <= left < c["end_us"] // 10000 * 10000]
+        if not active:
+            continue
+        cue = active[-1]
+        spoken = [
+            w
+            for w in cue["words"]
+            if (w.start_us - start) // 10000 * 10000 <= left < (w.end_us - start) // 10000 * 10000
+        ]
+        current = spoken[-1] if spoken else None
+        # Conservative width allowance for exceptional Finnish compounds; normal phrases stay large.
+        size = min(86, max(1, int(880 / (max(map(len, cue["text"].splitlines())) * 0.65))))
+        tokens = []
+        for index, word in enumerate(cue["words"]):
+            escaped = word.text.replace("\\", "＼").replace("{", "｛").replace("}", "｝")
+            escaped = "".join(c for c in escaped if ord(c) >= 32)
+            if index:
+                tokens.append(r"\N" if index == cue["line_break"] else " ")
+            tokens.append(
+                (r"{\1c&H0046C7FF&}" + escaped + r"{\1c&H00FFFFFF&}") if word is current else escaped
+            )
+        text = "".join(tokens)
         ass.append(
-            f"Dialogue: 0,{stamp(cue['start_us'], True)},{stamp(cue['end_us'], True)},Default,,0,0,0,,{escaped}\n"
+            f"Dialogue: 0,{stamp(left, True)},{stamp(right, True)},Default,,0,0,0,,{{\\fs{size}}}{text}\n"
         )
     if not cues:
         flags.append("No caption words fall inside this excerpt.")
@@ -222,13 +255,13 @@ def render_clip(settings, section, mapping, body, layout, words, folder, check):
     ):
         flags.append("Transcription is uncertain in this section; inspect its speech, cut and captions.")
     if not layout.calibrated or not layout.solo_host:
-        flags.append("Confirm the source layout and primary speaker before exporting.")
+        flags.append("Check the source layout and primary speaker before publishing.")
     camera, gameplay = crop(layout.camera, width, height), crop(layout.gameplay, width, height)
     filters = (
         f"[0:v]trim=start={local_start:.6f}:duration={duration:.6f},setpts=PTS-STARTPTS,split=2[c][g];"
-        f"[c]{camera},scale=1080:640:force_original_aspect_ratio=decrease,"
-        "pad=1080:640:(ow-iw)/2:(oh-ih)/2,setsar=1[cam];"
-        f"[g]{gameplay},scale=1080:1280:force_original_aspect_ratio=increase,crop=1080:1280,setsar=1[game];"
+        f"[c]{camera},scale=1080:608:force_original_aspect_ratio=increase,"
+        "crop=1080:608,setsar=1[cam];"
+        f"[g]{gameplay},scale=1080:1312:force_original_aspect_ratio=increase,crop=1080:1312,setsar=1[game];"
         "[cam][game]vstack,subtitles=filename=captions.ass,fps=30,format=yuv420p[v];"
         f"[0:a]atrim=start={local_start:.6f}:duration={duration:.6f},asetpts=PTS-STARTPTS,aresample=48000[a]"
     )
@@ -340,7 +373,7 @@ def render_clip(settings, section, mapping, body, layout, words, folder, check):
         "mapping": mapping,
         "layout": layout.model_dump(),
         "flags": sorted(set(flags)),
-        "status": "held" if flags else "ready",
+        "status": "ready",
         "video_sha256": digest(output),
     }
     atomic_json(folder / "metadata.json", metadata)

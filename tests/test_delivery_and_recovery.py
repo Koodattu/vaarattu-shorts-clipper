@@ -11,9 +11,7 @@ from vaarattu_shorts.storage import atomic_json, digest
 
 @pytest.mark.parametrize("duration", [8, 30])
 @pytest.mark.parametrize("problem", ["caption", "transcript", "outside_clip"])
-def test_render_holds_only_clips_with_technical_or_transcript_issues(
-    settings, monkeypatch, duration, problem
-):
+def test_render_exports_with_caption_or_transcript_warnings(settings, monkeypatch, duration, problem):
     folder = settings.ready / ".staging" / "test"
     folder.mkdir(parents=True)
     source = settings.work / "source.mkv"
@@ -78,14 +76,56 @@ def test_render_holds_only_clips_with_technical_or_transcript_issues(
         folder,
         lambda: None,
     )
-    assert result["status"] == ("ready" if problem == "outside_clip" else "held")
+    assert result["status"] == "ready"
     assert bool(result["flags"]) == (problem != "outside_clip")
     if problem == "transcript":
         assert any("Transcription is uncertain" in flag for flag in result["flags"])
     graph = (folder / "filters.txt").read_text("utf-8")
     assert f"trim=start=0.000000:duration={duration:.6f}" in graph
     assert "vstack" in graph and "captions.ass" in graph
+    assert "pad=" not in graph
+    assert "scale=1080:608:force_original_aspect_ratio=increase,crop=1080:608" in graph
+    assert "scale=1080:1312:force_original_aspect_ratio=increase,crop=1080:1312" in graph
+    assert "fps=30" in graph
     assert any("libx264" in args for args in commands)
+
+
+def test_warned_export_is_promoted_with_flags(settings, store, monkeypatch):
+    run = store.admit({}, "warnings")
+    clip_id = "b" * 32
+    section = settings.work / "section.mkv"
+    section.write_bytes(b"source fixture")
+    body = {
+        "start_us": 0,
+        "end_us": 8000000,
+        "title": "Title",
+        "words": [],
+        "layout": {},
+        "status": "pending",
+        "section": str(section),
+        "section_sha256": digest(section),
+        "mapping": {"origin_us": 0, "section_duration": 30},
+    }
+    store.save_clip(clip_id, run, 1, body)
+
+    def render(settings, section, mapping, body, layout, words, folder, check):
+        folder.mkdir(parents=True)
+        (folder / "short.mp4").write_bytes(b"render fixture")
+        result = {
+            **body,
+            "status": "ready",
+            "flags": ["Review captions"],
+            "video_sha256": digest(folder / "short.mp4"),
+        }
+        atomic_json(folder / "metadata.json", result)
+        return result
+
+    monkeypatch.setattr("vaarattu_shorts.pipeline.render.render_clip", render)
+    Pipeline(settings, store, run).deliver(store.clip(clip_id), settings.work / "unused", 30000000)
+    clip = store.clip(clip_id)["body"]
+    assert clip["status"] == "ready" and clip["flags"] == ["Review captions"]
+    assert clip["folder"] == str(settings.ready / clip_id / "1")
+    assert (settings.ready / clip_id / "1" / "short.mp4").exists()
 
 
 def test_promoted_package_is_reconciled_without_rerender(settings, store, monkeypatch):

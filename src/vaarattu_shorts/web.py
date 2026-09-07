@@ -27,7 +27,17 @@ def public_clip(clip):
         "run_id": clip["run_id"],
         **{
             k: body.get(k)
-            for k in ("status", "title", "start_us", "end_us", "flags", "words", "source_url", "selection")
+            for k in (
+                "status",
+                "title",
+                "start_us",
+                "end_us",
+                "flags",
+                "words",
+                "source_url",
+                "selection",
+                "layout",
+            )
         },
         "has_preview": bool(body.get("folder") and (Path(body["folder"]) / "short.mp4").exists()),
         "has_source": bool(body.get("section") and Path(body["section"]).exists()),
@@ -201,8 +211,8 @@ def create_app(settings):
     @app.post("/api/clips/{clip_id}/retry", status_code=202)
     def retry_clip(clip_id: str, expected_revision: int = Body(embed=True, ge=1)):
         clip = store.clip(clip_id)
-        if clip["body"]["status"] != "held":
-            raise ValueError("Only a clip that needs attention can be retried.")
+        if clip["body"]["status"] not in {"held", "ready"}:
+            raise ValueError("Wait for this clip to finish before rendering it again.")
         body = {**clip["body"], "status": "pending", "flags": [], "folder": None}
         revision = store.queue_edit(clip_id, expected_revision, body)
         return {"revision": revision, "run_id": clip["run_id"]}
