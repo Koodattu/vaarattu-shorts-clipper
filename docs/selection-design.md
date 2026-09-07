@@ -1,5 +1,21 @@
 # Transcript presentation and selection, conversation-v6
 
+## Current behavior: conversation-v9 (7 September 2026)
+
+Discovery must identify an actual interesting remark, joke, insight or story in the speech. Gamer references, banter and personality remain welcome, including worthwhile moments with uncertain context or a few unclear words. Unclear fragments are not leads merely because they might conceal something interesting. Routine coordination, mechanics instructions and generic reactions need a distinctive observation, humor, personal detail or engaging explanation beyond the immediate task. Each proposal's existing reason names its value before any uncertainty; no new output fields or count limits were added.
+
+This narrows v8's speculative discovery instructions. Every generated source-valid proposal still proceeds to human review; verifier outcomes and numeric scores remain advisory. Reasoning settings, duration limits and rendering behavior are unchanged. The active v8 run is left running with its loaded instructions and saved artifacts; v9 takes effect after the user restarts the app. Finished selection checkpoints remain reusable. Offline checks validate mechanics, not the new prompt's real selection quality.
+
+## Current behavior: conversation-v8 (7 September 2026)
+
+v8 retains v7's human editorial control, changes the hard minimum to three seconds (five preferred), removes duplicate discovery titles/summaries, and supports separate low/medium reasoning controls for OpenAI/Codex. Both efforts remain low by default. Exact request bodies are saved alongside responses. Isolated comparisons can target saved sections, including empty ones, without rendering clips. See [pacing and evaluation](pacing-and-evaluation.md). Older run settings and completed checkpoints remain preserved.
+
+## Current behavior: conversation-v7 (7 September 2026)
+
+This supersedes historical editorial gates below. Discovery welcomes gamer humor and personality and returns plausible borderline moments for creator review. Verifier verdicts, scores and flags are advisory; source-valid 2–90-second proposals proceed, with faithful short cuts preferred. The 2-second minimum remains unchanged. Fresh scans retain distinct overlapping proposals and suggestions anchored in adjacent visible context, removing only exact duplicates. Invalid IDs and media integrity failures still need repair. Empty-section feedback remains required. No count quota or approval-rate target should suppress plausible candidates. “Not approved” records a publishing choice, not a generation failure.
+
+Optional revision-specific human review reasons are available in the queue/gallery notes dialog. See [the three-run audit](audits/2026-09-07-three-run-audit.md) for evidence, implemented scope, and deferred pacing/model/encoder recommendations. No live processing was started by the agent.
+
 Updated 2026-09-07. This document describes the running code after an app restart, rather than the broader research options in the original plan.
 
 ## Decision: retain words; present speech passages

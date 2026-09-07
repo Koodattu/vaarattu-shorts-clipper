@@ -137,7 +137,10 @@ def test_recovery_rechecks_exclusions_without_discovery_and_keeps_winners(settin
     assert result["coverage"] == seed["coverage"]
 
 
-def test_recovery_pipeline_preserves_exports_and_original_checkpoints(settings, store, monkeypatch):
+@pytest.mark.parametrize("earlier_recovery", [False, True])
+def test_recovery_pipeline_preserves_exports_and_original_checkpoints(
+    settings, store, monkeypatch, earlier_recovery
+):
     run = store.admit(
         {"video": "abc_def-ghI", "provider": "openai", "budget_usd": 1, "layout": {}}, "pipeline"
     )
@@ -164,13 +167,25 @@ def test_recovery_pipeline_preserves_exports_and_original_checkpoints(settings, 
     before = {p: digest(p) for p in pipeline.folder.glob("*.checkpoint.json")}
     old_clip = {"status": "ready", "folder": "unchanged", "start_us": 0, "end_us": 10000000}
     store.save_clip("existing", run, 3, old_clip)
+    recovered_clip = {
+        "status": "ready",
+        "folder": "earlier-recovery",
+        "start_us": 19000000,
+        "end_us": 31000000,
+        "selection": excluded["candidate"],
+    }
+    if earlier_recovery:
+        store.save_clip("earlier", run, 4, recovered_clip)
     store.update(run, state="completed")
     store.control(run, "recheck")
     calls = []
 
     def recover(transcript, evaluator, progress, chat, seed):
         calls.append(True)
-        assert seed == original
+        assert seed == {
+            **original,
+            "verified": original["verified"] + ([{**excluded, "eligible": True}] if earlier_recovery else []),
+        }
         return {**seed, "verified": [winner, {**excluded, "eligible": True}]}
 
     def deliver(self, clip, source, duration):
@@ -184,6 +199,9 @@ def test_recovery_pipeline_preserves_exports_and_original_checkpoints(settings, 
     result = pipeline.recheck_selection()
     assert len(store.clips(run)) == 2 and len(calls) == 1
     assert store.clip("existing")["body"] == old_clip and store.clip("existing")["revision"] == 3
+    if earlier_recovery:
+        assert store.clip("earlier")["body"] == recovered_clip
+        assert store.clip("earlier")["revision"] == 4
     assert result["recovery_version"] == discover.VERSION
     assert not store.get(run)["result"].get("selection_recheck_requested")
     assert all(digest(p) == expected for p, expected in before.items())

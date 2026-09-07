@@ -65,7 +65,8 @@ def test_legacy_layout_defaults():
 def test_screenshot_save_reload_overwrite_delete_and_local_boundary(settings):
     app = create_app(settings)
     image = b"\xff\xd8\xff\xe0test image\xff\xd9"
-    screenshot = {"name": "source.jpg", "data": "data:image/jpeg;base64," + base64.b64encode(image).decode()}
+    screenshot = {"name": "source.jpg", "data": "data:image/jpeg;base64," + base64.b64encode(image).decode(),
+                  "width": 1920, "height": 1080}
     with TestClient(app, base_url="http://127.0.0.1:8765") as client:
         headers = {"X-Local-Token": client.get("/api/status").json()["token"]}
         response = client.post("/api/layouts", json={**preset(), "screenshot": screenshot}, headers=headers)
@@ -74,6 +75,7 @@ def test_screenshot_save_reload_overwrite_delete_and_local_boundary(settings):
         assert client.get(f"/api/layouts/{layout_id}/screenshot").content == image
         row = client.get("/api/layouts").json()[0]
         assert row["screenshot_name"] == "source.jpg"
+        assert row["screenshot_width"] == 1920 and row["screenshot_height"] == 1080
         assert "screenshot" not in row["body"]
         # A fresh store connection sees the persisted image; coordinate-only saves retain it.
         assert Store(settings.work / "state.sqlite3").layout_frame(layout_id) == image
@@ -91,3 +93,15 @@ def test_screenshot_save_reload_overwrite_delete_and_local_boundary(settings):
         bad = {**screenshot, "data": "data:image/jpeg;base64,broken"}
         assert client.post("/api/layouts", json={**preset(), "screenshot": bad}, headers=headers).status_code == 400
         assert client.get("/api/layouts").json() == []
+
+
+def test_existing_screenshot_table_gets_optional_dimensions(store):
+    with store.connect() as db:
+        db.execute("DROP TABLE layout_frames")
+        db.execute("CREATE TABLE layout_frames(layout_id TEXT PRIMARY KEY, name TEXT NOT NULL, image BLOB NOT NULL)")
+        db.execute("INSERT INTO layout_frames VALUES('old', 'old.jpg', ?)", (b"old image",))
+    migrated = Store(store.path)
+    assert migrated.layout_frame("old") == b"old image"
+    with migrated.connect() as db:
+        row = db.execute("SELECT width,height FROM layout_frames WHERE layout_id='old'").fetchone()
+        assert row["width"] is None and row["height"] is None

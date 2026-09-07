@@ -1,5 +1,15 @@
 # Selection recovery and concise feedback
 
+## Current recovery: conversation-v8 (7 September 2026)
+
+v8 preserves the review-first behavior below with a three-second minimum and a leaner discovery schema. Saved full candidates remain supported by recovery; separate v8 checkpoints preserve earlier exports. Existing run reasoning, encoder and pacing settings stay as saved (missing settings mean low, CPU and original pacing). Use the queue/editor render controls to apply GPU encoding or pause trimming to existing clips. See [pacing and evaluation](pacing-and-evaluation.md). No live recovery or processing was started by the agent.
+
+## Current recovery: conversation-v7 (7 September 2026)
+
+This supersedes the v6 behavior described below. After restarting the app yourself, use **Recheck excluded moments** on a completed run to reconsider its saved proposals, including `outside_section` exclusions. Reject/needs_context verdicts and low scores become review notes; source-valid 2–90-second proposals can render. Source/media validation remains in place. Existing clips, edits and revisions are preserved, including exports from earlier recovery versions; intervals already represented are not regenerated. New candidates use the run's original layout.
+
+Recovery writes separate `recovery-conversation-v7` checkpoints and inference artifacts. It does not rescan empty sections or alter original checkpoints. For the latest run, an offline replay of actual saved responses routed all 20 candidates, with 12 new mocked deliveries and eight existing clips unchanged. Real new model responses may refine cuts differently. No actual model call, download, render, or recovery was started; the user starts/restarts the app and processing. See [the audit](audits/2026-09-07-three-run-audit.md).
+
 Implemented 2026-09-07 as conversation-v6. This supersedes the flag veto, five-second floor and same-passage-only refinement described by earlier versions.
 
 ## Changes

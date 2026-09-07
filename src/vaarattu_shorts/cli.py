@@ -51,6 +51,25 @@ def main():
     models = sub.add_parser("models", help="Explicitly prepare a model inside this project's .cache/models")
     models.add_argument("model", choices=["turbo", "gemma4-31b", "gemma4-26b-a4b"])
     sub.add_parser("backup", help="Back up state and durable project artifacts")
+    compare = sub.add_parser(
+        "compare-reasoning", help="Compare low/medium on saved speech; makes model requests, no videos"
+    )
+    compare.add_argument("run_id")
+    compare.add_argument(
+        "--section",
+        type=int,
+        action="append",
+        required=True,
+        help="Zero-based six-minute section; repeat for more sections",
+    )
+    compare.add_argument("--stage", choices=["discovery", "verification"], default="discovery")
+    compare.add_argument(
+        "--budget", type=float, help="Combined API dollar limit for both efforts; defaults to saved limit"
+    )
+    benchmark = sub.add_parser(
+        "benchmark-render", help="Render isolated CPU/NVIDIA comparison copies of a saved clip"
+    )
+    benchmark.add_argument("clip_id")
     args = parser.parse_args()
     settings = load_settings(args.project)
     os.environ.update(settings.environment())
@@ -72,6 +91,15 @@ def main():
         print(prepare(settings, args.model))
         return
     settings.initialize()
+    if args.command in {"compare-reasoning", "benchmark-render"}:
+        from .evaluation import benchmark_render, compare_reasoning
+
+        print(
+            compare_reasoning(settings, args.run_id, args.section, args.stage, args.budget)
+            if args.command == "compare-reasoning"
+            else benchmark_render(settings, args.clip_id)
+        )
+        return
     if args.command == "status":
         from .models import CATALOG, model_path
         from .storage import Store

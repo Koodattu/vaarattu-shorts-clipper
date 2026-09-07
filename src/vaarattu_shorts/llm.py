@@ -220,10 +220,14 @@ class Evaluator:
         context_size=16384,
         *,
         codex_config=None,
+        discovery_reasoning="low",
+        verification_reasoning="low",
     ):
         self.provider, self.store, self.run_id = provider, store, run_id
         self.folder, self.cap, self.check, self.client = folder, cap, check, client
         self.context_size = context_size
+        self.discovery_reasoning = discovery_reasoning
+        self.verification_reasoning = verification_reasoning
         self.codex = (codex_config or codex_settings()) if provider == "codex" else None
         self.model = self.codex["model"] if self.codex else PROVIDERS[provider]["model"]
         # API requests use a conservative 64K envelope, independent of local GPU allocation.
@@ -466,6 +470,8 @@ class Evaluator:
             )
             response = None
             started = time.monotonic()
+            # Save only the request body: URLs/headers can contain credentials.
+            atomic_json(self.folder / f"{key}-{request_id}.request.json", body)
             try:
                 if self.client:
                     response = self.post(self.client, url, headers, body)

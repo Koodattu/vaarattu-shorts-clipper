@@ -7,6 +7,7 @@ import os
 import secrets
 import threading
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlparse
 
 from fastapi import Body, FastAPI, Header, HTTPException, Request
@@ -27,6 +28,8 @@ def public_clip(clip):
         "id": clip["id"],
         "revision": clip["revision"],
         "run_id": clip["run_id"],
+        "review_status": clip.get("review_status", "unreviewed"),
+        "review_note": clip.get("review_note", ""),
         **{
             k: body.get(k)
             for k in (
@@ -35,10 +38,16 @@ def public_clip(clip):
                 "start_us",
                 "end_us",
                 "flags",
+                "review_notes",
                 "words",
                 "source_url",
                 "selection",
                 "layout",
+                "trim_silence",
+                "video_encoder",
+                "output_duration_us",
+                "pacing",
+                "previous_revision",
             )
         },
         "has_preview": bool(body.get("folder") and (Path(body["folder"]) / "short.mp4").exists()),
@@ -175,7 +184,7 @@ def create_app(settings):
                 raise ValueError("This screenshot could not be saved. Choose it again.") from None
             if not image.startswith(b"\xff\xd8\xff") or not image.endswith(b"\xff\xd9"):
                 raise ValueError("This screenshot could not be saved. Choose it again.")
-            screenshot = (layout.screenshot.name, image)
+            screenshot = (layout.screenshot.name, image, layout.screenshot.width, layout.screenshot.height)
         return {"id": store.add_layout(layout.model_dump(exclude={"screenshot"}), screenshot)}
 
     @app.get("/api/layouts/{layout_id}/screenshot")
@@ -239,18 +248,60 @@ def create_app(settings):
         store.control(run_id, action)
         return {"ok": True}
 
+    @app.get("/api/clips")
+    def clip_gallery():
+        clips = []
+        for clip in store.clips():
+            if clip["body"].get("status") not in {"ready", "held"}:
+                continue
+            item = public_clip(clip)
+            if item["has_preview"]:
+                clips.append({k: v for k, v in item.items() if k not in {"words", "layout", "selection"}})
+        return clips
+
+    @app.post("/api/clips/{clip_id}/review")
+    def review_clip(
+        clip_id: str,
+        expected_revision: int = Body(ge=1),
+        status: Literal["unreviewed", "approved", "not_approved"] = Body(),
+        note: str | None = Body(default=None, max_length=2000),
+    ):
+        store.review_clip(clip_id, expected_revision, status, note)
+        return public_clip(store.clip(clip_id))
+
     @app.get("/api/clips/{clip_id}")
     def get_clip(clip_id: str):
         return public_clip(store.clip(clip_id))
 
-    @app.post("/api/clips/{clip_id}/retry", status_code=202)
-    def retry_clip(clip_id: str, expected_revision: int = Body(embed=True, ge=1)):
+    def queue_render(clip_id, expected_revision, layout_id=None, trim_silence=None, video_encoder=None):
         clip = store.clip(clip_id)
         if clip["body"]["status"] not in {"held", "ready"}:
             raise ValueError("Wait for this clip to finish before rendering it again.")
         body = {**clip["body"], "status": "pending", "flags": [], "folder": None}
+        if public_clip(clip)["has_preview"]:
+            body["previous_revision"] = clip["revision"]
+        if layout_id is not None:
+            body["layout"] = store.layout(layout_id)
+        if trim_silence is not None:
+            body["trim_silence"] = trim_silence
+        if video_encoder is not None:
+            body["video_encoder"] = video_encoder
         revision = store.queue_edit(clip_id, expected_revision, body)
         return {"revision": revision, "run_id": clip["run_id"]}
+
+    @app.post("/api/clips/{clip_id}/retry", status_code=202)
+    def retry_clip(clip_id: str, expected_revision: int = Body(embed=True, ge=1)):
+        return queue_render(clip_id, expected_revision)
+
+    @app.post("/api/clips/{clip_id}/rerender", status_code=202)
+    def rerender_clip(
+        clip_id: str,
+        expected_revision: int = Body(ge=1),
+        layout_id: str | None = Body(default=None, min_length=1, max_length=100),
+        trim_silence: bool | None = Body(default=None),
+        video_encoder: Literal["libx264", "h264_nvenc"] | None = Body(default=None),
+    ):
+        return queue_render(clip_id, expected_revision, layout_id, trim_silence, video_encoder)
 
     @app.post("/api/clips/{clip_id}/edit", status_code=202)
     def edit(clip_id: str, edit: EditRequest):
@@ -262,7 +313,7 @@ def create_app(settings):
             not MIN_CLIP_US <= edit.end_us - edit.start_us <= MAX_CLIP_US
             or edit.end_us > transcript["duration_us"]
         ):
-            raise ValueError("Choose a 2–90 second interval within this VOD.")
+            raise ValueError("Choose a 3–90 second interval within this VOD.")
         canonical = [Word.model_validate(w) for w in transcript["words"]]
         if any(
             (w.start_us < edit.start_us < w.end_us) or (w.start_us < edit.end_us < w.end_us)
@@ -298,13 +349,27 @@ def create_app(settings):
             "status": "pending",
             "flags": [],
             "folder": None,
+            "trim_silence": edit.trim_silence if edit.trim_silence is not None else original.get("trim_silence", False),
+            "video_encoder": edit.video_encoder or original.get("video_encoder", "libx264"),
+            "previous_revision": clip["revision"] if public_clip(clip)["has_preview"] else original.get("previous_revision"),
         }
         revision = store.queue_edit(clip_id, edit.expected_revision, body)
         return {"revision": revision, "run_id": clip["run_id"]}
 
     @app.get("/api/artifacts/{clip_id}/{kind}")
-    def artifact(clip_id: str, kind: str):
-        body = store.clip(clip_id)["body"]
+    def artifact(clip_id: str, kind: str, revision: int | None = None):
+        clip = store.clip(clip_id)
+        body = clip["body"]
+        if revision is not None and revision != clip["revision"]:
+            if not 1 <= revision < clip["revision"]:
+                raise HTTPException(404, "This preview is not available.")
+            folder = settings.ready / clip_id / str(revision)
+            if not (folder / "metadata.json").is_file():
+                folder = settings.ready / ".staging" / clip_id / str(revision)
+            metadata = folder / "metadata.json"
+            if not metadata.is_file():
+                raise HTTPException(404, "This preview is not available.")
+            body = {**json.loads(metadata.read_text("utf-8")), "folder": str(folder)}
         names = {"video": "short.mp4", "captions": "captions.srt", "contact": "contact.jpg"}
         if kind == "source":
             path = Path(body.get("section") or "__missing__").resolve()

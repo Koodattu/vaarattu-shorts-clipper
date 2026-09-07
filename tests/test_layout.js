@@ -105,5 +105,13 @@ openEditor("clip").then(async()=>{
   await nodes.get("layout-form").onsubmit({preventDefault(){}});
   assert.equal(global.savedRequest.screenshot.name,"dropped.png");
   assert.equal(global.savedRequest.camera_height,608);assert.equal(nodes.get("preset-select").value,"saved");assert.equal(nodes.get("save-layout").textContent,"Replace preset");
+  assert.equal(global.savedRequest.screenshot.width,1920);assert.equal(global.savedRequest.screenshot.height,1080);
+  // The local copy is smaller, but validation and pixel snapping still use the original dimensions.
+  vm.runInThisContext('setFrame({width:1600,height:900},{...fixturePreset,camera:{x:0,y:0,width:34/1920,height:34/1080}},{width:1920,height:1080})');
+  assert.equal(vm.runInThisContext('readRectangle("camera-rect").width'),34/1920);
+  assert.equal(vm.runInThisContext('screenshotCopy().width'),1920);
+  nodes.get("frame-drop").ondrop({preventDefault(){},dataTransfer:{files:[{name:"delayed.png",type:"image/png"}]}});
+  nodes.get("camera-rect").value="0.1, 0.2, 0.3, 0.4";nodes.get("camera-rect").oninput();
+  pending[3].onload();assert.equal(nodes.get("camera-rect").value,"0.1, 0.2, 0.3, 0.4","Image loading must preserve intervening coordinate edits");
   console.log("Layout editor wiring checks passed");
 }).catch(error=>{console.error(error);process.exitCode=1;});

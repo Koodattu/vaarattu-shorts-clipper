@@ -39,12 +39,15 @@ def test_all_distinct_proposals_are_verified_and_exported_without_count_quota(
         )
         for i in range(360)
     ]
-    candidates = [proposal(i * 25, i * 25 + 9) for i in range(12)]
+    candidates = [proposal(i * 15, i * 15 + 9) for i in range(20)]
+    candidates[1] = proposal(3, 12)  # Distinct overlapping cuts must both reach review.
+    candidates[-1].outcome = "reject"  # Discovery's recommendation is advisory too.
     calls = []
 
     class Evaluator:
         folder = settings.work
         discovery_budget = verification_budget = 1000000
+        discovery_reasoning = verification_reasoning = "low"
 
         def check(self):
             pass
@@ -60,8 +63,14 @@ def test_all_distinct_proposals_are_verified_and_exported_without_count_quota(
             result = (
                 Proposals(feedback="Fixture section feedback.", candidates=candidates)
                 if schema == Proposals
-                else candidates[int(step.split("-")[1])]
+                else candidates[int(step.split("-")[1])].model_copy(deep=True)
             )
+            if schema is Candidate:
+                index = int(step.split("-")[1])
+                if index < 7:
+                    result.outcome = "reject"
+                elif index < 12:
+                    result.scores.standalone = 2
             if validate:
                 validate(result)
             return result
@@ -73,8 +82,9 @@ def test_all_distinct_proposals_are_verified_and_exported_without_count_quota(
         "timing_issues": timing_issues,
     }
     selection = discover.discover(transcript, Evaluator(), lambda _: None)
-    assert len(calls) == 13 and len(selection["verified"]) == 12
+    assert len(calls) == 21 and len(selection["verified"]) == 20
     assert all(v["eligible"] for v in selection["verified"])
+    assert all(v["review_notes"] for v in selection["verified"][:12])
     assert "max_clips" not in RunRequest.model_fields
     run = store.admit(
         {"video": "abc_def-ghI", "model_manifests": {}, "layout": {}, "max_clips": 3}, "all-clips"
@@ -101,7 +111,7 @@ def test_all_distinct_proposals_are_verified_and_exported_without_count_quota(
 
     monkeypatch.setattr(pipeline, "deliver", deliver)
     result = pipeline.execute()
-    assert len(delivered) == len(result["ready"]) == 12
+    assert len(delivered) == len(result["ready"]) == 20
     assert result["transcript_timing_issues"] == timing_issues
 
 

@@ -66,15 +66,17 @@ def test_invalid_proposals_do_not_lose_valid_siblings_or_retry(settings, store, 
             )
         if len(bodies) == 2:
             return response('{"candidates":[],"feedback":"Game mechanics without a standalone point."}')
-        return response(candidate().model_dump_json())
+        start = 400 if "Proposed start=w400," in bodies[-1]["input"] else 0
+        return response(candidate(start).model_dump_json())
 
     with httpx.Client(transport=httpx.MockTransport(handle)) as client:
         evaluator = Evaluator("openai", store, run, settings.work, 1, lambda: None, client)
         transcript = {"words": words(), "duration_us": 720000000}
         result = discover(transcript, evaluator, lambda value: None)
         assert discover(transcript, evaluator, lambda value: None) == result
-    assert len(bodies) == store.usage(run)["request_count"] == 3
-    assert len(result["proposals"]) == 1 and result["verified"][0]["eligible"]
+    assert len(bodies) == store.usage(run)["request_count"] == 4
+    assert len(result["proposals"]) == 2 and all(v["eligible"] for v in result["verified"])
+    assert {v["candidate"]["start_word_id"] for v in result["verified"]} == {"w0", "w400"}
     assert {i["reason"] for i in result["issues"]} == {"outside_section", "invalid_anchors"}
     assert result["coverage"] == [[0, 360000000], [360000000, 720000000]]
     assert json.loads((settings.work / "selection-issues.json").read_text()) == result["issues"]
@@ -132,7 +134,11 @@ def test_bad_verification_does_not_stop_other_candidates(settings, store):
 
     evaluator = FixtureEvaluator("openai", store, run, settings.work, 1, lambda: None)
     result = discover({"words": words(), "duration_us": 720000000}, evaluator, lambda value: None)
-    assert [v["eligible"] for v in result["verified"]] == [False, True]
+    assert [v["eligible"] for v in result["verified"]] == [True, True]
+    assert result["verified"][0]["candidate"]["start_word_id"] == "w0"
+    assert result["verified"][0]["candidate"]["end_word_id"] == "w29"
+    assert result["verified"][0]["candidate"]["outcome"] == "needs_context"
+    assert result["verified"][0]["review_notes"]
     assert result["issues"][0]["reason"] == "verification_unreadable"
 
 

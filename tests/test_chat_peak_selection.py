@@ -72,6 +72,7 @@ def test_peak_pass_adds_candidates_keeps_full_scan_and_verifies_without_activity
     class FakeEvaluator:
         folder = settings.work
         discovery_budget = verification_budget = 48000
+        discovery_reasoning = verification_reasoning = "low"
 
         def check(self):
             pass
@@ -131,20 +132,21 @@ def test_peak_pass_adds_candidates_keeps_full_scan_and_verifies_without_activity
 
 
 @pytest.mark.parametrize(
-    "scores,eligible",
+    "scores,has_review_note",
     [
-        ({"opening": 0}, True),
-        ({"payoff": 0}, True),
-        ({"opening": 0, "payoff": 0, "standalone": 3, "substance": 3, "fidelity": 3}, True),
-        ({"substance": 2}, False),
-        ({"standalone": 2}, False),
-        ({"fidelity": 2}, False),
+        ({"opening": 0}, False),
+        ({"payoff": 0}, False),
+        ({"opening": 0, "payoff": 0, "standalone": 3, "substance": 3, "fidelity": 3}, False),
+        ({"substance": 2}, True),
+        ({"standalone": 2}, True),
+        ({"fidelity": 2}, True),
     ],
 )
-def test_hook_and_payoff_are_preferences_but_content_and_context_are_required(settings, scores, eligible):
+def test_scores_are_preserved_as_review_notes_without_editorial_vetoes(settings, scores, has_review_note):
     class FakeEvaluator:
         folder = settings.work
         discovery_budget = verification_budget = 48000
+        discovery_reasoning = verification_reasoning = "low"
 
         def check(self):
             pass
@@ -164,9 +166,9 @@ def test_hook_and_payoff_are_preferences_but_content_and_context_are_required(se
             return result
 
     result = discover.discover(speech(60), FakeEvaluator(), lambda _: None)
-    assert result["verified"][0]["eligible"] == eligible
-    if not eligible:
-        assert any("score is below 3/4" in reason for reason in result["verified"][0]["exclusion_reasons"])
+    assert result["verified"][0]["eligible"]
+    assert result["verified"][0]["exclusion_reasons"] == []
+    assert bool(result["verified"][0]["review_notes"]) == has_review_note
     for field, score in scores.items():
         assert result["verified"][0]["candidate"]["scores"][field] == score
 
@@ -204,10 +206,14 @@ def test_refinement_can_move_within_proposal_but_not_outside_it(
     with httpx.Client(transport=httpx.MockTransport(handle)) as client:
         evaluator = Evaluator("openai", store, run, settings.work, 1, lambda: None, client)
         result = discover.discover(speech(60), evaluator, lambda _: None)
-    assert result["verified"][0]["eligible"] == eligible
+    assert result["verified"][0]["eligible"]
     if not eligible:
         assert result["issues"][0]["reason"] == "verification_invalid_anchors"
         assert "outside the proposed excerpt" in result["issues"][0]["detail"]
+        assert result["verified"][0]["start_us"] == 0
+        assert result["verified"][0]["end_us"] == 30000000
+        assert result["verified"][0]["candidate"]["outcome"] == "needs_context"
+        assert result["verified"][0]["review_notes"]
     if eligible:
         assert result["verified"][0]["start_us"] == trim_start * 1000000
 

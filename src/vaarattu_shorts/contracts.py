@@ -7,7 +7,7 @@ from urllib.parse import parse_qs, urlparse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 CHANNEL_ID = "UCUCV40VqBZqt83afjbbICvw"
-MIN_CLIP_US = 2000000
+MIN_CLIP_US = 3000000
 MAX_CLIP_US = 90000000  # Retain support for saved clips and manual edits.
 
 
@@ -69,6 +69,14 @@ class Layout(Contract):
 class LayoutScreenshot(Contract):
     name: str = Field(min_length=1, max_length=255)
     data: str = Field(max_length=1_800_000, pattern=r"^data:image/jpeg;base64,")
+    width: int | None = Field(default=None, ge=32, le=100000)
+    height: int | None = Field(default=None, ge=32, le=100000)
+
+    @model_validator(mode="after")
+    def dimensions(self):
+        if (self.width is None) != (self.height is None):
+            raise ValueError("Include both screenshot dimensions.")
+        return self
 
 
 class LayoutSave(Layout):
@@ -86,6 +94,10 @@ class RunRequest(Contract):
     stream_id: int | None = Field(default=None, gt=0)
     stream_offset_seconds: float | None = None
     alignment_confirmed: bool = False
+    discovery_reasoning: Literal["low", "medium"] = "low"
+    verification_reasoning: Literal["low", "medium"] = "low"
+    video_encoder: Literal["libx264", "h264_nvenc"] = "h264_nvenc"
+    trim_silence: bool = True
 
     @model_validator(mode="after")
     def normalize(self):
@@ -124,21 +136,24 @@ class Scores(Contract):
         return sum(self.model_dump().values())
 
 
-class Candidate(Contract):
+class DiscoveryCandidate(Contract):
     outcome: Literal["accept", "reject", "needs_context"]
     start_word_id: str
     end_word_id: str
     idea_word_id: str
     category: Literal["opinion", "story", "observation", "joke", "explanation", "conversation"]
-    summary_fi: str
-    title_fi: str
     scores: Scores
     flags: list[str]
     reason: str
 
 
+class Candidate(DiscoveryCandidate):
+    summary_fi: str
+    title_fi: str
+
+
 class Proposals(Contract):
-    candidates: list[Candidate]
+    candidates: list[DiscoveryCandidate]
     feedback: str = Field(min_length=1, max_length=240, pattern=r"\S")
 
 
@@ -150,3 +165,5 @@ class EditRequest(Contract):
     words: list[Word] = Field(max_length=1000)
     layout_id: str = Field(pattern=r"^[a-f0-9]{32}$")
     reviewed: bool = False
+    trim_silence: bool | None = None
+    video_encoder: Literal["libx264", "h264_nvenc"] | None = None

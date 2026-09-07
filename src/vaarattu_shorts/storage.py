@@ -50,11 +50,15 @@ class Store:
                 CREATE TABLE IF NOT EXISTS layouts(id TEXT PRIMARY KEY, body TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS layout_frames(
                     layout_id TEXT PRIMARY KEY REFERENCES layouts(id) ON DELETE CASCADE,
-                    name TEXT NOT NULL, image BLOB NOT NULL
+                    name TEXT NOT NULL, image BLOB NOT NULL, width INTEGER, height INTEGER
                 );
                 CREATE TABLE IF NOT EXISTS clips(
                     id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id),
                     revision INTEGER NOT NULL, body TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS clip_reviews(
+                    clip_id TEXT PRIMARY KEY REFERENCES clips(id),
+                    revision INTEGER NOT NULL, status TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS requests(
                     id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id),
@@ -70,6 +74,14 @@ class Store:
                 CREATE INDEX IF NOT EXISTS youtube_channel_date ON youtube_videos(channel_id, published);
                 PRAGMA user_version=1;
             """)
+            db.execute("BEGIN IMMEDIATE")
+            frame_columns = {row["name"] for row in db.execute("PRAGMA table_info(layout_frames)")}
+            for column in ("width", "height"):
+                if column not in frame_columns:
+                    db.execute(f"ALTER TABLE layout_frames ADD COLUMN {column} INTEGER")
+            review_columns = {row["name"] for row in db.execute("PRAGMA table_info(clip_reviews)")}
+            if "note" not in review_columns:
+                db.execute("ALTER TABLE clip_reviews ADD COLUMN note TEXT NOT NULL DEFAULT ''")
 
     @contextmanager
     def connect(self):
@@ -335,7 +347,8 @@ class Store:
     def layouts(self):
         with self.connect() as db:
             return [self.unpack(r) for r in db.execute(
-                "SELECT layouts.*, layout_frames.name AS screenshot_name FROM layouts "
+                "SELECT layouts.*, layout_frames.name AS screenshot_name, "
+                "layout_frames.width AS screenshot_width, layout_frames.height AS screenshot_height FROM layouts "
                 "LEFT JOIN layout_frames ON layouts.id=layout_frames.layout_id"
             )]
 
@@ -360,9 +373,10 @@ class Store:
             )
             if screenshot is not None:
                 db.execute(
-                    "INSERT INTO layout_frames VALUES(?,?,?) ON CONFLICT(layout_id) "
-                    "DO UPDATE SET name=excluded.name, image=excluded.image",
-                    (layout_id, screenshot[0], screenshot[1]),
+                    "INSERT INTO layout_frames(layout_id,name,image,width,height) VALUES(?,?,?,?,?) "
+                    "ON CONFLICT(layout_id) DO UPDATE SET name=excluded.name, image=excluded.image, "
+                    "width=excluded.width, height=excluded.height",
+                    (layout_id, *screenshot),
                 )
             for duplicate in matches[1:]:
                 db.execute("DELETE FROM layouts WHERE id=?", (duplicate,))
@@ -380,13 +394,54 @@ class Store:
             if not db.execute("DELETE FROM layouts WHERE id=?", (layout_id,)).rowcount:
                 raise KeyError(layout_id)
 
-    def clips(self, run_id):
+    def clips(self, run_id=None):
         with self.connect() as db:
-            return [self.unpack(r) for r in db.execute("SELECT * FROM clips WHERE run_id=?", (run_id,))]
+            return [self.unpack(r) for r in db.execute(
+                "SELECT clips.*, COALESCE(clip_reviews.status, 'unreviewed') AS review_status, "
+                "COALESCE(clip_reviews.note, '') AS review_note "
+                "FROM clips JOIN runs ON runs.id=clips.run_id "
+                "LEFT JOIN clip_reviews ON clip_reviews.clip_id=clips.id "
+                "AND clip_reviews.revision=clips.revision "
+                + ("WHERE clips.run_id=? ORDER BY clips.rowid" if run_id is not None
+                   else "ORDER BY runs.created DESC, clips.rowid DESC"),
+                (run_id,) if run_id is not None else (),
+            )]
 
     def clip(self, clip_id):
         with self.connect() as db:
-            return self.unpack(db.execute("SELECT * FROM clips WHERE id=?", (clip_id,)).fetchone())
+            return self.unpack(db.execute(
+                "SELECT clips.*, COALESCE(clip_reviews.status, 'unreviewed') AS review_status, "
+                "COALESCE(clip_reviews.note, '') AS review_note "
+                "FROM clips LEFT JOIN clip_reviews ON clip_reviews.clip_id=clips.id "
+                "AND clip_reviews.revision=clips.revision WHERE clips.id=?", (clip_id,),
+            ).fetchone())
+
+    def review_clip(self, clip_id, expected_revision, status, note=None):
+        if status not in {"unreviewed", "approved", "not_approved"}:
+            raise ValueError("Choose Unreviewed, Approved or Not approved.")
+        if note is not None and (not isinstance(note, str) or len(note) > 2000):
+            raise ValueError("Keep the review reason within 2,000 characters.")
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            clip = self.unpack(db.execute("SELECT * FROM clips WHERE id=?", (clip_id,)).fetchone())
+            if clip["revision"] != expected_revision:
+                raise ValueError("This clip changed. Reload it before reviewing.")
+            body = clip["body"]
+            if (body.get("status") not in {"ready", "held"} or not body.get("folder")
+                    or not (Path(body["folder"]) / "short.mp4").is_file()):
+                raise ValueError("Wait for a rendered preview before reviewing this clip.")
+            if note is None:
+                previous = db.execute(
+                    "SELECT note FROM clip_reviews WHERE clip_id=? AND revision=?",
+                    (clip_id, expected_revision),
+                ).fetchone()
+                note = previous["note"] if previous else ""
+            db.execute(
+                "INSERT INTO clip_reviews(clip_id,revision,status,note) VALUES(?,?,?,?) "
+                "ON CONFLICT(clip_id) DO UPDATE SET "
+                "revision=excluded.revision,status=excluded.status,note=excluded.note",
+                (clip_id, expected_revision, status, note.strip()),
+            )
 
     def save_clip(self, clip_id, run_id, revision, body):
         with self.connect() as db:

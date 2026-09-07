@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import wave
 
 import numpy as np
 
+from . import pacing
 from .contracts import MAX_CLIP_US, MIN_CLIP_US, Layout
 from .processes import run_tool
 from .storage import atomic_json, digest
@@ -163,7 +165,7 @@ WrapStyle: 2
 ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,86,&H00FFFFFF,&H0046C7FF,&H00101010,&H80000000,-1,0,0,0,100,100,0,0,1,5,2,2,90,90,360,1
+Style: Default,Arial,86,&H00FFFFFF,&H00FC84C0,&H00101010,&H80000000,-1,0,0,0,100,100,0,0,1,5,2,2,90,90,360,1
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
@@ -204,7 +206,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if index:
                 tokens.append(r"\N" if index == cue["line_break"] else " ")
             tokens.append(
-                (r"{\1c&H0046C7FF&}" + escaped + r"{\1c&H00FFFFFF&}") if word is current else escaped
+                (r"{\1c&H00FC84C0&}" + escaped + r"{\1c&H00FFFFFF&}") if word is current else escaped
             )
         text = "".join(tokens)
         ass.append(
@@ -249,7 +251,7 @@ def render_clip(settings, section, mapping, body, layout, words, folder, check):
         or end - start > MAX_CLIP_US
         or local_start + duration > mapping["section_duration"] + 0.05
     ):
-        raise ValueError("The chosen boundaries fall outside the verified section or 2–90 second range.")
+        raise ValueError("The chosen boundaries fall outside the verified section or 3–90 second range.")
     layout = Layout.model_validate(layout)
     info = probe(settings, section, folder, check)
     video = next(s for s in info["streams"] if s["codec_type"] == "video")
@@ -257,7 +259,19 @@ def render_clip(settings, section, mapping, body, layout, words, folder, check):
     if video_start > local_start + 0.05:
         raise ValueError("The picture starts after the chosen clip boundary. Retry the section download.")
     width, height = video["width"], video["height"]
-    flags = captions(folder, words, start, end)
+    selected_words = [w for w in words if start <= w.start_us and w.end_us <= end]
+    edit_plan = (
+        pacing.analyze(settings, section, mapping, body, selected_words, folder, check)
+        if body.get("trim_silence", False)
+        else pacing.plan(start, end, selected_words, [])
+    )
+    output_words = pacing.retime(selected_words, edit_plan)
+    duration = edit_plan["output_duration_us"] / 1e6
+    flags = captions(folder, output_words, 0, edit_plan["output_duration_us"])
+    atomic_json(folder / "captions.source.words.json", [w.model_dump() for w in selected_words])
+    atomic_json(folder / "pacing.json", edit_plan)
+    if edit_plan["removed"]:
+        flags.append(f"Shortened {(end - start) / 1e6 - duration:.1f}s of long quiet pauses; check the pacing.")
     if any(
         issue["start_us"] < end and issue["end_us"] > start
         for issue in body.get("transcript_timing_issues", [])
@@ -266,14 +280,22 @@ def render_clip(settings, section, mapping, body, layout, words, folder, check):
     if not layout.calibrated or not layout.solo_host:
         flags.append("Check the source layout and primary speaker before publishing.")
     camera, gameplay = crop(layout.camera, width, height), crop(layout.gameplay, width, height)
-    filters = (
-        f"[0:v]trim=start={local_start:.6f}:duration={duration:.6f},setpts=PTS-STARTPTS,split=2[c][g];"
+    filters = pacing.filters(edit_plan, mapping["origin_us"]) + (
+        "[cutv]split=2[c][g];"
         f"[c]{camera},{panel_filter(layout.camera_height, layout.camera_fit)}[cam];"
         f"[g]{gameplay},{panel_filter(1920 - layout.camera_height, layout.gameplay_fit)}[game];"
-        "[cam][game]vstack,subtitles=filename=captions.ass,fps=30,format=yuv420p[v];"
-        f"[0:a]atrim=start={local_start:.6f}:duration={duration:.6f},asetpts=PTS-STARTPTS,aresample=48000[a]"
+        "[cam][game]vstack,subtitles=filename=captions.ass,fps=30,format=yuv420p[v]"
     )
     (folder / "filters.txt").write_text(filters, encoding="utf-8")
+    encoder = body.get("video_encoder", "libx264")
+    if encoder not in {"libx264", "h264_nvenc"}:
+        raise ValueError("Choose CPU or NVIDIA video encoding.")
+    encoding = (
+        ["-preset", "p5", "-tune", "hq", "-rc", "vbr", "-cq", "20", "-b:v", "0"]
+        if encoder == "h264_nvenc"
+        else ["-preset", "medium", "-crf", "20"]
+    )
+    started = time.monotonic()
     run_tool(
         [
             settings.ffmpeg,
@@ -290,11 +312,8 @@ def render_clip(settings, section, mapping, body, layout, words, folder, check):
             "-map",
             "[a]",
             "-c:v",
-            "libx264",
-            "-preset",
-            "medium",
-            "-crf",
-            "20",
+            encoder,
+            *encoding,
             "-c:a",
             "aac",
             "-b:a",
@@ -308,6 +327,7 @@ def render_clip(settings, section, mapping, body, layout, words, folder, check):
         "render",
         check,
     )
+    encode_seconds = time.monotonic() - started
     output = folder / "short.mp4"
     run_tool(
         [settings.ffmpeg, "-nostdin", "-v", "error", "-i", output, "-f", "null", "-"],
@@ -340,7 +360,7 @@ def render_clip(settings, section, mapping, body, layout, words, folder, check):
             "-i",
             section,
             "-t",
-            str(duration),
+            str((end - start) / 1e6),
             "-an",
             "-vf",
             "select='gt(scene,0.45)',showinfo",
@@ -379,6 +399,11 @@ def render_clip(settings, section, mapping, body, layout, words, folder, check):
     metadata = {
         **body,
         "mapping": mapping,
+        "pacing": edit_plan,
+        "output_duration_us": edit_plan["output_duration_us"],
+        "video_encoder": encoder,
+        "encode_seconds": round(encode_seconds, 3),
+        "video_bytes": output.stat().st_size,
         "layout": layout.model_dump(),
         "flags": sorted(set([*flags, *body.get("selection", {}).get("flags", [])])),
         "status": "ready",

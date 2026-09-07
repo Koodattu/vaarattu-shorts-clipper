@@ -155,6 +155,8 @@ class Pipeline:
                     client,
                     self.config.get("context_size", 16384),
                     codex_config=self.config.get("codex"),
+                    discovery_reasoning=self.config.get("discovery_reasoning", "low"),
+                    verification_reasoning=self.config.get("verification_reasoning", "low"),
                 )
                 selection = discover.discover(transcript, evaluator, self.progress, chat)
                 selection["chat"] = chat
@@ -171,6 +173,7 @@ class Pipeline:
 
     def export_selection(self, selection, transcript, metadata, source):
         legacy_selection = selection.get("version") in {None, "passages-v2"}
+        review_first = selection.get("review_first", False)
         enrichment = selection.get("chat")
         if enrichment is None:
             # Older completed selections retain their original stage chain and ranking behavior.
@@ -191,15 +194,21 @@ class Pipeline:
         )
         chosen = []
         for item in candidates:
-            if not legacy_selection and any(
-                max(
-                    0, min(item["end_us"], c["body"]["end_us"]) - max(item["start_us"], c["body"]["start_us"])
+            if (
+                not legacy_selection
+                and not review_first
+                and any(
+                    max(
+                        0,
+                        min(item["end_us"], c["body"]["end_us"])
+                        - max(item["start_us"], c["body"]["start_us"]),
+                    )
+                    > 0
+                    for c in existing
                 )
-                > 0
-                for c in existing
             ):
                 continue
-            if any(
+            if not review_first and any(
                 max(0, min(item["end_us"], c["end_us"]) - max(item["start_us"], c["start_us"])) > 0
                 for c in chosen
             ):
@@ -221,13 +230,16 @@ class Pipeline:
             previous = max((w.end_us for w in words if w.end_us <= a), default=0)
             following = min((w.start_us for w in words if w.start_us >= b), default=transcript["duration_us"])
             start, end = max(previous, a - 200000), min(following, b + 300000)
-            if end - start > (90000000 if legacy_selection else 60000000):
+            if end - start > (90000000 if legacy_selection or review_first else 60000000):
                 start, end = a, b
             body = {
                 "start_us": start,
                 "end_us": end,
                 "title": item["candidate"]["title_fi"],
                 "selection": item["candidate"],
+                "review_notes": item.get("review_notes", []),
+                "trim_silence": self.config.get("trim_silence", False),
+                "video_encoder": self.config.get("video_encoder", "libx264"),
                 "discovery_sources": item.get("discovery_sources", ["transcript"]),
                 "transcript_timing_issues": transcript.get("timing_issues", []),
                 "layout": self.config["layout"],
@@ -256,8 +268,13 @@ class Pipeline:
         promoted = self.settings.ready / clip_id / str(revision)
         if promoted.exists():
             result = json.loads((promoted / "metadata.json").read_text("utf-8"))
-            if digest(promoted / "short.mp4") != result["video_sha256"] or any(
-                result[key] != body[key] for key in ("start_us", "end_us", "title", "words", "layout")
+            if (
+                digest(promoted / "short.mp4") != result["video_sha256"]
+                or any(result[key] != body[key] for key in ("start_us", "end_us", "title", "words", "layout"))
+                or any(
+                    result.get(key, default) != body.get(key, default)
+                    for key, default in (("trim_silence", False), ("video_encoder", "libx264"))
+                )
             ):
                 raise ValueError(
                     "A previous export differs from this revision. It was preserved for inspection."
@@ -371,7 +388,7 @@ class Pipeline:
             intent="",
             message=(
                 f"Finished with {missed} speech sections that could not be evaluated and "
-                f"{len(issues) - missed} discarded suggestions. {len(result['ready'])} clips ready. "
+                f"{len(issues) - missed} selection notes. {len(result['ready'])} clips ready. "
                 f"{result['held']} clips need attention."
                 if issues
                 else f"{len(result['ready'])} clips ready. {result['held']} clips need attention."
@@ -401,6 +418,17 @@ class Pipeline:
         metadata, audio, transcript, previous = [
             saved(name) for name in ("metadata", "audio", "transcript", "selection")
         ]
+        # Include clips delivered by earlier recovery versions so their edits are not duplicated.
+        seed = {**previous, "verified": list(previous["verified"])}
+        words = [Word.model_validate(w) for w in transcript["words"]]
+        for clip in self.store.clips(self.run_id):
+            candidate = clip["body"].get("selection")
+            if not candidate or any(v["eligible"] and v["candidate"] == candidate for v in seed["verified"]):
+                continue
+            start, end = discover.resolve(Candidate.model_validate(candidate), words)
+            seed["verified"].append(
+                {"candidate": candidate, "start_us": start, "end_us": end, "eligible": True}
+            )
         folder = self.folder / "inference" / f"recovery-{discover.VERSION}-{self.chain[:16]}"
         folder.mkdir(parents=True, exist_ok=True)
 
@@ -421,9 +449,11 @@ class Pipeline:
                     client,
                     self.config.get("context_size", 16384),
                     codex_config=self.config.get("codex"),
+                    discovery_reasoning=self.config.get("discovery_reasoning", "low"),
+                    verification_reasoning=self.config.get("verification_reasoning", "low"),
                 )
                 selected = discover.discover(
-                    transcript, evaluator, self.progress, previous.get("chat"), seed=previous
+                    transcript, evaluator, self.progress, previous.get("chat"), seed=seed
                 )
             selected["chat"] = previous.get("chat", {"status": "unavailable"})
             selected["recovery_version"] = discover.VERSION

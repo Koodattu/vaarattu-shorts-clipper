@@ -16,6 +16,9 @@ The first workflow is: select one VOD and press **Run** → download audio → t
 - All downloaded models live in this project's `.cache/models/`, with adjacent project-local library caches. Downloading models is an explicit setup command; startup and Run do not download them.
 - yt-dlp for metadata/audio/range acquisition; FFmpeg for exact trimming, two-panel composition, captions and validation.
 - YouTube Data API channel browser with thumbnails, search, processed filters and persistent history. Set `YOUTUBE_API_KEY` and `YOUTUBE_CHANNEL_ID` in `.env`, then fetch/select videos in the UI.
+- Clip gallery with previews across all runs, search and review filters. Mark the latest rendered revision Approved or Not approved, or clear its review. Decisions are saved locally; a new render revision starts Unreviewed. Approval does not change render warnings or publish a clip.
+- The gallery's **Start review** opens a full-page manual queue of finished, unreviewed renders. **A** approves, **R** marks Not approved, **S** skips without saving, **U** undoes the last decision, and **Space** plays or pauses. Decisions save before advancing. Refresh the queue to revisit skipped clips or load new renders.
+- In the review queue, choose a saved **Layout** and press **Re-render** to change the composition without changing timing, title or captions. The queue stays on that clip and loads its new, unreviewed revision automatically. Approval is disabled while rendering; failures keep the clip in place with a link to its run.
 - Optional aggregate chat enrichment from vaarattu.tv. Missing or unaligned chat never prevents speech-based discovery.
 
 Confirmed target machine: Windows, i7-13700K, RTX 4090 (24 GB), approximately 64 GB RAM. The UI runs on this machine; private remote access is a later extension.

@@ -14,11 +14,274 @@ class Element {
   querySelectorAll() { return []; }
   setAttribute(name, value) { this[name]=value; }
   getContext() { return {}; }
+  showModal() { this.open=true; }
+  close() { this.open=false; }
 }
 function find(node, label) {
   if(node.textContent===label)return node;
   for(const child of node.children){const match=find(child,label);if(match)return match;}
 }
+
+test("queue rerenders the selected layout and waits on the same clip for the new preview", async()=>{
+  const staticPath=path.join(__dirname,"../src/vaarattu_shorts/static");
+  const html=fs.readFileSync(path.join(staticPath,"index.html"),"utf8");
+  const nodes=new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],new Element()]));
+  const player=nodes.get("review-player");
+  player.play=async()=>{};player.load=()=>{};player.removeAttribute=name=>{delete player[name];};
+  const clips=Array.from({length:2},(_,i)=>({id:`clip-${i}`,run_id:"render-run",title:`Moment ${i}`,
+    status:"ready",has_preview:true,review_status:"unreviewed",revision:1,start_us:0,end_us:15000000}));
+  let presets=[{id:"alternate",body:{name:"Alternate camera"}}],failRender=true,failPoll=false,runState="running";
+  const writes=[],timers=[];
+  const context=vm.createContext({
+    setTimeout:fn=>{timers.push(fn);return timers.length;},clearTimeout:()=>{},
+    document:{getElementById:id=>nodes.get(id),createElement:tag=>new Element(tag),addEventListener(){}},
+    fetch:async(url,options)=>{
+      let result;
+      if(url==="/api/status")result={token:"fixture",models:{turbo:true},providers:{}};
+      else if(url==="/api/layouts")result=presets;
+      else if(url==="/api/runs")result=[];
+      else if(url==="/api/videos")result={configured:false,videos:[]};
+      else if(url==="/api/clips")result=clips.filter(c=>c.has_preview).map(c=>({...c}));
+      else if(url==="/api/clips/clip-0/rerender"){
+        const payload=JSON.parse(options.body);writes.push(payload);
+        if(failRender)return {ok:false,json:async()=>({detail:"Finish this run before editing it."})};
+        assert.deepEqual(payload,{expected_revision:clips[0].revision,layout_id:"alternate",trim_silence:false,video_encoder:"libx264"});
+        runState="queued";
+        clips[0]={...clips[0],revision:clips[0].revision+1,status:"pending",has_preview:false};
+        result={revision:clips[0].revision,run_id:"render-run"};
+      }else if(url==="/api/runs/render-run"){
+        if(failPoll)throw new Error("Network unavailable");
+        result={state:runState,clips:clips.map(c=>({...c}))};
+      }else throw new Error(`Unexpected API request: ${url}`);
+      return {ok:true,json:async()=>result};
+    },
+  });
+  for(const file of ["app.js","gallery.js","review.js"])vm.runInContext(fs.readFileSync(path.join(staticPath,file),"utf8"),context);
+  await new Promise(setImmediate);
+  vm.runInContext('goView("review")',context);await new Promise(setImmediate);
+  const select=nodes.get("review-layout"),button=nodes.get("review-rerender");
+  assert.ok(find(select,"Alternate camera"));assert.equal(button.disabled,false,"Pacing/encoding can change without changing layout");
+  select.value="alternate";select.onchange();assert.equal(button.disabled,false);
+  await button.onclick({detail:2});assert.equal(writes.length,0);
+  await button.onclick({detail:1});
+  assert.equal(nodes.get("review-title").textContent,"Moment 0");assert.equal(select.value,"alternate");
+  assert.match(nodes.get("review-message").textContent,/Your place in the queue has been kept/);
+  failRender=false;
+  await button.onclick({detail:1});
+  assert.equal(nodes.get("review-title").textContent,"Moment 0","Rerender must not advance the queue");
+  assert.equal(nodes.get("review-progress").textContent,"2 left");
+  assert.equal(player.hidden,true,"Never show the old preview as the new revision");
+  assert.equal(nodes.get("review-empty-title").textContent,"Rendering new revision");
+  for(const id of ["review-approve","review-reject","review-skip","review-rerender","review-layout"])assert.equal(nodes.get(id).disabled,true,id);
+  await vm.runInContext('decideReview("approved");skipReview();undoReview();rerenderReview();',context);
+  assert.equal(writes.length,2,"Do not allow review actions while rendering");
+  failPoll=true;await vm.runInContext('pollReviewRender()',context);
+  assert.match(nodes.get("review-message").textContent,/Retrying automatically/);
+  assert.equal(nodes.get("review-approve").disabled,true);
+  failPoll=false;
+  clips[0]={...clips[0],status:"ready",has_preview:true};runState="completed";
+  await timers.at(-1)();
+  assert.equal(nodes.get("review-title").textContent,"Moment 0");
+  assert.equal(player.src,"/api/artifacts/clip-0/video?revision=2");
+  assert.equal(player.hidden,false);assert.equal(nodes.get("review-approve").disabled,false);
+  assert.equal(select.value,"alternate");
+  assert.match(nodes.get("review-message").textContent,/New revision ready/);
+  assert.equal(clips[0].review_status,"unreviewed");
+  await button.onclick({detail:1});
+  clips[0]={...clips[0],status:"held",flags:["Camera crop needs attention."]};
+  await vm.runInContext('pollReviewRender()',context);
+  assert.equal(nodes.get("review-title").textContent,"Moment 0");
+  assert.equal(nodes.get("review-empty-title").textContent,"Render needs attention");
+  assert.equal(nodes.get("review-approve").disabled,true);
+  assert.equal(nodes.get("review-render-run").hidden,false);
+  assert.equal(nodes.get("review-notes").disabled,false);
+  presets=[];await nodes.get("refresh-review").onclick();
+  assert.equal(select.disabled,true);assert.equal(button.disabled,false);
+  assert.ok(find(select,"Current layout"));
+});
+
+test("manual review queue advances only after saving, supports undo and guards shortcuts", async()=>{
+  const staticPath=path.join(__dirname,"../src/vaarattu_shorts/static");
+  const html=fs.readFileSync(path.join(staticPath,"index.html"),"utf8");
+  const nodes=new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],new Element()]));
+  const player=nodes.get("review-player");
+  player.play=async()=>{player.paused=false;};player.pause=()=>{player.paused=true;};
+  player.load=()=>{};player.removeAttribute=name=>{delete player[name];};
+  const clips=Array.from({length:6},(_,i)=>({id:`clip-${i}`,run_id:"run",title:`Moment ${i}`,
+    status:"ready",has_preview:true,review_status:"unreviewed",revision:1,start_us:0,end_us:15000000}));
+  clips[3].status="held";clips[4].review_status="approved";clips[5].has_preview=false;
+  let keydown, releaseSave, failSave=false, holdSave=false, failLoad=false;
+  const writes=[];
+  const context=vm.createContext({
+    document:{getElementById:id=>nodes.get(id),createElement:tag=>new Element(tag),
+      addEventListener:(name,fn)=>{if(name==="keydown")keydown=fn;}},
+    fetch:async(url,options)=>{
+      let result;
+      if(url==="/api/status")result={token:"fixture",models:{turbo:true},providers:{}};
+      else if(url==="/api/layouts"||url==="/api/runs")result=[];
+      else if(url==="/api/videos")result={configured:false,videos:[]};
+      else if(url==="/api/clips"){
+        if(failLoad)return {ok:false,json:async()=>({detail:"Unable to load clips."})};
+        result=clips.map(c=>({...c}));
+      }else if(url.endsWith("/review")){
+        const body=JSON.parse(options.body);writes.push(body);
+        if(holdSave)await new Promise(resolve=>{releaseSave=resolve;});
+        if(failSave)return {ok:false,json:async()=>({detail:"This clip changed. Reload it before reviewing."})};
+        const clip=clips.find(c=>url===`/api/clips/${c.id}/review`);
+        assert.equal(body.expected_revision,clip.revision);
+        clip.review_status=body.status;if(body.note!==undefined)clip.review_note=body.note.trim();result={...clip};
+      }else throw new Error(`Unexpected API request: ${url}`);
+      return {ok:true,json:async()=>result};
+    },
+  });
+  for(const file of ["app.js","gallery.js","review.js"])vm.runInContext(fs.readFileSync(path.join(staticPath,file),"utf8"),context);
+  await new Promise(setImmediate);
+  vm.runInContext('goView("review")',context);await new Promise(setImmediate);
+  assert.equal(nodes.get("view-review").hidden,false);
+  assert.equal(nodes.get("review-progress").textContent,"3 left","Only finished unreviewed previews enter the queue");
+  assert.equal(nodes.get("review-title").textContent,"Moment 0");
+  assert.equal(player.src,"/api/artifacts/clip-0/video?revision=1");
+  const key=(value,extra={})=>keydown({key:value,code:value===" "?"Space":"",target:{closest:()=>null},preventDefault(){},...extra});
+  key("a",{repeat:true});key("a",{ctrlKey:true});key("a",{target:{closest:()=>true}});
+  nodes.get("clip-notes-dialog").open=true;key("a");nodes.get("clip-notes-dialog").open=false;
+  assert.equal(writes.length,0);
+  await nodes.get("review-approve").onclick({detail:2});assert.equal(writes.length,0,"Ignore the second click of a double click");
+  holdSave=true;
+  const saving=nodes.get("review-approve").onclick({detail:1});
+  assert.equal(nodes.get("review-title").textContent,"Moment 0","Do not advance before a successful save");
+  assert.equal(nodes.get("review-reject").disabled,true);
+  key("r");key("s");key("u");
+  assert.equal(writes.length,1,"Saving blocks additional decisions and navigation");
+  releaseSave();holdSave=false;await saving;
+  assert.equal(clips[0].review_status,"approved");
+  assert.equal(nodes.get("review-title").textContent,"Moment 1");
+  assert.equal(nodes.get("review-undo").disabled,false);
+  await nodes.get("review-undo").onclick();
+  assert.equal(clips[0].review_status,"unreviewed");
+  assert.equal(nodes.get("review-title").textContent,"Moment 0");
+  assert.equal(nodes.get("review-undo").disabled,true);
+  failSave=true;
+  await nodes.get("review-reject").onclick({detail:1});
+  assert.equal(nodes.get("review-title").textContent,"Moment 0");
+  assert.match(nodes.get("review-message").textContent,/Your place in the queue has been kept/);
+  assert.equal(nodes.get("review-approve").disabled,false);
+  failSave=false;key("r");await new Promise(setImmediate);
+  assert.equal(clips[0].review_status,"not_approved");
+  const beforeSkip=writes.length;key("s");
+  assert.equal(writes.length,beforeSkip);assert.equal(clips[1].review_status,"unreviewed");
+  assert.equal(nodes.get("review-title").textContent,"Moment 2");
+  key(" ");assert.equal(player.paused,true);key(" ");assert.equal(player.paused,false);
+  key(" ",{target:{closest:selector=>selector==="button"?{}:null}});
+  assert.equal(player.paused,true,"Space controls playback even after clicking Skip");
+  key("a");await new Promise(setImmediate);
+  assert.equal(nodes.get("review-empty").hidden,false);
+  assert.equal(nodes.get("review-empty-title").textContent,"Remaining clips skipped");
+  assert.equal(nodes.get("review-approve").disabled,true);
+  assert.equal(player.src,undefined);
+  await nodes.get("refresh-review").onclick();
+  assert.equal(nodes.get("review-title").textContent,"Moment 1","Refresh returns skipped clips");
+  key("a");await new Promise(setImmediate);
+  assert.equal(nodes.get("review-empty-title").textContent,"You're all caught up");
+  await nodes.get("review-undo").onclick();
+  assert.equal(nodes.get("review-title").textContent,"Moment 1","Undo works after finishing the queue");
+  failLoad=true;await nodes.get("refresh-review").onclick();
+  assert.equal(nodes.get("review-title").textContent,"Moment 1");
+  assert.equal(nodes.get("review-message").textContent,"Unable to load clips.");
+  vm.runInContext('goView("process")',context);
+  assert.equal(player.paused,true,"Leaving review stops playback");
+  const beforeLeave=writes.length;key("a");assert.equal(writes.length,beforeLeave);
+});
+
+test("gallery reviews persist in the UI, filter across runs and preserve playback", async()=>{
+  const staticPath=path.join(__dirname,"../src/vaarattu_shorts/static");
+  const html=fs.readFileSync(path.join(staticPath,"index.html"),"utf8");
+  const nodes=new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],new Element()]));
+  nodes.get("gallery-filter").value="all";
+  nodes.get("video-filter").value="all";
+  const clips=Array.from({length:14},(_,i)=>({id:`clip-${i}`,run_id:`run-${i%2}`,title:`Moment ${i}`,
+    status:"ready",review_status:"unreviewed",start_us:0,end_us:15000000,revision:1,has_preview:true,
+    source_url:`https://www.youtube.com/watch?v=source-${i%2}`}));
+  const calls=[];let failReview=false;
+  const context=vm.createContext({
+    document:{getElementById:id=>nodes.get(id),createElement:tag=>new Element(tag)},
+    fetch:async(url,options)=>{
+      calls.push({url,options});let result;
+      if(url==="/api/status")result={token:"fixture",models:{turbo:true},providers:{}};
+      else if(url==="/api/layouts"||url==="/api/runs")result=[];
+      else if(url==="/api/videos")result={configured:false,videos:[{id:"source-1",title:"Second recording",url:clips[1].source_url}]};
+      else if(url==="/api/clips")result=clips.map(c=>({...c}));
+      else if(url.endsWith("/review")){
+        if(failReview)return {ok:false,json:async()=>({detail:"Review could not be saved."})};
+        const body=JSON.parse(options.body),clip=clips.find(c=>url===`/api/clips/${c.id}/review`);
+        assert.equal(options.headers["X-Local-Token"],"fixture");assert.equal(body.expected_revision,1);
+        clip.review_status=body.status;if(body.note!==undefined)clip.review_note=body.note.trim();result={...clip};
+      }else throw new Error(`Unexpected API request: ${url}`);
+      return {ok:true,json:async()=>result};
+    },
+  });
+  vm.runInContext(fs.readFileSync(path.join(staticPath,"app.js"),"utf8"),context);
+  vm.runInContext(fs.readFileSync(path.join(staticPath,"gallery.js"),"utf8"),context);
+  await new Promise(setImmediate);
+  vm.runInContext('goView("gallery")',context);
+  await new Promise(setImmediate);
+  assert.equal(nodes.get("view-gallery").hidden,false);
+  assert.equal(nodes.get("nav-gallery")["aria-current"],"page");
+  const grid=nodes.get("gallery-clips"),first=grid.children[0],video=first.children[0];
+  video.currentTime=5;
+  assert.equal(grid.children.length,12);
+  assert.equal(nodes.get("gallery-page").textContent,"1–12 of 14 clips");
+  await find(first,"Approve").onclick();
+  assert.equal(clips[0].review_status,"approved");
+  assert.ok(find(first,"Approved"));
+  assert.equal(grid.children[0],first);
+  assert.equal(first.children[0],video);assert.equal(video.currentTime,5);
+  await nodes.get("refresh-gallery").onclick();
+  assert.equal(grid.children[0],first,"Refreshing unchanged clips preserves preview nodes");
+  await find(first,"Not approved").onclick();
+  assert.equal(clips[0].review_status,"not_approved");
+  find(first,"Review reason").onclick();
+  nodes.get("review-reason").value="Needs more context";
+  await nodes.get("save-review-reason").onclick();
+  assert.equal(clips[0].review_status,"not_approved","Saving a reason does not approve or clear the clip");
+  assert.equal(clips[0].review_note,"Needs more context");
+  assert.equal(nodes.get("review-reason-message").textContent,"Reason saved.");
+  nodes.get("close-clip-notes").onclick();
+  await nodes.get("refresh-gallery").onclick();
+  find(first,"Review reason").onclick();
+  assert.equal(nodes.get("review-reason").value,"Needs more context");
+  failReview=true;nodes.get("review-reason").value="Keep this unsaved draft";
+  await nodes.get("save-review-reason").onclick();
+  assert.equal(nodes.get("review-reason").value,"Keep this unsaved draft");
+  assert.equal(nodes.get("review-reason-message").textContent,"Review could not be saved.");
+  assert.equal(clips[0].review_note,"Needs more context");
+  failReview=false;nodes.get("close-clip-notes").onclick();
+  await find(first,"Clear review").onclick();
+  assert.equal(clips[0].review_status,"unreviewed");
+  assert.equal(clips[0].review_note,"Needs more context");
+  failReview=true;
+  await find(first,"Approve").onclick();
+  assert.ok(find(first,"Unreviewed"));assert.equal(find(first,"Approve").disabled,false);
+  assert.equal(nodes.get("error").textContent,"Review could not be saved.");
+  failReview=false;
+  const before=calls.length;
+  nodes.get("next-gallery").onclick();
+  assert.equal(grid.children.length,2);assert.equal(nodes.get("gallery-page").textContent,"13–14 of 14 clips");
+  nodes.get("previous-gallery").onclick();
+  nodes.get("gallery-search").value="Second recording";nodes.get("gallery-search").oninput();
+  assert.equal(grid.children.length,7);assert.ok(find(grid,"Moment 13"));
+  assert.equal(calls.length,before,"Search and pagination stay local");
+  nodes.get("gallery-search").value="";nodes.get("gallery-filter").value="unreviewed";nodes.get("gallery-filter").oninput();
+  await find(grid.children[0],"Approve").onclick();
+  assert.equal(find(grid,"Moment 0"),undefined,"Reviewed clips leave the Unreviewed filter");
+  nodes.get("gallery-filter").value="approved";nodes.get("gallery-filter").oninput();
+  assert.equal(grid.children.length,1);assert.ok(find(grid,"Moment 0"));
+  clips[0].revision=2;clips[0].review_status="unreviewed";
+  await nodes.get("refresh-gallery").onclick();
+  assert.ok(find(grid,"No clips match these filters."));
+  clips.length=0;
+  await nodes.get("refresh-gallery").onclick();
+  assert.ok(find(grid,"No rendered clips yet."));
+});
 
 test("channel selection, local filters and explicit page fetching", async()=>{
   const staticPath=path.join(__dirname,"../src/vaarattu_shorts/static");

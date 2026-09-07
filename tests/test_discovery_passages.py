@@ -139,9 +139,9 @@ def test_context_that_cannot_fit_fails_instead_of_losing_speech(tmp_path):
     "outcome,flags,eligible",
     [
         ("accept", [], True),
-        ("reject", [], False),
+        ("reject", [], True),
         ("accept", ["speaker uncertain"], True),
-        ("needs_context", [], False),
+        ("needs_context", [], True),
     ],
 )
 def test_two_pass_selection_is_blind_precise_and_reports_progress(tmp_path, outcome, flags, eligible):
@@ -171,6 +171,11 @@ def test_two_pass_selection_is_blind_precise_and_reports_progress(tmp_path, outc
     assert "discovery-bias" not in calls[1][0] and '"standalone":4' not in calls[1][0]
     assert "[w1]" not in calls[0][0] and "[w1]" in calls[1][0]
     assert result["verified"][0]["eligible"] is eligible
+    assert result["verified"][0]["candidate"]["outcome"] == outcome
+    assert result["verified"][0]["candidate"]["flags"] == flags
+    assert result["verified"][0]["exclusion_reasons"] == []
+    if outcome != "accept":
+        assert any(outcome in note for note in result["verified"][0]["review_notes"])
     assert result["coverage"] == [[0, 60000000]]
     assert "1 of 1" in reports[0]
     assert json.loads((tmp_path / "discovery-plan.json").read_text())["discovery_requests"] == 1
