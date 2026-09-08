@@ -34,7 +34,8 @@ def main():
     if runtime["device"] != "cuda" or runtime["compute_type"] != "float16":
         raise RuntimeError("The transcription model did not load on CUDA with FP16. No fallback was used.")
     atomic_json(Path(sys.argv[1]).parent / "runtime.json", runtime)
-    print(f"Turbo ready: CUDA FP16, batch_size={batch_size}, flash_attention={flash}", flush=True)
+    profile = request.get("profile", "turbo")
+    print(f"{profile} ready: CUDA FP16, batch_size={batch_size}, flash_attention={flash}", flush=True)
     transcriber = BatchedInferencePipeline(model=model) if batch_size else model
     for chunk in request["chunks"]:
         output = Path(chunk["output"])

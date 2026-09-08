@@ -93,7 +93,7 @@ def test_project_cache_overrides_global_environment(settings, monkeypatch):
     assert env["HF_HOME"].startswith(str(settings.cache))
     assert env["TORCH_HOME"].startswith(str(settings.cache))
     assert env["HF_HUB_OFFLINE"] == "1"
-    assert set(CATALOG) == {"turbo", "gemma4-31b", "gemma4-26b-a4b"}
+    assert set(CATALOG) == {"turbo", "large-v3", "gemma4-31b", "gemma4-26b-a4b"}
 
 
 def test_local_api_origin_token_and_no_model_download(settings, monkeypatch):

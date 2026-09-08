@@ -1,16 +1,18 @@
 "use strict";
 let reviewQueue=[], reviewBusy=false, reviewLoaded=false, reviewSkipped=0, reviewLast=null, reviewVideoKey="";
 let reviewRendering=null, reviewRenderPolling=false, reviewRenderTimer=null;
+let reviewContextClip=null;
 function reviewMessage(message,isError=false){
   $("review-message").textContent=message;
   $("review-message").title=message;
   $("review-message").className=isError?"review-message review-error":"review-message";
 }
 function reviewControls(){
-  const clip=reviewQueue[0],locked=reviewBusy||Boolean(reviewRendering);
+  const clip=reviewQueue[0],locked=reviewBusy||Boolean(reviewRendering)||clip?.context_request?.status==="pending";
   for(const id of ["review-approve","review-reject"])$(id).disabled=locked||!clip||clip.status!=="ready"||!clip.has_preview;
   $("review-rejection-reason").disabled=$("review-reject").disabled;
-  $("review-skip").disabled=locked||!clip;
+  $("review-skip").disabled=reviewBusy||Boolean(reviewRendering&&!reviewRendering.context)||!clip;
+  $("review-context").disabled=locked||!clip||clip.status!=="ready"||!clip.has_preview;
   $("review-undo").disabled=locked||!reviewLast;
   $("refresh-review").disabled=reviewBusy;
   $("review-notes").disabled=locked||!clip;
@@ -23,7 +25,7 @@ async function loadReviewQueue(){
   reviewBusy=true;reviewControls();reviewMessage("Loading unreviewed renders…");
   try{
     const [clips]=await Promise.all([api("/api/clips"),layouts()]);
-    reviewQueue=clips.filter(c=>c.status==="ready"&&c.has_preview&&(c.review_status||"unreviewed")==="unreviewed");
+    reviewQueue=clips.filter(c=>c.status==="ready"&&c.has_preview&&c.context_request?.status!=="pending"&&(c.review_status||"unreviewed")==="unreviewed");
     const groups=new Map();
     for(const clip of reviewQueue){if(!groups.has(clip.run_id))groups.set(clip.run_id,[]);groups.get(clip.run_id).push(clip);}
     reviewQueue=[...groups.values()].flatMap(group=>group.sort((a,b)=>(a.review_rank??Infinity)-(b.review_rank??Infinity)));
@@ -88,6 +90,21 @@ async function pollReviewRender(){
   try{
     const run=await api(`/api/runs/${pending.run_id}`);
     const clip=run.clips.find(c=>c.id===pending.id);
+    if(reviewRendering!==pending)return;
+    if(pending.context&&clip?.context_request?.id===pending.request_id&&clip.context_request.status==="pending"){
+      reviewQueue[0]=clip;
+      if(["failed","cancelled","paused"].includes(run.state)){
+        reviewRendering=null;paintReviewQueue();
+        $("review-render-run").hidden=false;
+        reviewMessage("Context review paused or needs attention. Open the run to resume, or skip for now.",true);
+      }else reviewMessage("Looking for missing context. You can skip for now and revisit this clip after it finishes.");
+      return;
+    }
+    if(pending.context&&clip?.context_request?.id===pending.request_id&&clip.context_request.status==="unchanged"){
+      reviewQueue[0]=clip;reviewRendering=null;paintReviewQueue();
+      reviewMessage(`Original clip kept. ${clip.context_request.reason}`);
+      return;
+    }
     if(clip&&clip.revision>=pending.revision){
       if(clip.status==="ready"&&clip.has_preview){
         reviewQueue[0]=clip;reviewRendering=null;paintReviewQueue();
@@ -113,7 +130,7 @@ async function playReviewVideo(){
   }
 }
 async function decideReview(status){
-  if(reviewBusy||reviewRendering||!reviewQueue.length||reviewQueue[0].status!=="ready"||!reviewQueue[0].has_preview)return;
+  if(reviewBusy||reviewRendering||!reviewQueue.length||reviewQueue[0].context_request?.status==="pending"||reviewQueue[0].status!=="ready"||!reviewQueue[0].has_preview)return;
   const clip=reviewQueue[0];reviewBusy=true;reviewControls();reviewMessage("Saving decision…");
   try{
     await saveClipReview(clip,status,status==="not_approved"?$("review-rejection-reason").value:undefined);
@@ -123,9 +140,42 @@ async function decideReview(status){
   finally{reviewBusy=false;reviewControls();}
 }
 function skipReview(){
-  if(reviewBusy||reviewRendering||!reviewQueue.length)return;
+  if(reviewBusy||(reviewRendering&&!reviewRendering.context)||!reviewQueue.length)return;
+  const contextPending=reviewQueue[0].context_request?.status==="pending"||Boolean(reviewRendering?.context);
+  if(reviewRendering?.context){reviewRendering=null;clearTimeout(reviewRenderTimer);}
   reviewQueue.shift();reviewSkipped++;
-  reviewMessage("Skipped for now. No decision saved.");paintReviewQueue();
+  reviewMessage(contextPending?"Context review continues. Refresh the queue after it finishes to revisit this clip.":"Skipped for now. No decision saved.");paintReviewQueue();
+}
+
+function openContextReview(){
+  const clip=reviewQueue[0];
+  if(reviewBusy||reviewRendering||!clip||clip.context_request?.status==="pending"||clip.status!=="ready")return;
+  reviewContextClip={...clip};$("review-player").pause();
+  $("review-context-before").checked=false;$("review-context-after").checked=false;
+  $("review-context-note").value="";$("review-context-message").textContent="";
+  $("review-context-dialog").showModal();
+}
+async function submitContextReview(event){
+  event.preventDefault();
+  if(reviewBusy||!reviewContextClip)return;
+  const clip=reviewContextClip;
+  reviewBusy=true;reviewControls();
+  for(const id of ["review-context-submit","review-context-cancel","review-context-before","review-context-after","review-context-note"])$(id).disabled=true;
+  $("review-context-message").textContent="Queuing context review…";
+  try{
+    const body={expected_revision:clip.revision,before:$("review-context-before").checked,after:$("review-context-after").checked,note:$("review-context-note").value};
+    const result=await api(`/api/clips/${clip.id}/context`,{method:"POST",body:JSON.stringify(body)});
+    reviewRendering={id:clip.id,...result,context:true};
+    reviewLast=null;
+    reviewQueue[0]={...clip,context_request:{...body,id:result.request_id,status:"pending"}};
+    $("review-context-dialog").close();reviewContextClip=null;
+    paintReviewQueue();reviewMessage("Context review queued. You can skip for now while it works.");
+  }catch(e){$("review-context-message").textContent=e.message;}
+  finally{
+    reviewBusy=false;reviewControls();
+    for(const id of ["review-context-submit","review-context-cancel","review-context-before","review-context-after","review-context-note"])$(id).disabled=false;
+  }
+  if(reviewRendering)await pollReviewRender();
 }
 async function undoReview(){
   if(reviewBusy||reviewRendering||!reviewLast)return;
@@ -146,9 +196,13 @@ $("review-layout").onchange=reviewControls;
 $("review-rerender").onclick=event=>{if(event.detail<2)return rerenderReview();};
 $("review-render-run").onclick=async()=>{if(!reviewQueue.length)return;activeRun=reviewQueue[0].run_id;try{await detail();paintRuns();goView("results");}catch(e){reviewMessage(e.message,true);}};
 $("review-notes").onclick=()=>{if(reviewQueue.length)showClipNotes(reviewQueue[0]);};
+$("review-context").onclick=event=>{if(event.detail<2)openContextReview();};
+$("review-context-form").onsubmit=submitContextReview;
+$("review-context-cancel").onclick=()=>{$("review-context-dialog").close();reviewContextClip=null;};
+$("review-context-dialog").oncancel=event=>{if(reviewBusy)event.preventDefault();else reviewContextClip=null;};
 $("review-player").onerror=()=>{if(reviewQueue.length)reviewMessage("This preview could not load. Refresh the queue or skip this clip.",true);};
 document.addEventListener("keydown",event=>{
-  if(currentView!=="review"||event.repeat||event.ctrlKey||event.metaKey||event.altKey||event.shiftKey||$("clip-notes-dialog").open)return;
+  if(currentView!=="review"||event.repeat||event.ctrlKey||event.metaKey||event.altKey||event.shiftKey||$("clip-notes-dialog").open||$("review-context-dialog").open)return;
   if(event.target.closest("input,textarea,select,[contenteditable='true']"))return;
   const key=event.key.toLowerCase();
   if(key==="a"||key==="r"||key==="s"||key==="u"){

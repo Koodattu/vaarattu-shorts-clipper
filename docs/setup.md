@@ -9,6 +9,7 @@ Run commands from the repository root. Python 3.12 is recommended; the package s
 ```text
 .cache/
   models/turbo/                   # pinned faster-whisper snapshot and manifest
+  models/large-v3/                # optional final clip transcription
   models/gemma4-31b/               # pinned GGUF and manifest
   models/gemma4-26b-a4b/            # optional local LLM choice
   huggingface/                    # download metadata/library cache
@@ -80,6 +81,8 @@ Startup and Run never automatically download models. Use the following commands 
 
 ```powershell
 uv --cache-dir .cache/uv run --locked --extra asr vaarattu-shorts models turbo
+# Optional final caption refinement:
+uv --cache-dir .cache/uv run --locked --extra asr vaarattu-shorts models large-v3
 uv --cache-dir .cache/uv run --locked --extra asr vaarattu-shorts models gemma4-31b
 # Optional alternative local LLM:
 uv --cache-dir .cache/uv run --locked --extra asr vaarattu-shorts models gemma4-26b-a4b

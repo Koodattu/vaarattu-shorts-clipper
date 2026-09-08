@@ -22,6 +22,72 @@ function find(node, label) {
   for(const child of node.children){const match=find(child,label);if(match)return match;}
 }
 
+test("context review queues direction and note, preserves the original, and returns a revision or explanation", async()=>{
+  const staticPath=path.join(__dirname,"../src/vaarattu_shorts/static");
+  const html=fs.readFileSync(path.join(staticPath,"index.html"),"utf8");
+  const nodes=new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],new Element()]));
+  const player=nodes.get("review-player");
+  player.load=()=>{};player.play=async()=>{};player.removeAttribute=name=>{delete player[name];};
+  let clip={id:"clip",run_id:"run",revision:1,status:"ready",has_preview:true,title:"Tarina",start_us:20000000,end_us:25000000};
+  let runState="running",fail=true,requestId=0;
+  const writes=[],listeners={};
+  const context=vm.createContext({
+    currentView:"review",savedLayouts:[],layouts:async()=>{},setTimeout:()=>0,clearTimeout:()=>{},
+    $:id=>nodes.get(id),text:(tag,value)=>Object.assign(new Element(tag),{textContent:value}),clipNotes:()=>[],
+    document:{addEventListener:(name,fn)=>{listeners[name]=fn;}},
+    api:async(url,options)=>{
+      if(url==="/api/clips")return [{...clip},{...clip,id:"other"}];
+      if(url==="/api/runs/run")return {state:runState,clips:[clip]};
+      assert.equal(url,"/api/clips/clip/context");
+      writes.push(JSON.parse(options.body));
+      if(fail)throw new Error("Recording is busy");
+      requestId++;
+      clip={...clip,context_request:{...writes.at(-1),id:String(requestId),status:"pending"}};
+      return {run_id:"run",revision:clip.revision,request_id:String(requestId)};
+    },
+  });
+  vm.runInContext(fs.readFileSync(path.join(staticPath,"review.js"),"utf8"),context);
+  await vm.runInContext("loadReviewQueue()",context);
+  nodes.get("review-context").onclick({detail:1});
+  assert.equal(nodes.get("review-context-dialog").open,true);
+  assert.equal(nodes.get("review-context-before").checked,false);
+  assert.equal(nodes.get("review-context-after").checked,false);
+  listeners.keydown({key:"r",target:{closest:()=>null},preventDefault(){assert.fail("Modal must block review shortcuts");}});
+  nodes.get("review-context-before").checked=true;
+  nodes.get("review-context-note").value="Include the question";
+  await nodes.get("review-context-form").onsubmit({preventDefault(){}});
+  assert.equal(nodes.get("review-context-dialog").open,true);
+  assert.match(nodes.get("review-context-message").textContent,/busy/);
+  assert.equal(nodes.get("review-context-note").value,"Include the question");
+  fail=false;
+  await Promise.all([nodes.get("review-context-form").onsubmit({preventDefault(){}}),nodes.get("review-context-form").onsubmit({preventDefault(){}})]);
+  assert.equal(writes.length,2,"Double submit must queue only one request");
+  assert.deepEqual(writes[1],{expected_revision:1,before:true,after:false,note:"Include the question"});
+  assert.equal(nodes.get("review-context-dialog").open,false);
+  assert.equal(player.src,"/api/artifacts/clip/video?revision=1");
+  assert.equal(nodes.get("review-approve").disabled,true);
+  assert.equal(nodes.get("review-skip").disabled,false);
+  clip={...clip,revision:2,previous_revision:1,context_request:{...clip.context_request,status:"expanded"}};
+  runState="completed";
+  await vm.runInContext("pollReviewRender()",context);
+  assert.equal(player.src,"/api/artifacts/clip/video?revision=2");
+  assert.equal(nodes.get("review-approve").disabled,false);
+  nodes.get("review-context").onclick({detail:1});
+  await nodes.get("review-context-form").onsubmit({preventDefault(){}});
+  clip={...clip,context_request:{...clip.context_request,status:"unchanged",reason:"Ei lisäkontekstia."}};
+  await vm.runInContext("pollReviewRender()",context);
+  assert.equal(player.src,"/api/artifacts/clip/video?revision=2");
+  assert.match(nodes.get("review-message").textContent,/Original clip kept.*Ei lisäkontekstia/);
+  assert.equal(nodes.get("review-approve").disabled,false);
+  runState="running";
+  nodes.get("review-context").onclick({detail:1});
+  await nodes.get("review-context-form").onsubmit({preventDefault(){}});
+  await vm.runInContext("skipReview()",context);
+  assert.match(nodes.get("review-message").textContent,/Context review continues/);
+  assert.equal(vm.runInContext("reviewQueue[0].id",context),"other");
+  assert.equal(vm.runInContext("reviewRendering",context),null);
+});
+
 test("review queue keeps runs grouped and serves ranked clips best first", async()=>{
   const staticPath=path.join(__dirname,"../src/vaarattu_shorts/static");
   const html=fs.readFileSync(path.join(staticPath,"index.html"),"utf8");
@@ -414,7 +480,7 @@ test("Codex selection disables dollar cap and renders unknown costs", async()=>{
   const html=fs.readFileSync(path.join(staticPath,"index.html"),"utf8");
   const nodes=new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],new Element()]));
   const run={id:"fixture-run",state:"completed",stage:"complete",message:"",clips:[],
-    config:{video:"abc_def-ghI",provider:"codex",codex:{model:"gpt-5.6-luna"}},result:{coverage:"complete"},
+    config:{video:"abc_def-ghI",provider:"codex",final_transcription:true,codex:{model:"gpt-5.6-luna"}},result:{coverage:"complete"},
     usage:{estimated_cost_usd:null,reserved_usd:null,budget_usd:null,request_count:1,input_tokens:800,
       output_tokens:120,cached_input_tokens:100,reasoning_tokens:20,unreported_requests:0,
       reported_counts:{cached_input_tokens:1,reasoning_tokens:1}}};
@@ -425,7 +491,7 @@ test("Codex selection disables dollar cap and renders unknown costs", async()=>{
     document:{getElementById:id=>nodes.get(id),createElement:tag=>new Element(tag)},
     fetch:async(url,options)=>{
       let result;
-      if(url==="/api/status")result={token:"fixture",max_concurrent_jobs:2,models:{turbo:true},providers:{
+      if(url==="/api/status")result={token:"fixture",max_concurrent_jobs:2,models:{turbo:true,"large-v3":true},providers:{
         codex:{model:"gpt-5.6-luna",configured:true,available:true}}};
       else if(url==="/api/concurrency"){
         assert.equal(options.method,"POST");
@@ -445,6 +511,8 @@ test("Codex selection disables dollar cap and renders unknown costs", async()=>{
   vm.runInContext(fs.readFileSync(path.join(staticPath,"app.js"),"utf8"),context);
   await new Promise(setImmediate);
   assert.equal(nodes.get("job-concurrency").value,"2");
+  assert.equal(nodes.get("final-transcription").disabled,false);
+  nodes.get("final-transcription").checked=true;
   nodes.get("job-concurrency").value="3";
   await nodes.get("job-concurrency").onchange();
   assert.equal(nodes.get("job-concurrency").disabled,false);
@@ -459,6 +527,8 @@ test("Codex selection disables dollar cap and renders unknown costs", async()=>{
   nodes.get("video").value="abc_def-ghI";
   await nodes.get("run-form").onsubmit({preventDefault(){}});
   assert.equal(submitted.provider,"codex");
+  assert.equal(submitted.final_transcription,true);
+  assert.ok(find(nodes.get("run-detail"),"Final clip captions: large-v3 · selected sections only."));
   assert.equal(submitted.budget_usd,0);
   assert.equal(nodes.get("error").textContent,"");
   assert.equal(nodes.get("view-results").hidden,false);

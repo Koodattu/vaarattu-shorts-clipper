@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import catalog, discover
+from .context_repair import ContextRequest
 from .contracts import MAX_CLIP_US, MIN_CLIP_US, EditRequest, LayoutSave, RunRequest, Word
 from .llm import PROVIDERS, codex_settings
 from .models import CATALOG, model_path
@@ -49,11 +50,16 @@ def public_clip(clip):
                 "output_duration_us",
                 "pacing",
                 "previous_revision",
+                "context_request",
             )
         },
         "has_preview": bool(body.get("folder") and (Path(body["folder"]) / "short.mp4").exists()),
         "has_source": bool(body.get("section") and Path(body["section"]).exists()),
         "section_origin_us": body.get("mapping", {}).get("origin_us", 0),
+        "caption_coverage": (
+            {k: body["caption_transcript"][k] for k in ("profile", "start_us", "end_us")}
+            if body.get("caption_transcript") else None
+        ),
     }
 
 
@@ -294,6 +300,13 @@ def create_app(settings):
     def retry_clip(clip_id: str, expected_revision: int = Body(embed=True, ge=1)):
         return queue_render(clip_id, expected_revision)
 
+    @app.post("/api/clips/{clip_id}/context", status_code=202)
+    def request_context(clip_id: str, request: ContextRequest):
+        clip = store.clip(clip_id)
+        if not (settings.work / "runs" / clip["run_id"] / "asr" / "transcript.json").is_file():
+            raise ValueError("The saved recording transcript is missing; restore it before requesting context.")
+        return store.queue_context(clip_id, request.model_dump())
+
     @app.post("/api/clips/{clip_id}/rerender", status_code=202)
     def rerender_clip(
         clip_id: str,
@@ -315,7 +328,15 @@ def create_app(settings):
             or edit.end_us > transcript["duration_us"]
         ):
             raise ValueError("Choose a 3–90 second interval within this VOD.")
-        canonical = [Word.model_validate(w) for w in transcript["words"]]
+        captions = original.get("caption_transcript", transcript)
+        if original.get("caption_transcript") and not (
+            captions["start_us"] <= edit.start_us and edit.end_us <= captions["end_us"]
+        ):
+            raise ValueError(
+                f"Keep this edit within its transcribed section "
+                f"({captions['start_us'] / 1e6:.2f}–{captions['end_us'] / 1e6:.2f} seconds)."
+            )
+        canonical = [Word.model_validate(w) for w in captions["words"]]
         if any(
             (w.start_us < edit.start_us < w.end_us) or (w.start_us < edit.end_us < w.end_us)
             for w in canonical

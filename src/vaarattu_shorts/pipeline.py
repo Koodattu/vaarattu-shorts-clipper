@@ -8,7 +8,7 @@ from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
 
-from . import discover, render, selection as review_selection, stream_data, transcribe, youtube
+from . import context_repair, discover, render, selection as review_selection, stream_data, transcribe, youtube
 from .contracts import CHANNEL_ID, Candidate, RunRequest, Word
 from .llm import Evaluator, check_provider, local_server
 from .models import model_path
@@ -29,6 +29,9 @@ def preflight(settings, request: RunRequest):
         if not shutil.which(settings.llama_server) and not (settings.root / settings.llama_server).is_file():
             raise ValueError("Set the installed llama-server path in config.toml.")
     snapshots = {"turbo": digest(settings.models / "turbo" / "manifest.json")}
+    if request.final_transcription:
+        model_path(settings, "large-v3")
+        snapshots["large-v3"] = digest(settings.models / "large-v3" / "manifest.json")
     if request.provider == "local":
         snapshots[request.local_model] = digest(settings.models / request.local_model / "manifest.json")
     return snapshots
@@ -269,6 +272,7 @@ class Pipeline:
             }
             self.store.save_clip(clip_id, self.run_id, 1, body)
             existing_ids.add(clip_id)
+        self.refine_captions(source, transcript["duration_us"])
         clips = self.store.clips(self.run_id)
         if selection.get("review_summary") is not None:
             selection["review_summary"] = {
@@ -279,11 +283,47 @@ class Pipeline:
             self.check()
             if clip["body"]["status"] in {"ready", "held"}:
                 continue
-            self.store.update(self.run_id, stage="render", progress=i / max(1, len(clips)))
+            self.store.update(self.run_id, stage="render", progress=i / max(1, len(clips)), message="")
             self.deliver(clip, source, transcript["duration_us"])
         return self.finish(
             enrichment, {**selection, "transcript_timing_issues": transcript.get("timing_issues", [])}
         )
+
+    def refine_captions(self, source, duration_us):
+        if not self.config.get("final_transcription", False):
+            return
+        clips = [
+            c
+            for c in self.store.clips(self.run_id)
+            if c["body"]["status"] == "pending" and not c["body"].get("caption_transcript")
+        ]
+        if not clips:
+            return
+        if digest(self.settings.models / "large-v3" / "manifest.json") != self.config["model_manifests"]["large-v3"]:
+            raise ValueError("The final transcription model changed. Restore the model prepared for this run.")
+        self.store.update(
+            self.run_id,
+            stage="final-transcript",
+            progress=0,
+            message=f"Refining captions for {len(clips)} clips with large-v3.",
+        )
+        check_space(self.settings)
+        results = transcribe.refine_clips(
+            self.settings,
+            source,
+            duration_us,
+            clips,
+            self.folder / "final-asr",
+            self.check,
+            self.progress,
+        )
+        for clip in clips:
+            self.check()
+            try:
+                body = transcribe.apply_refinement(clip["body"], results[clip["id"]])
+            except ValueError as exc:
+                body = {**clip["body"], "status": "held", "flags": [str(exc)]}
+            self.store.save_clip(clip["id"], self.run_id, clip["revision"], body)
 
     def prioritize_selection(self, selection, transcript):
         folder = self.folder / "inference" / f"review-priority-{self.chain[:16]}"
@@ -520,12 +560,53 @@ class Pipeline:
         selection = self.stage(f"recovery-{discover.VERSION}", operation, discover.VERSION)
         return self.export_selection(selection, transcript, metadata, Path(audio["path"]))
 
+    def repair_context(self):
+        clip_id = self.store.get(self.run_id)["result"]["context_repair_requested"]
+        clip = self.store.clip(clip_id)
+        request = clip["body"]["context_request"]
+        if request["status"] == "pending":
+            transcript_path = self.folder / "asr" / "transcript.json"
+            transcript = json.loads(transcript_path.read_text("utf-8"))
+            self.chain = hashlib.sha256(f"{self.chain}:{digest(transcript_path)}".encode()).hexdigest()
+            folder = self.folder / "context-repair" / request["id"]
+
+            def operation():
+                folder.mkdir(parents=True, exist_ok=True)
+                atomic_json(folder / "request.json", {"clip": clip, "transcript_sha256": digest(transcript_path)})
+                manager = (
+                    local_server(self.settings, self.config, folder, self.check)
+                    if self.config["provider"] == "local" else nullcontext(None)
+                )
+                with manager as client:
+                    evaluator = Evaluator(
+                        self.config["provider"], self.store, self.run_id, folder,
+                        self.config["budget_usd"], self.check, client,
+                        self.config.get("context_size", 16384), codex_config=self.config.get("codex"),
+                        verification_reasoning=self.config.get("verification_reasoning", "low"),
+                    )
+                    self.store.update(self.run_id, message="Checking surrounding speech for the missing context.")
+                    proposal, revised = context_repair.propose(clip["body"], transcript, evaluator)
+                result = {"proposal": proposal.model_dump(), "revised": revised}
+                atomic_json(folder / "proposal.json", result)
+                return result, [folder / "request.json", folder / "proposal.json"]
+
+            result = self.stage("context-repair", operation, f"v1:{request['id']}")
+            self.check()
+            self.store.resolve_context(
+                clip_id, clip["revision"], request["id"], result["proposal"]["reason"], result["revised"],
+            )
+        if self.store.clip(clip_id)["body"]["context_request"]["status"] == "unchanged":
+            return self.finish(self.store.get(self.run_id)["result"].get("chat", {"status": "unavailable"}))
+        return self.rerender()
+
     def rerender(self):
         audio = json.loads((self.folder / "audio.checkpoint.json").read_text("utf-8"))["result"]
         source = Path(audio["path"])
         if not source.is_file():
             source = youtube.acquire(self.settings, self.config["video"], self.folder / "audio", self.check)
+        self.refine_captions(source, round(audio["duration"] * 1e6))
         for clip in self.store.clips(self.run_id):
             if clip["body"]["status"] == "pending":
+                self.store.update(self.run_id, stage="render", message="Rendering the revised clip.")
                 self.deliver(clip, source, round(audio["duration"] * 1e6))
         return self.finish(self.store.get(self.run_id)["result"].get("chat", {"status": "unavailable"}))

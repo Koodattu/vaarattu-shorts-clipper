@@ -22,6 +22,10 @@ CATALOG = {
         "repo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
         "revision": "0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf",
     },
+    "large-v3": {
+        "repo": "Systran/faster-whisper-large-v3",
+        "revision": "edaa852ec7e145841d8ffdb056a99866b5f0a478",
+    },
 }
 
 

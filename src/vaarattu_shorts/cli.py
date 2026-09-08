@@ -49,7 +49,7 @@ def main():
     worker.add_argument("--once", action="store_true")
     sub.add_parser("status", help="Show local setup and saved runs without processing")
     models = sub.add_parser("models", help="Explicitly prepare a model inside this project's .cache/models")
-    models.add_argument("model", choices=["turbo", "gemma4-31b", "gemma4-26b-a4b"])
+    models.add_argument("model", choices=["turbo", "large-v3", "gemma4-31b", "gemma4-26b-a4b"])
     sub.add_parser("backup", help="Back up state and durable project artifacts")
     compare = sub.add_parser(
         "compare-reasoning", help="Compare low/medium on saved speech; makes model requests, no videos"

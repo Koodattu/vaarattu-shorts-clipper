@@ -98,6 +98,7 @@ class RunRequest(Contract):
     verification_reasoning: Literal["low", "medium"] = "low"
     video_encoder: Literal["libx264", "h264_nvenc"] = "h264_nvenc"
     trim_silence: bool = True
+    final_transcription: bool = False
 
     @model_validator(mode="after")
     def normalize(self):

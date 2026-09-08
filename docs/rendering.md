@@ -1,5 +1,19 @@
 # Video rendering, captions and delivery
 
+The review queue now supports **Needs more context**, with before/after directions and an optional note. The LLM can extend the existing moment into a new revision or keep the original with an explanation. See [context repair](context-repair.md) for queue behavior, model inputs and retry semantics.
+
+## Optional final transcription (8 September 2026)
+
+New runs can enable **Refine selected clip captions with large-v3** after explicitly preparing that model (see [setup](setup.md)). It defaults off, and older saved runs keep their existing behavior. The option is disabled in the form until the pinned model is prepared; admission snapshots its manifest and never downloads weights.
+
+The order is Turbo full-VOD ASR → discovery/verification → ranking and review limit → large-v3 selected-section ASR → rendering. Owned Turbo and local LLM processes have exited before large-v3 loads. All pending selected clips share one finite large-v3 child under the existing GPU lock; the child exits before this run starts rendering. Other jobs' ASR/local LLM stages use the same lock. External LLM services are not stopped, and unrelated jobs' encoding retains its existing concurrency behavior.
+
+Each selected interval is extracted from the original full audio with up to ten seconds of context on either side, rather than transcribing the VOD again. CUDA FP16, unbatched beam-5 decoding produces Finnish words and source timestamps. ASR retains its existing VAD preprocessing; **pause cuts themselves still use transcript timestamps only**, with no audio-level detector. Raw results, timing diagnostics and runtime information live in `workdir/runs/<run_id>/final-asr/<fingerprint>/`. Fingerprints include source audio, pinned model manifest and decoding policy; individual section files include their source bounds. Interrupted passes reuse completed sections. A model/child failure stops the run for retry without silently reverting to Turbo captions.
+
+The original Turbo transcript and LLM selection anchors remain unchanged for auditing. Each successful clip saves a separate `caption_transcript` containing large-v3 words, coverage and model/cache hashes. Those words drive captions and pause trimming, with output-relative caption timings still derived from the cut map. A cut crossing a new word can expand outward by at most 500 ms per edge, while retaining the 90-second maximum. Empty results or larger boundary disagreements hold that clip for a timing edit. New overlap diagnostics protect disputed speech as before.
+
+Caption edits validate against the saved large-v3 words. The editor shows the available context range and allows changes within it; expanding beyond that range is rejected instead of mixing Turbo and large-v3 timings. Rerenders preserve this canonical transcription and the user's text edits, and do not load large-v3 again for already refined clips. A pending clip that never completed refinement first retries that step. This option applies to new runs, not a retroactive rewrite of existing exports. Real Finnish accuracy, timestamps and GPU performance still need evaluation on user-started runs.
+
 Updated 8 September 2026: enabled pause trimming now uses transcript word gaps >=1.5 seconds with 300 ms padding on either side, without an audio-volume gate. Known timing conflicts and word spans are protected. Existing files/reviews are preserved; rerender creates a new revision. See [timestamp pacing](pacing-and-evaluation.md) and [the four-clip audit](audits/2026-09-08-review-calibration.md).
 
 ## Pacing and GPU update (7 September 2026)

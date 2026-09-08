@@ -5,8 +5,9 @@ import hashlib
 import sys
 import time
 import re
+from pathlib import Path
 
-from .contracts import Word
+from .contracts import MAX_CLIP_US, Word
 from .models import model_path
 from .processes import run_tool, waiting_lock
 from .storage import atomic_json, digest
@@ -242,7 +243,135 @@ def transcribe(settings, source, duration, profile, folder, check, progress):
     }
     atomic_json(folder / "transcript.json", transcript)
     for chunk in chunks:
-        from pathlib import Path
-
         Path(chunk["audio"]).unlink(missing_ok=True)
     return transcript
+
+
+def refine_clips(settings, source, duration_us, clips, folder, check, progress):
+    """Decode selected source sections in one finite, unbatched large-v3 process."""
+    if not clips:
+        return {}
+    model = model_path(settings, "large-v3", verify=True)
+    manifest_hash = digest(settings.models / "large-v3" / "manifest.json")
+    fingerprint = hashlib.sha256(
+        (digest(source) + manifest_hash + "final-fi-fp16-beam5-vad-unconditioned-context10-v1").encode()
+    ).hexdigest()
+    folder = folder / fingerprint
+    folder.mkdir(parents=True, exist_ok=True)
+    chunks = []
+    for clip in clips:
+        check()
+        body = clip["body"]
+        start = max(0, body["start_us"] - 10000000)
+        end = min(duration_us, body["end_us"] + 10000000)
+        stem = f"{clip['id']}-{start}-{end}"
+        audio, output = folder / f"{stem}.wav", folder / f"{stem}.json"
+        if output.exists():
+            try:
+                cached = json.loads(output.read_text("utf-8"))
+                if cached.get("fingerprint") != fingerprint or not isinstance(cached.get("words"), list):
+                    output.unlink()
+            except ValueError:
+                output.unlink()
+        if not output.exists():
+            audio.unlink(missing_ok=True)
+            pcm(settings, source, audio, start / 1e6, (end - start) / 1e6, check)
+        chunks.append(
+            {
+                "clip_id": clip["id"],
+                "audio": str(audio),
+                "output": str(output),
+                "offset_us": start,
+                "core_start_us": start,
+                "core_end_us": end,
+            }
+        )
+    missing = [c for c in chunks if not Path(c["output"]).exists()]
+    if missing:
+        with waiting_lock(settings.work / "gpu.lock", "Local\\VaarattuShortsGpu", check):
+            request = folder / "asr-request.json"
+            atomic_json(
+                request,
+                {
+                    "model": str(model),
+                    "profile": "large-v3",
+                    "chunks": missing,
+                    "fingerprint": fingerprint,
+                    "batch_size": 0,
+                    "flash_attention": False,
+                },
+            )
+
+            def checkpoint_progress():
+                check()
+                progress(sum(Path(c["output"]).exists() for c in chunks) / len(chunks))
+
+            run_tool(
+                [sys.executable, "-m", "vaarattu_shorts.asr_child", request],
+                settings,
+                folder,
+                "final-asr",
+                checkpoint_progress,
+                timeout=max(600, sum(c["core_end_us"] - c["offset_us"] for c in missing) / 1e6 * 2),
+            )
+    # run_tool waits for the owned child to exit before releasing the GPU lock.
+    results = {}
+    for chunk in chunks:
+        check()
+        output = Path(chunk["output"])
+        raw = json.loads(output.read_text("utf-8"))
+        if raw.get("fingerprint") != fingerprint:
+            raise ValueError("The final transcription cache changed. Retry the run.")
+        timing_issues = []
+        words = merge_chunks([(chunk, raw)], duration_us, timing_issues)
+        for word in words:
+            word.id = f"f_{chunk['clip_id']}_{word.id}"
+        for issue in timing_issues:
+            if "word_ids" in issue:
+                issue["word_ids"] = [f"f_{chunk['clip_id']}_{key}" for key in issue["word_ids"]]
+        results[chunk["clip_id"]] = {
+            "profile": "large-v3",
+            "model_manifest_sha256": manifest_hash,
+            "fingerprint": fingerprint,
+            "raw_sha256": digest(output),
+            "start_us": chunk["core_start_us"],
+            "end_us": chunk["core_end_us"],
+            "words": [w.model_dump() for w in words],
+            "timing_issues": timing_issues,
+        }
+        Path(chunk["audio"]).unlink(missing_ok=True)
+    progress(1)
+    return results
+
+
+def apply_refinement(body, transcript):
+    """Keep cuts whole-word without letting a new alignment substantially change the excerpt."""
+    start, end = body["start_us"], body["end_us"]
+    words = transcript["words"]
+    # Expand over crossing words, including nested/overlapping word intervals.
+    while True:
+        crossing = [w for w in words if w["start_us"] < end and w["end_us"] > start]
+        if not crossing:
+            raise ValueError("Final transcription found no words in this clip. Check its source and timing.")
+        a = min(start, min(w["start_us"] for w in crossing))
+        b = max(end, max(w["end_us"] for w in crossing))
+        if a == start and b == end:
+            break
+        start, end = a, b
+    if (
+        body["start_us"] - start > 500000
+        or end - body["end_us"] > 500000
+        or end - start > MAX_CLIP_US
+        or start < transcript["start_us"]
+        or end > transcript["end_us"]
+    ):
+        raise ValueError("Final word timing crosses this clip's cut. Adjust its boundaries before retrying.")
+    return {
+        **body,
+        "start_us": start,
+        "end_us": end,
+        "words": [w for w in words if start <= w["start_us"] and w["end_us"] <= end],
+        "caption_transcript": transcript,
+        "discovery_bounds": {"start_us": body["start_us"], "end_us": body["end_us"]},
+        "transcript_timing_issues": transcript["timing_issues"],
+    }

@@ -15,9 +15,11 @@ from .storage import Store, atomic_json
 def run_job(settings, store, run_id, stopping):
     try:
         pipeline = Pipeline(settings, store, run_id, stopping)
-        if store.get(run_id)["result"].get("selection_recheck_requested"):
+        if store.get(run_id)["result"].get("context_repair_requested"):
+            pipeline.repair_context()
+        elif store.get(run_id)["result"].get("selection_recheck_requested"):
             pipeline.recheck_selection()
-        elif store.get(run_id)["stage"] == "rerender":
+        elif store.get(run_id)["result"].get("rerender_requested") or store.get(run_id)["stage"] == "rerender":
             pipeline.rerender()
         else:
             pipeline.execute()
