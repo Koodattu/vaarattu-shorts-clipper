@@ -260,10 +260,12 @@ def render_clip(settings, section, mapping, body, layout, words, folder, check):
         raise ValueError("The picture starts after the chosen clip boundary. Retry the section download.")
     width, height = video["width"], video["height"]
     selected_words = [w for w in words if start <= w.start_us and w.end_us <= end]
-    edit_plan = (
-        pacing.analyze(settings, section, mapping, body, selected_words, folder, check)
-        if body.get("trim_silence", False)
-        else pacing.plan(start, end, selected_words, [])
+    edit_plan = pacing.plan(
+        start,
+        end,
+        selected_words,
+        body.get("transcript_timing_issues", []),
+        enabled=body.get("trim_silence", False),
     )
     output_words = pacing.retime(selected_words, edit_plan)
     duration = edit_plan["output_duration_us"] / 1e6
@@ -271,7 +273,9 @@ def render_clip(settings, section, mapping, body, layout, words, folder, check):
     atomic_json(folder / "captions.source.words.json", [w.model_dump() for w in selected_words])
     atomic_json(folder / "pacing.json", edit_plan)
     if edit_plan["removed"]:
-        flags.append(f"Shortened {(end - start) / 1e6 - duration:.1f}s of long quiet pauses; check the pacing.")
+        flags.append(
+            f"Shortened {(end - start) / 1e6 - duration:.1f}s of pauses between transcript words; check the pacing."
+        )
     if any(
         issue["start_us"] < end and issue["end_us"] > start
         for issue in body.get("transcript_timing_issues", [])

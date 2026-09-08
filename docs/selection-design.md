@@ -1,5 +1,17 @@
 # Transcript presentation and selection, conversation-v6
 
+## Current behavior: conversation-v10 (8 September 2026)
+
+New selections use a ranked review queue capped at ten clips per run (one VOD). Discovery still scans the complete transcript without a count quota and verification checks every distinct proposal. The substance rubric now distinguishes a worthwhile clip from merely specific gameplay terminology or an instruction. Gamer humor, personality and gradual/open-ended discussion remain welcome.
+
+Before rendering, candidates require valid source boundaries, verifier accept, substance >=3, standalone >=2 and fidelity >=2. Opening and payoff have no hard threshold. These gates retained all ten creator approvals in the latest saved run, but still admitted 43 candidates; they are not sufficient ranking evidence. See [the review audit](audits/2026-09-08-review-calibration.md).
+
+A separate comparative request receives the actual candidate excerpts, existing scores and concerns, without catchy titles, creator labels or a requested clip count. It returns every admitted ID in priority order with review/defer and a short reason. The application keeps review recommendations, removes overlapping variants covering at least half the shorter clip or the same idea anchor, and admits at most ten. It may select fewer. Raw section responses, verification and ranking decisions remain saved. The run's **Selection feedback and decisions** shows exclusions, rank, reasoning and a link to original context.
+
+The comparison uses the saved verifier reasoning setting, provider and spending ledger. Its own checkpoint avoids repeat calls on resume. Malformed output receives the existing bounded repair; if still invalid, or if the whole comparison exceeds the existing input budget, a visible warning accompanies deterministic score ordering. Operational or budget errors remain explicit failures. No chat boosts or creator rejection keywords silently change ranks. The 43-candidate saved-run comparison fits the current Codex input bound (37,641 / 48,000 conservative units); no live comparison was run during implementation, so improved ranking precision is not yet measured.
+
+Only ranked candidates are downloaded/rendered and enter the queue, best first within each run. Existing clips count against the allocation on recovery; older exports and human reviews are preserved even when already over the limit. Completed pre-v10 selections retain their saved behavior. Nothing reprocesses the latest completed run automatically. Restart the app after active work finishes to use v10 for new selections.
+
 ## Current behavior: conversation-v9 (7 September 2026)
 
 Discovery must identify an actual interesting remark, joke, insight or story in the speech. Gamer references, banter and personality remain welcome, including worthwhile moments with uncertain context or a few unclear words. Unclear fragments are not leads merely because they might conceal something interesting. Routine coordination, mechanics instructions and generic reactions need a distinctive observation, humor, personal detail or engaging explanation beyond the immediate task. Each proposal's existing reason names its value before any uncertainty; no new output fields or count limits were added.

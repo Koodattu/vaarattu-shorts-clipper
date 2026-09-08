@@ -22,6 +22,29 @@ function find(node, label) {
   for(const child of node.children){const match=find(child,label);if(match)return match;}
 }
 
+test("review queue keeps runs grouped and serves ranked clips best first", async()=>{
+  const staticPath=path.join(__dirname,"../src/vaarattu_shorts/static");
+  const html=fs.readFileSync(path.join(staticPath,"index.html"),"utf8");
+  const nodes=new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],new Element()]));
+  nodes.get("review-player").load=()=>{};
+  const clips=[
+    {id:"third",run_id:"new",review_rank:3},
+    {id:"first",run_id:"new",review_rank:1},
+    {id:"second",run_id:"new",review_rank:2},
+    {id:"older",run_id:"old",review_rank:1},
+  ].map(c=>({...c,title:c.id,status:"ready",has_preview:true,revision:1,start_us:0,end_us:5000000}));
+  const context=vm.createContext({
+    currentView:"gallery",savedLayouts:[],layouts:async()=>{},api:async()=>clips,
+    $:id=>nodes.get(id),text:(tag,value)=>Object.assign(new Element(tag),{textContent:value}),clipNotes:()=>[],
+    document:{addEventListener(){}},
+  });
+  vm.runInContext(fs.readFileSync(path.join(staticPath,"review.js"),"utf8"),context);
+  await vm.runInContext("loadReviewQueue()",context);
+  assert.equal(vm.runInContext("reviewQueue.map(c=>c.id).join(',')",context),"first,second,third,older");
+  assert.equal(nodes.get("review-title").textContent,"first");
+  assert.match(nodes.get("review-meta").textContent,/Priority 1/);
+});
+
 test("queue rerenders the selected layout and waits on the same clip for the new preview", async()=>{
   const staticPath=path.join(__dirname,"../src/vaarattu_shorts/static");
   const html=fs.readFileSync(path.join(staticPath,"index.html"),"utf8");
@@ -141,6 +164,9 @@ test("manual review queue advances only after saving, supports undo and guards s
   assert.equal(nodes.get("review-progress").textContent,"3 left","Only finished unreviewed previews enter the queue");
   assert.equal(nodes.get("review-title").textContent,"Moment 0");
   assert.equal(player.src,"/api/artifacts/clip-0/video?revision=1");
+  const reason=nodes.get("review-rejection-reason");
+  assert.equal(reason.disabled,false);
+  reason.value="Only save this if rejected";
   const key=(value,extra={})=>keydown({key:value,code:value===" "?"Space":"",target:{closest:()=>null},preventDefault(){},...extra});
   key("a",{repeat:true});key("a",{ctrlKey:true});key("a",{target:{closest:()=>true}});
   nodes.get("clip-notes-dialog").open=true;key("a");nodes.get("clip-notes-dialog").open=false;
@@ -150,23 +176,44 @@ test("manual review queue advances only after saving, supports undo and guards s
   const saving=nodes.get("review-approve").onclick({detail:1});
   assert.equal(nodes.get("review-title").textContent,"Moment 0","Do not advance before a successful save");
   assert.equal(nodes.get("review-reject").disabled,true);
+  assert.equal(reason.disabled,true);
   key("r");key("s");key("u");
   assert.equal(writes.length,1,"Saving blocks additional decisions and navigation");
   releaseSave();holdSave=false;await saving;
   assert.equal(clips[0].review_status,"approved");
+  assert.equal(writes[0].note,undefined,"Approval does not save a draft rejection reason");
+  assert.equal(reason.value,"","A reason must not leak into the next clip");
   assert.equal(nodes.get("review-title").textContent,"Moment 1");
   assert.equal(nodes.get("review-undo").disabled,false);
   await nodes.get("review-undo").onclick();
   assert.equal(clips[0].review_status,"unreviewed");
   assert.equal(nodes.get("review-title").textContent,"Moment 0");
   assert.equal(nodes.get("review-undo").disabled,true);
+  nodes.get("review-notes").onclick();
+  nodes.get("review-reason").value="Missing context";
+  await nodes.get("save-review-reason").onclick();
+  nodes.get("close-clip-notes").onclick();
+  assert.equal(reason.value,"Missing context","Notes dialog saves update the queue reason");
+  reason.value="Too short; missing the setup";
+  const beforeTyping=writes.length;
+  key("r",{target:{closest:selector=>selector.includes("textarea")?reason:null}});
+  assert.equal(writes.length,beforeTyping,"Typing in the reason must not reject the clip");
   failSave=true;
   await nodes.get("review-reject").onclick({detail:1});
   assert.equal(nodes.get("review-title").textContent,"Moment 0");
   assert.match(nodes.get("review-message").textContent,/Your place in the queue has been kept/);
   assert.equal(nodes.get("review-approve").disabled,false);
+  assert.equal(reason.value,"Too short; missing the setup","Failed saves preserve the draft");
   failSave=false;key("r");await new Promise(setImmediate);
   assert.equal(clips[0].review_status,"not_approved");
+  assert.equal(clips[0].review_note,"Too short; missing the setup");
+  assert.equal(reason.value,"");
+  await nodes.get("review-undo").onclick();
+  assert.equal(reason.value,"Too short; missing the setup","Undo restores the saved reason for editing");
+  reason.value="";
+  await nodes.get("review-reject").onclick({detail:1});
+  assert.equal(clips[0].review_status,"not_approved","A reason is optional");
+  assert.equal(clips[0].review_note,"","An existing reason can be cleared");
   const beforeSkip=writes.length;key("s");
   assert.equal(writes.length,beforeSkip);assert.equal(clips[1].review_status,"unreviewed");
   assert.equal(nodes.get("review-title").textContent,"Moment 2");
@@ -177,6 +224,7 @@ test("manual review queue advances only after saving, supports undo and guards s
   assert.equal(nodes.get("review-empty").hidden,false);
   assert.equal(nodes.get("review-empty-title").textContent,"Remaining clips skipped");
   assert.equal(nodes.get("review-approve").disabled,true);
+  assert.equal(reason.disabled,true);
   assert.equal(player.src,undefined);
   await nodes.get("refresh-review").onclick();
   assert.equal(nodes.get("review-title").textContent,"Moment 1","Refresh returns skipped clips");

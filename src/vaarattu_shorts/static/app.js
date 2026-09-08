@@ -126,7 +126,7 @@ async function detail(){
   if(run.id!==activeRun)return;
   const signature=JSON.stringify(run);if(signature===detailSignature)return;detailSignature=signature;
   const box=$("run-detail"),usageOpen=$("run-usage")?.open;
-  const stages={metadata:"Reading recording details",audio:"Preparing audio",transcript:"Transcribing speech",selection:"Finding moments",chat:"Reviewing chat peaks",render:"Rendering clips"};
+  const stages={metadata:"Reading recording details",audio:"Preparing audio",transcript:"Transcribing speech",selection:"Finding moments","review-priority":"Ranking review candidates",chat:"Reviewing chat peaks",render:"Rendering clips"};
   const states={completed:"Run completed",queued:"Waiting to start",paused:"Run paused",failed:"Run needs attention",cancelled:"Run cancelled"};
   box.replaceChildren(text("h2",states[run.state]||(run.stage.startsWith("recovery-")?"Rechecking moments":stages[run.stage]||"Processing recording")));
   $("run-announcement").textContent=`${run.state} · ${Math.round(run.progress*100)}%. ${run.message||""}`;
@@ -151,16 +151,21 @@ async function detail(){
     recovery.append(action("Recheck excluded moments",async()=>{await api(`/api/runs/${run.id}/recheck`,{method:"POST"});await refresh();}));box.append(recovery);
   }
   const decisions=run.result.verified||[], feedback=run.result.section_feedback||[];
+  const priority=run.result.review_summary;
+  if(priority){box.append(text("p",`${priority.selected} of ${priority.candidates} candidates selected for review · Up to ${priority.limit} per run`));if(priority.warning)box.append(text("p",priority.warning,"muted"));}
   if(decisions.length||feedback.length){
     const audit=text("details","","disclosure");audit.append(text("summary","Selection feedback and decisions"));
     const stamp=us=>{const n=Math.floor(us/1e6);return `${Math.floor(n/3600)}:${String(Math.floor(n/60)%60).padStart(2,"0")}:${String(n%60).padStart(2,"0")}`;};
     for(const item of feedback)audit.append(text("p",`${stamp(item.start_us)}–${stamp(item.end_us)} · ${item.source==="chat_peak"?"Chat peak":"Transcript"} · ${item.candidates} suggestions — ${item.feedback}`));
     if(!feedback.length)audit.append(text("p","This older scan did not save section feedback. Rechecking exclusions does not rescan empty sections.","muted"));
     for(const item of decisions){
-      const c=item.candidate;audit.append(text("h4",`${stamp(item.start_us)} · ${c.title_fi} · ${item.eligible?"Selected":"Not selected"}`));
+      const c=item.candidate;audit.append(text("h4",`${stamp(item.start_us)} · ${c.title_fi} · ${(item.review_selected??item.eligible)?"Selected":"Not selected"}${item.review_rank?` · Priority ${item.review_rank}`:""}`));
       audit.append(text("p",c.reason));
       audit.append(text("p",`Model: ${c.outcome} · Standalone ${c.scores.standalone}/4 · Substance ${c.scores.substance}/4 · Fidelity ${c.scores.fidelity}/4 · ${((item.end_us-item.start_us)/1e6).toFixed(1)} seconds`,"muted"));
       for(const reason of item.exclusion_reasons||[])audit.append(text("p",reason));
+      for(const reason of item.review_exclusion_reasons||[])audit.append(text("p",reason));
+      if(item.priority_reason)audit.append(text("p",item.priority_reason));
+      const original=text("a","Watch original context");original.href=`https://www.youtube.com/watch?v=${encodeURIComponent(run.config.video)}&t=${Math.max(0,Math.floor(item.start_us/1e6)-10)}s`;original.target="_blank";original.rel="noopener";audit.append(original);
       for(const note of item.review_notes||[])audit.append(text("p",note));
       for(const flag of c.flags||[])audit.append(text("p",flag,"muted"));
     }

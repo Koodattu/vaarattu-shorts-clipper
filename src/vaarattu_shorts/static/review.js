@@ -9,6 +9,7 @@ function reviewMessage(message,isError=false){
 function reviewControls(){
   const clip=reviewQueue[0],locked=reviewBusy||Boolean(reviewRendering);
   for(const id of ["review-approve","review-reject"])$(id).disabled=locked||!clip||clip.status!=="ready"||!clip.has_preview;
+  $("review-rejection-reason").disabled=$("review-reject").disabled;
   $("review-skip").disabled=locked||!clip;
   $("review-undo").disabled=locked||!reviewLast;
   $("refresh-review").disabled=reviewBusy;
@@ -23,6 +24,9 @@ async function loadReviewQueue(){
   try{
     const [clips]=await Promise.all([api("/api/clips"),layouts()]);
     reviewQueue=clips.filter(c=>c.status==="ready"&&c.has_preview&&(c.review_status||"unreviewed")==="unreviewed");
+    const groups=new Map();
+    for(const clip of reviewQueue){if(!groups.has(clip.run_id))groups.set(clip.run_id,[]);groups.get(clip.run_id).push(clip);}
+    reviewQueue=[...groups.values()].flatMap(group=>group.sort((a,b)=>(a.review_rank??Infinity)-(b.review_rank??Infinity)));
     reviewLoaded=true;reviewSkipped=0;reviewLast=null;reviewVideoKey="";
     reviewMessage("");paintReviewQueue();
   }catch(e){reviewMessage(e.message,true);}
@@ -37,9 +41,10 @@ function paintReviewQueue(){
   $("review-render-run").hidden=!clip||Boolean(playable);
   $("review-title").textContent=clip?.title||"No clip selected";
   $("review-title").title=clip?.title||"";
-  $("review-meta").textContent=clip?`${((clip.output_duration_us??(clip.end_us-clip.start_us))/1e6).toFixed(1)}s · Revision ${clip.revision}`:"";
+  $("review-meta").textContent=clip?`${clip.review_rank?`Priority ${clip.review_rank} · `:""}${((clip.output_duration_us??(clip.end_us-clip.start_us))/1e6).toFixed(1)}s · Revision ${clip.revision}`:"";
   $("review-previous").hidden=!clip?.previous_revision;if(clip?.previous_revision)$("review-previous").href=`/api/artifacts/${clip.id}/video?revision=${clip.previous_revision}`;
   $("review-notes").textContent=clip&&clipNotes(clip).length?`Review notes (${clipNotes(clip).length})`:"Review reason";
+  if(!clip||`${clip.id}:${clip.revision}`!==reviewVideoKey)$("review-rejection-reason").value=clip?.review_note||"";
   if(!playable){
     if(!clip)paintReviewLayouts();
     video.pause();video.removeAttribute("src");video.load();reviewVideoKey="";
@@ -111,7 +116,7 @@ async function decideReview(status){
   if(reviewBusy||reviewRendering||!reviewQueue.length||reviewQueue[0].status!=="ready"||!reviewQueue[0].has_preview)return;
   const clip=reviewQueue[0];reviewBusy=true;reviewControls();reviewMessage("Saving decision…");
   try{
-    await saveClipReview(clip,status);
+    await saveClipReview(clip,status,status==="not_approved"?$("review-rejection-reason").value:undefined);
     reviewLast=clip;reviewQueue.shift();
     reviewMessage(`${reviewLabels[status]}. Decision saved.`);paintReviewQueue();
   }catch(e){reviewMessage(e.message+" Your place in the queue has been kept.",true);}

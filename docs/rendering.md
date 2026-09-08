@@ -1,5 +1,7 @@
 # Video rendering, captions and delivery
 
+Updated 8 September 2026: enabled pause trimming now uses transcript word gaps >=1.5 seconds with 300 ms padding on either side, without an audio-volume gate. Known timing conflicts and word spans are protected. Existing files/reviews are preserved; rerender creates a new revision. See [timestamp pacing](pacing-and-evaluation.md) and [the four-clip audit](audits/2026-09-08-review-calibration.md).
+
 ## Pacing and GPU update (7 September 2026)
 
 New runs support conservative synchronized pause cuts and default to NVIDIA encoding. Existing saved settings are preserved; queue/editor controls apply the new behavior as a separate revision. Output-relative caption timing has a separate canonical-source artifact, and previous revision previews remain accessible. The minimum is now three seconds. See [pacing and evaluation](pacing-and-evaluation.md) for exact rules, limitations, and the isolated encoder benchmark command. This supersedes historical contiguous-only and CPU-only statements below.

@@ -41,8 +41,10 @@ $("save-review-reason").onclick=async()=>{
   finally{reviewNoteSaving=false;$("save-review-reason").disabled=false;$("review-reason").disabled=false;$("close-clip-notes").disabled=false;}
 };
 async function saveClipReview(clip,status,note){
+  const previousNote=clip.review_note||"";
   const updated=await api(`/api/clips/${clip.id}/review`,{method:"POST",body:JSON.stringify({expected_revision:clip.revision,status,...(note===undefined?{}:{note})})});
   clip.review_status=updated.review_status;clip.review_note=updated.review_note||"";
+  if(typeof reviewQueue!=="undefined"&&reviewQueue[0]?.id===clip.id&&reviewQueue[0].revision===clip.revision&&$("review-rejection-reason").value===previousNote)$("review-rejection-reason").value=clip.review_note;
   const item=galleryClips.find(c=>c.id===updated.id&&c.revision===updated.revision);
   if(item){item.review_status=updated.review_status;item.review_note=updated.review_note||"";}
   return updated;

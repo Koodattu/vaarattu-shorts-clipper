@@ -1,0 +1,2142 @@
+{
+  "run_id": "002b6046f037478db0c4e4d504af535a",
+  "clips": [
+    {
+      "clip_id": "eb84cb857d2c64a24a3d5c323279011d",
+      "title": "Diablo 4:n Warlock ei ole koskaan ollut hyvä",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0015724",
+        "end_word_id": "w_0015761",
+        "idea_word_id": "w_0015724",
+        "category": "opinion",
+        "scores": {
+          "standalone": 3,
+          "opening": 4,
+          "substance": 4,
+          "payoff": 4,
+          "fidelity": 3
+        },
+        "flags": [
+          "transcription_uncertainty"
+        ],
+        "reason": "Selkeä mielipide Diablo 4:n Warlockista: luokka ei ole ollut hyvä, ongelmia ei ole korjattu ja kausi tuntuu filler-kaudelta. Rajaus poistaa Belial-sivupolun; kohdassa “ei korjastu” transkriptio on epävarma.",
+        "summary_fi": "Vaarattu tyrmää Diablo 4:n Warlockin ja kutsuu kautta filler-kaudeksi.",
+        "title_fi": "Diablo 4:n Warlock ei ole koskaan ollut hyvä"
+      },
+      "duration_seconds": 18.86
+    },
+    {
+      "clip_id": "700734d9ac53eb3dbb839118be392f08",
+      "title": "“Ei sulle naureta… tai siis nauretaan sulle”",
+      "status": "ready",
+      "review": "approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0002970",
+        "end_word_id": "w_0003007",
+        "idea_word_id": "w_0002970",
+        "category": "joke",
+        "scores": {
+          "standalone": 3,
+          "opening": 3,
+          "substance": 3,
+          "payoff": 4,
+          "fidelity": 4
+        },
+        "flags": [],
+        "reason": "Lyhyt ja selkeä sanaleikki: ensin luvataan nauraa yhdessä, mutta puhuja korjaa asetelman päinvastaiseksi — nauretaankin katsojalle. Aiempi reaktio on ylimääräistä preamblea, joten leikkaus alkaa varsinaisesta vitsistä.",
+        "summary_fi": "Puhuja yrittää muotoilla lohdutuksen, mutta päätyykin myöntämään, että katsojalle nauretaan.",
+        "title_fi": "“Ei sulle naureta… tai siis nauretaan sulle”"
+      },
+      "duration_seconds": 16.9
+    },
+    {
+      "clip_id": "d354c2f55ec25b84a8d4807bde0b4072",
+      "title": "Suuri johtaja antaa viikon lomaa",
+      "status": "ready",
+      "review": "approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0000600",
+        "end_word_id": "w_0000648",
+        "idea_word_id": "w_0000600",
+        "category": "joke",
+        "scores": {
+          "standalone": 3,
+          "opening": 3,
+          "substance": 3,
+          "payoff": 4,
+          "fidelity": 4
+        },
+        "flags": [
+          "Ilomäki jää katsojalle nimeksi ilman lisäkontekstia."
+        ],
+        "reason": "Ilomäen viesti viikon lomasta rakentaa selkeän vitsin: ensin liioitellun juhlallinen kiitos ja lopuksi viikon loma kuvataan orjapiskurin saavutuksena. Leikkaus päättyy punchlineen ennen toistavaa jatkoa.",
+        "summary_fi": "Ilomäki antaa puoli vuotta kovaa töitä tehneelle streamerille viikon lomaa, mikä saa tämän kutsumaan häntä suureksi johtajaksi ja orjopiskuriksi.",
+        "title_fi": "Suuri johtaja antaa viikon lomaa"
+      },
+      "duration_seconds": 32.91
+    },
+    {
+      "clip_id": "ef957e5c6105c79a00d0073e3839026a",
+      "title": "Stormreaveriltä tulee lootin perässä käyviä ongelmapelaajia",
+      "status": "ready",
+      "review": "approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0005841",
+        "end_word_id": "w_0005953",
+        "idea_word_id": "w_0005841",
+        "category": "opinion",
+        "scores": {
+          "standalone": 3,
+          "opening": 3,
+          "substance": 4,
+          "payoff": 3,
+          "fidelity": 4
+        },
+        "flags": [
+          "Yleistää Stormreaver-pelaajia; 'jokainen' korjataan heti muotoon 'suurin osa'."
+        ],
+        "reason": "Konkreettinen ja peliyhteisöön liittyvä havainto, joka etenee ongelmapelaajista itsekkääseen lootin tavoitteluun. Alun dataan perustuva kehystys ja tärkeä poikkeus säilyvät, ja loppu antaa väitteelle selkeän perustelun.",
+        "summary_fi": "Streamer väittää datan osoittavan, että Stormreaveriltä tulevilla pelaajilla on usein persoonallisuushaasteita: he pelaavat lootin, eivät tiimityön vuoksi.",
+        "title_fi": "Stormreaveriltä tulee lootin perässä käyviä ongelmapelaajia"
+      },
+      "duration_seconds": 77.94
+    },
+    {
+      "clip_id": "fa24d8e8af7d8d2aab7362248c02fd68",
+      "title": "Yksi sadasta, juuri oikea kypärä",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0015456",
+        "end_word_id": "w_0015509",
+        "idea_word_id": "w_0015456",
+        "category": "story",
+        "scores": {
+          "standalone": 3,
+          "opening": 3,
+          "substance": 4,
+          "payoff": 4,
+          "fidelity": 3
+        },
+        "flags": [
+          "Pelikohtaiset termit ja muutama epäselvä transkriptio"
+        ],
+        "reason": "Selkeä RNG-tarina: hän kertoo ainoan tavan rollata tarvitsemansa kypärä ja saa sen lopulta yhden sadasta. Pelin ulkopuolinen katsoja ei tunne kaikkia termejä, mutta yllätys ja payoff välittyvät.",
+        "summary_fi": "Vain yksi pulli voi antaa tarvittavan kypärän — ja se osuu heti.",
+        "title_fi": "Yksi sadasta, juuri oikea kypärä"
+      },
+      "duration_seconds": 30.91
+    },
+    {
+      "clip_id": "b75b2dfdef714a7c93ca854ccfaa8dc0",
+      "title": "Kun vino hylly syyttää seinää",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0006294",
+        "end_word_id": "w_0006377",
+        "idea_word_id": "w_0006294",
+        "category": "story",
+        "scores": {
+          "standalone": 3,
+          "opening": 3,
+          "substance": 4,
+          "payoff": 4,
+          "fidelity": 3
+        },
+        "flags": [
+          "puhekielinen/transkriptio on paikoin epäselvä",
+          "“Matupassilla” saattaa olla “vatupassilla”"
+        ],
+        "reason": "Hauska ja selkeä pieni tarina: vino hylly näyttää seinän olevan vinossa, kirja putoaa päälle ja syyllinen alkaa väittää seinän heiluvan. Negaatio ja lopun ärtynyt punchline säilyvät. Alkuperäinen ehdotuksen preamble voidaan jättää pois.",
+        "summary_fi": "Vino hylly saa seinän näyttämään vinolta, ja putoavasta kirjasta syytetään seinää.",
+        "title_fi": "Kun vino hylly syyttää seinää"
+      },
+      "duration_seconds": 29.66
+    },
+    {
+      "clip_id": "3dc79af727d5042f9406b478f0055f80",
+      "title": "Täydellinen diili: RTX 3060 takaisin myyntiin",
+      "status": "ready",
+      "review": "approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0014576",
+        "end_word_id": "w_0014637",
+        "idea_word_id": "w_0014576",
+        "category": "joke",
+        "scores": {
+          "standalone": 3,
+          "opening": 3,
+          "substance": 3,
+          "payoff": 4,
+          "fidelity": 3
+        },
+        "flags": [
+          "GPU-mallien ja RAM/VRAM-terminologia osin epäselvä transkriptiossa"
+        ],
+        "reason": "Selkeä gamer-huumorin kaari: 8 Gt:n RTX 3060 ei riitä 4K-käytössä, ja hinnan nousua kutsutaan sarkastisesti täydelliseksi diiliksi. Lopun Jensin ja perheen naurua koskeva heitto antaa luonnollisen punchlinen. Alun lyhyt konteksti tarvitaan, eikä sitä kannata leikata pois.",
+        "summary_fi": "RTX 3060:n VRAM ei riitä 4K:lle, mutta hinnan nousu on silti \"täydellinen diili\".",
+        "title_fi": "Täydellinen diili: RTX 3060 takaisin myyntiin"
+      },
+      "duration_seconds": 42.35
+    },
+    {
+      "clip_id": "e285afdc7b93eb63533b08bd7bd88ed0",
+      "title": "Kahden viikon toipumisaika pelistä",
+      "status": "held",
+      "review": "unreviewed",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0003514",
+        "end_word_id": "w_0003532",
+        "idea_word_id": "w_0003514",
+        "category": "joke",
+        "scores": {
+          "standalone": 3,
+          "opening": 3,
+          "substance": 3,
+          "payoff": 4,
+          "fidelity": 3
+        },
+        "flags": [
+          "Pelin nimi on epäselvässä muodossa transkriptiossa",
+          "Pitkät tauot ennen ja jälkeen"
+        ],
+        "reason": "Toimiva gamer-vitsi: pelin ykkösosa oli niin rankka, että puhuja väittää joutuneensa itkemään kaksi viikkoa sikiöasennossa. Leikkaus poistaa toisteisen johdannon, mutta säilyttää varsinaisen väitteen ja sen punchlinen. Pelin nimen tarkka muoto kannattaa tarkistaa.",
+        "summary_fi": "Pelin ensimmäinen osa oli niin rankka, että toipumiseen meni muka kaksi viikkoa sikiöasennossa.",
+        "title_fi": "Kahden viikon toipumisaika pelistä"
+      },
+      "duration_seconds": 16.45
+    },
+    {
+      "clip_id": "e76bdb6ccb7f19a6594b4583ab0b3b7a",
+      "title": "Kun neliydinprossusta sai kuusiytimisen",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0016571",
+        "end_word_id": "w_0016690",
+        "idea_word_id": "w_0016571",
+        "category": "story",
+        "scores": {
+          "standalone": 3,
+          "opening": 3,
+          "substance": 4,
+          "payoff": 3,
+          "fidelity": 3
+        },
+        "flags": [
+          "Transkriptiossa on epäselviä sanoja kohdissa w_0016649 ja w_0016682–w_0016685."
+        ],
+        "reason": "Hauska ja konkreettinen retrotekniikan tarina: AMD:n neliydinprosessorista saattoi emolevyn avulla avata kaksi lisäydintä. Lopetus kertoo selkeästi muunnoksen kuusiytimiseksi, vaikka muutama tekninen termi on epäselvästi litteroitu.",
+        "summary_fi": "Vaarattu muistelee AMD-prosessoreita, joista emolevyn avulla saattoi avata kaksi piilotettua ydintä.",
+        "title_fi": "Kun neliydinprossusta sai kuusiytimisen"
+      },
+      "duration_seconds": 64.91
+    },
+    {
+      "clip_id": "e8de79b553058eb911c56b0f072cd95b",
+      "title": "Todennäköisesti sun vika",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0015205",
+        "end_word_id": "w_0015240",
+        "idea_word_id": "w_0015205",
+        "category": "joke",
+        "scores": {
+          "standalone": 3,
+          "opening": 3,
+          "substance": 3,
+          "payoff": 4,
+          "fidelity": 3
+        },
+        "flags": [
+          "transkriptio_epäselvä"
+        ],
+        "reason": "Toimiva naapuri- ja metelöintijuttu: seinää on paukutettu tunnin ajan, streamer syyttää leikillään katsojaa ja päättää neuvolla paukuttaa kovempaa. Lopetus antaa selkeän punchlinen; muutama sana on hieman epäselvässä transkriptiossa.",
+        "summary_fi": "Naapuri paukuttaa seinään tunnin ajan — todennäköisesti katsojan vika, joten pitäisi vain paukuttaa kovempaa.",
+        "title_fi": "Todennäköisesti sun vika"
+      },
+      "duration_seconds": 28.07
+    },
+    {
+      "clip_id": "7c1721fc2f4946c32ba3cffb4bb941e2",
+      "title": "Witcher 3 oli PC:llä jo valmiiksi next-gen",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0000131",
+        "end_word_id": "w_0000213",
+        "idea_word_id": "w_0000155",
+        "category": "explanation",
+        "scores": {
+          "standalone": 3,
+          "opening": 3,
+          "substance": 3,
+          "payoff": 3,
+          "fidelity": 4
+        },
+        "flags": [
+          "Ray Tracing -osuus jää keskeneräiseksi ja kannattaa jättää pois"
+        ],
+        "reason": "Selkeä peliaiheinen huomio: Witcher 3:n konsolien Nextgen-päivitys oli hänen käsityksensä mukaan sama kuin PC:lle tullut, vaikka PC-versio oli modeilla jo ennestään näyttävä. Ajatus päättyy luontevasti w_0000213:ssa; myöhempi Ray Tracing -jatko jää epäselväksi.",
+        "summary_fi": "Witcher 3 näytti PC:llä jo ennestään next-geniltä modeilla.",
+        "title_fi": "Witcher 3 oli PC:llä jo valmiiksi next-gen"
+      },
+      "duration_seconds": 34.49
+    },
+    {
+      "clip_id": "21671b309973245b0b5fb63cf9018e7f",
+      "title": "Fyrakki ja positiivinen ilmapiiri",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0006535",
+        "end_word_id": "w_0006550",
+        "idea_word_id": "w_0006535",
+        "category": "joke",
+        "scores": {
+          "standalone": 3,
+          "opening": 3,
+          "substance": 3,
+          "payoff": 4,
+          "fidelity": 3
+        },
+        "flags": [
+          "Transkriptiossa sana “autohammereella” on epäselvä."
+        ],
+        "reason": "Toimiva absurdi vitsi: ensin puhe positiivisesta ilmapiiristä, sitten hakaristit ja korjaus siitä, että Fyrakki tekikin ne itse. Lopun “mentaalille ihmeitä” toimii selkeänä punchlinena. Fyrakin tausta jää ulkopuoliselle hieman epäselväksi, mutta ei estä vitsin ymmärtämistä.",
+        "summary_fi": "Nykyään on pelkkää hymyä — paitsi kun Fyrakki piirtää hakaristeja lattiaan.",
+        "title_fi": "Fyrakki ja positiivinen ilmapiiri"
+      },
+      "duration_seconds": 10.43
+    },
+    {
+      "clip_id": "ad79c2c9618d2ad27c9a45519fdc6724",
+      "title": "“Vihdoinkin seuraavassa raidissa”",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0007741",
+        "end_word_id": "w_0007762",
+        "idea_word_id": "w_0007743",
+        "category": "joke",
+        "scores": {
+          "standalone": 3,
+          "opening": 3,
+          "substance": 3,
+          "payoff": 3,
+          "fidelity": 4
+        },
+        "flags": [
+          "Sarkastinen sävy ja Lura/C-tiimi jäävät hieman kontekstisidonnaisiksi",
+          "Loppu “eiku” on tarkoituksellinen mutta avoimeksi jäävä itsekorjaus"
+        ],
+        "reason": "Lyhyt pelihuumori toimii: streamer hehkuttaa saman C-tiimin vihdoin kaatavan Luran, vaikka sitä on hänen mukaansa odotettu toukokuusta asti. “Eiku” tekee odotuksesta sarkastisen käännöksen. Katkelma säilyttää ajatuksen kokonaan ilman väärää attribuutiota tai merkitystä muuttavaa leikkausta.",
+        "summary_fi": "Saman C-tiimin voittoa on odotettu toukokuusta asti — tai sitten ei.",
+        "title_fi": "“Vihdoinkin seuraavassa raidissa”"
+      },
+      "duration_seconds": 6.6
+    },
+    {
+      "clip_id": "4a94b2e11a417246879aff153e1b3afe",
+      "title": "Luota tiimiin — tai kanna syy",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0011142",
+        "end_word_id": "w_0011226",
+        "idea_word_id": "w_0011147",
+        "category": "joke",
+        "scores": {
+          "standalone": 3,
+          "opening": 3,
+          "substance": 3,
+          "payoff": 4,
+          "fidelity": 3
+        },
+        "flags": [
+          "transkriptio_epäselvä"
+        ],
+        "reason": "Hauska tiimipelaamisen vastuunjako: ensin luotetaan toiseen, sitten jälkikäteen pohditaan, olisiko itse ollut sankari vai syypää. Kysymys antaa tarvittavan asetelman, ja lopun vastuun kääntyminen toimii punchlinena. Peligrafiikan tarkka konteksti jää hieman epäselväksi, mutta se ei estä vitsin ymmärtämistä.",
+        "summary_fi": "Tiimikaveriin luottaminen voi tehdä sinusta joko sankarin tai syypään.",
+        "title_fi": "Luota tiimiin — tai kanna syy"
+      },
+      "duration_seconds": 37.89
+    },
+    {
+      "clip_id": "9e6be3b527d4de91cb6c7da44a10c318",
+      "title": "Osanotot, Janski on kohta 50",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0016737",
+        "end_word_id": "w_0016765",
+        "idea_word_id": "w_0016742",
+        "category": "joke",
+        "scores": {
+          "standalone": 3,
+          "opening": 3,
+          "substance": 3,
+          "payoff": 3,
+          "fidelity": 4
+        },
+        "flags": [],
+        "reason": "Ikäpaljastuksesta rakentuva selkeä streamerien välinen vitsi: 20 vuotta sitten toinen oli viisivuotias, ja Janski on silti kohta 50. “Osanotot” toimii punchlinena. Viimeinen epäselvä repliikki ei ole tarpeellinen, joten leikkaus päättyy siihen.",
+        "summary_fi": "20 vuotta sitten toinen oli vasta viisivuotias — ja Janski täyttää kohta 50.",
+        "title_fi": "Osanotot, Janski on kohta 50"
+      },
+      "duration_seconds": 22.02
+    },
+    {
+      "clip_id": "89e7ce7a6a56b8157d67be4b719a3173",
+      "title": "“Seasonin paras dungani” muuttuikin aika kurjaksi",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0013026",
+        "end_word_id": "w_0013098",
+        "idea_word_id": "w_0013039",
+        "category": "opinion",
+        "scores": {
+          "standalone": 3,
+          "opening": 2,
+          "substance": 3,
+          "payoff": 4,
+          "fidelity": 3
+        },
+        "flags": [
+          "Puheenvuorojen attribuutiot eivät käy täysin ilmi transkriptistä.",
+          "Muutama sana on epäselvästi litteroitu, erityisesti w_0013029–w_0013042 ja w_0013079–w_0013084."
+        ],
+        "reason": "Kokonaisuus toimii päivittyneenä peliarviona ja sisältää selkeän ristiriidan: dungeon julistetaan ensin seasonin parhaaksi, mutta lopuksi sitä pidetään lähes hirveänä, koska vain kaksi ensimmäistä bossia ovat helppoja. Alkuperäisen ehdotuksen preamblen voi leikata pois ja aloittaa dungeonin nimeämisestä.",
+        "summary_fi": "Päivitetty mielipide Alketar Academysta: hyvä vain kahden helpon ensimmäisen bossin takia, muuten dungeon on kuulemma aivan hirveä.",
+        "title_fi": "“Seasonin paras dungani” muuttuikin aika kurjaksi"
+      },
+      "duration_seconds": 42.02
+    },
+    {
+      "clip_id": "0a150ef163a37f5009c83dab04ac63a9",
+      "title": "”Puhutko suomea?”",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0013522",
+        "end_word_id": "w_0013550",
+        "idea_word_id": "w_0013522",
+        "category": "joke",
+        "scores": {
+          "standalone": 3,
+          "opening": 3,
+          "substance": 3,
+          "payoff": 3,
+          "fidelity": 3
+        },
+        "flags": [
+          "Lopun “legendary Julak syts” -ilmaus on transkriptissä epäselvä."
+        ],
+        "reason": "Selkeä, omaleimainen rekrytointibanteri: Julaa värvätään suomalaiseen kiltaan, kysytään suomen kielen taitoa ja luvataan tehdä Twitter-julkistus. Lopun ilmaus on hieman epäselvä, mutta kokonaisuuden vitsi ja streamer-persoonallisuus välittyvät.",
+        "summary_fi": "Streamer värvää Julaa suomalaiseen kiltaan ja lupaa julistaa tämän Twitterissä legendaksi.",
+        "title_fi": "”Puhutko suomea?”"
+      },
+      "duration_seconds": 20.89
+    },
+    {
+      "clip_id": "62bb4e7728d6c87e7cc721e155eb38df",
+      "title": "Kun goldia onkin liikaa",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "maybe with more context",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0016945",
+        "end_word_id": "w_0016973",
+        "idea_word_id": "w_0016945",
+        "category": "joke",
+        "scores": {
+          "standalone": 3,
+          "opening": 3,
+          "substance": 3,
+          "payoff": 3,
+          "fidelity": 3
+        },
+        "flags": [
+          "Transkriptiossa kohta “jossa kiinalaisella goldia” on epäselvä."
+        ],
+        "reason": "Selkeä gamer-vitsi: streamer kertoo laittaneensa itemiin 1000 % gold findia ja päätyy ajatukseen, että goldia pitää nerffata, jos kiinalaisella pelaajalla on sitä. Kohta päättyy vitsin ymmärrettävään punchlineen ennen keskeneräistä osakeheittoa.",
+        "summary_fi": "Streamer katuu 1000 % gold find -itemiä ja päättää, että goldia pitää nerffata kiinalaisten takia.",
+        "title_fi": "Kun goldia onkin liikaa"
+      },
+      "duration_seconds": 12.24
+    },
+    {
+      "clip_id": "0158ddd0e2d40ed812f07c0bf6631821",
+      "title": "Kun hahmon sukunimi ei ole Storm Reaver",
+      "status": "ready",
+      "review": "approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0005677",
+        "end_word_id": "w_0005707",
+        "idea_word_id": "w_0005679",
+        "category": "joke",
+        "scores": {
+          "standalone": 3,
+          "opening": 3,
+          "substance": 3,
+          "payoff": 3,
+          "fidelity": 3
+        },
+        "flags": [
+          "Pelihahmojen/nimien konteksti auttaa vitsin ymmärtämistä",
+          "Epäselvä loppu rajattu pois"
+        ],
+        "reason": "Toimiva gamer-vitsi: Kassakki ja Pine Breaker ovat vielä hyviä, kunhan sukunimi ei ole Storm Reaver. Loppu w_0005708–w_0005711 on epäselvä eikä lisää varmuudella vitsin ydintä, joten leikkaus päättyy luonnolliseen “Pine Breaker good” -kohtaan.",
+        "summary_fi": "Streamer toteaa, että elämässä on kaikki hyvin, kunhan hahmon sukunimi ei ole Storm Reaver.",
+        "title_fi": "Kun hahmon sukunimi ei ole Storm Reaver"
+      },
+      "duration_seconds": 18.18
+    },
+    {
+      "clip_id": "a8e9831be88ee79d3d952fde5409c2f5",
+      "title": "Kun loot menee ihmisten edelle",
+      "status": "ready",
+      "review": "approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0005907",
+        "end_word_id": "w_0005976",
+        "idea_word_id": "w_0005907",
+        "category": "opinion",
+        "scores": {
+          "standalone": 3,
+          "opening": 2,
+          "substance": 3,
+          "payoff": 3,
+          "fidelity": 4
+        },
+        "flags": [
+          "yleistävä väite Stormreaver-pelaajista"
+        ],
+        "reason": "Toimiva streamer-persoonallisuutta ja peliyhteisön ilmiötä sisältävä kärjistys: pelaajia kiinnostaa enemmän henkilökohtainen loot kuin tiimipeli tai ihmiset. Alun epäröinnit voi leikata pois, mutta Stormreaverin tarkempi taustakonteksti jää hieman avoimeksi.",
+        "summary_fi": "Vaarattu kuvailee Stormreaver-pelaajia itsekkäiksi lootin tavoittelijoiksi, joille virtuaaliesineet menevät ihmisten edelle.",
+        "title_fi": "Kun loot menee ihmisten edelle"
+      },
+      "duration_seconds": 41.56
+    },
+    {
+      "clip_id": "eeda83d179337af6194a42cf8ed8a660",
+      "title": "Naapurin mystinen katoaminen",
+      "status": "ready",
+      "review": "approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0015241",
+        "end_word_id": "w_0015300",
+        "idea_word_id": "w_0015241",
+        "category": "joke",
+        "scores": {
+          "standalone": 3,
+          "opening": 3,
+          "substance": 3,
+          "payoff": 4,
+          "fidelity": 2
+        },
+        "flags": [
+          "transcription_uncertain",
+          "medical_reference"
+        ],
+        "reason": "Naapurin katoamisesta rakentuva absurdi vitsi saa selkeän punchlinen ilmauksesta “Alzheimer induced psychosis”. Keskiosan useat sanat ovat epäselvästi litteroituneet, joten tekstin tarkistus on tarpeen, mutta kokonaisuus on ymmärrettävä ja päättyy luonnollisesti ennen seuraavaa aihetta.",
+        "summary_fi": "Vaarattu pohtii, minne häntä piinannut naapuri katosi, ja päätyy absurdiin diagnoosiin.",
+        "title_fi": "Naapurin mystinen katoaminen"
+      },
+      "duration_seconds": 51.77
+    },
+    {
+      "clip_id": "8ef956fada844a008583362fef297f08",
+      "title": "Uusi Warlock, vanhat ongelmat",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0013698",
+        "end_word_id": "w_0013754",
+        "idea_word_id": "w_0013742",
+        "category": "observation",
+        "scores": {
+          "standalone": 3,
+          "opening": 2,
+          "substance": 3,
+          "payoff": 3,
+          "fidelity": 4
+        },
+        "flags": [],
+        "reason": "Keskustelu rakentaa selkeän pelihavainnon: Warlockia pelataan sen uutuuden takia, vaikka luokka on ongelmallinen eikä ongelmia ole korjattu tähän seasoniin. Mukana on hieman hapuilevaa Diablo- ja season-muistamista, mutta se ei muuta pääpointtia.",
+        "summary_fi": "Warlock on uusi, mutta sen ongelmia ei vieläkään ole korjattu.",
+        "title_fi": "Uusi Warlock, vanhat ongelmat"
+      },
+      "duration_seconds": 27.37
+    },
+    {
+      "clip_id": "8450d26e1153aebb872d1ef72a60b4e2",
+      "title": "Ionin keittiön paskalintu",
+      "status": "ready",
+      "review": "approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0014241",
+        "end_word_id": "w_0014252",
+        "idea_word_id": "w_0014241",
+        "category": "joke",
+        "scores": {
+          "standalone": 2,
+          "opening": 2,
+          "substance": 3,
+          "payoff": 4,
+          "fidelity": 4
+        },
+        "flags": [
+          "Peliyhteys jää hieman epäselväksi"
+        ],
+        "reason": "Lyhyt toimiva vitsi: ensin todetaan Ionin kokanneen, ja punchline täsmentää kyseessä olevan Ionin keittiöstä tullut “paskalintu”. Kokonaisuus on vain muutaman sekunnin mittainen, mutta sitä ei pidä pidentää.",
+        "summary_fi": "Ion on kokannut taas yhden paskalinnun.",
+        "title_fi": "Ionin keittiön paskalintu"
+      },
+      "duration_seconds": 6.87
+    },
+    {
+      "clip_id": "61384b46f4651b7821dec38dfd89147a",
+      "title": "Kun tekoälymalli ei suostu koodaamaan",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0014339",
+        "end_word_id": "w_0014397",
+        "idea_word_id": "w_0014339",
+        "category": "observation",
+        "scores": {
+          "standalone": 3,
+          "opening": 3,
+          "substance": 3,
+          "payoff": 3,
+          "fidelity": 3
+        },
+        "flags": [],
+        "reason": "Hauska ja tunnistettava havainto vibe-koodauksesta: Opus-malli siirtää Fablella annetun koodaustehtävän huonommalle mallille, koska ei suostu tekemään sitä itse. Lopun varaus säilyttää merkityksen. Fable- ja malliviittaukset vaativat hieman alan tuntemusta, mutta eivät olennaista lisäkontekstia.",
+        "summary_fi": "Vibe-koodaus saa mallin sysäämään tehtävän huonommalle mallille.",
+        "title_fi": "Kun tekoälymalli ei suostu koodaamaan"
+      },
+      "duration_seconds": 24.28
+    },
+    {
+      "clip_id": "0d762a71f9a0c922c55cd351cdcc3c5a",
+      "title": "“Mä en ainakaan ajattele”",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0011959",
+        "end_word_id": "w_0011981",
+        "idea_word_id": "w_0011962",
+        "category": "joke",
+        "scores": {
+          "standalone": 3,
+          "opening": 2,
+          "substance": 3,
+          "payoff": 4,
+          "fidelity": 3
+        },
+        "flags": [
+          "Puhekielinen ja hieman katkonainen ilmaisu"
+        ],
+        "reason": "Lyhyt itseironinen vitsi: hän selittää olleensa ajatuksissaan ja kääntää tilanteen sarkastisesti siihen, ettei ainakaan hän itse ajattele. Aiempi pelivirhe antaa lisäkontekstia, mutta ei ole välttämätön.",
+        "summary_fi": "Vaarattu myöntää olleensa ajatuksissaan — ja toteaa sarkastisesti, ettei hän ainakaan ajattele.",
+        "title_fi": "“Mä en ainakaan ajattele”"
+      },
+      "duration_seconds": 13.16
+    },
+    {
+      "clip_id": "bab535e96eeeaddd26874d8cb5c0db6e",
+      "title": "Mushoku Tensein hyvä maailma jättää oudon fiiliksen",
+      "status": "ready",
+      "review": "approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0002489",
+        "end_word_id": "w_0002541",
+        "idea_word_id": "w_0002513",
+        "category": "opinion",
+        "scores": {
+          "standalone": 3,
+          "opening": 2,
+          "substance": 3,
+          "payoff": 3,
+          "fidelity": 4
+        },
+        "flags": [
+          "Loppuosan transkriptio on hieman epäselvä, erityisesti kohta “ykkössiisoni…”."
+        ],
+        "reason": "Musoku Tensein maininta johtaa konkreettiseen animearvioon: worldbuilding ja hahmot toimivat, mutta ensimmäinen kausi jättää oudon vaikutelman. Ajatus ja sen vastakkainasettelu ovat kiinnostavia, vaikka avaus on keskustelunomainen ja loppu osin epäselvä.",
+        "summary_fi": "Vaarattu kehuu Mushoku Tensein maailmaa ja hahmoja, mutta kokee ensimmäisen kauden jättävän oudon vaikutelman.",
+        "title_fi": "Mushoku Tensein hyvä maailma jättää oudon fiiliksen"
+      },
+      "duration_seconds": 38.39
+    },
+    {
+      "clip_id": "3c2b0b121951357c15c29920dd100552",
+      "title": "Heinäkuu on epävirallinen lomakuukausi",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0000434",
+        "end_word_id": "w_0000492",
+        "idea_word_id": "w_0000434",
+        "category": "observation",
+        "scores": {
+          "standalone": 3,
+          "opening": 3,
+          "substance": 2,
+          "payoff": 2,
+          "fidelity": 4
+        },
+        "flags": [],
+        "reason": "Selkeä ja uskollinen lyhyt keskustelu siitä, ettei virallista lomaa ole, mutta heinäkuussa töitä tehdään vähemmän. Lopetus säilyttää olennaisen kvalifikaation.",
+        "summary_fi": "Vaarattu kertoo pitävänsä heinäkuussa epävirallisesti rennommin, koska silloin on mahdollista pitää lomaa ja syksyllä kiireet palaavat.",
+        "title_fi": "Heinäkuu on epävirallinen lomakuukausi"
+      },
+      "duration_seconds": 18.72
+    },
+    {
+      "clip_id": "be4d3e07f3f6fe8df8e729f9ebeea4b2",
+      "title": "Miksi pienet tekoälymallit eivät vielä riitä?",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0014423",
+        "end_word_id": "w_0014486",
+        "idea_word_id": "w_0014423",
+        "category": "observation",
+        "scores": {
+          "standalone": 3,
+          "opening": 3,
+          "substance": 3,
+          "payoff": 3,
+          "fidelity": 2
+        },
+        "flags": [
+          "epäselvä automaattitranskriptio kohdissa w_0014426 ja w_0014475–w_0014478"
+        ],
+        "reason": "Itsenäinen ja kiinnostava havainto avoimien mallien kehityksestä: suuret mallit vaativat edelleen paljon enemmän muistia, eikä pieniä malleja saada helposti samalle tasolle. Alun lyhyt johdanto on ylimääräinen, joten leikkaus alkaa varsinaisesta pointista. Lopun väite on hieman kieliopillisesti epäselvä transkription vuoksi, mutta merkitys on pääteltävissä.",
+        "summary_fi": "Vaarattu pohtii, miksi pienet avoimet tekoälymallit eivät vielä yllä suurten mallien tasolle.",
+        "title_fi": "Miksi pienet tekoälymallit eivät vielä riitä?"
+      },
+      "duration_seconds": 22.42
+    },
+    {
+      "clip_id": "4f734dc6857979290d2d279af947fe41",
+      "title": "Dragonflight-traumat",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0012843",
+        "end_word_id": "w_0012856",
+        "idea_word_id": "w_0012843",
+        "category": "joke",
+        "scores": {
+          "standalone": 3,
+          "opening": 3,
+          "substance": 3,
+          "payoff": 2,
+          "fidelity": 3
+        },
+        "flags": [
+          "Transkriptio on hieman epäselvä"
+        ],
+        "reason": "Lyhyt ja tunnistettava pelihuumori: Dragonflight on jättänyt streamerille traumat, joten hän pelaa tätä peliä samalla tavalla. Vitsi toimii ilman pidempää taustaa, vaikka pelitilanteen tarkka konteksti jää auki.",
+        "summary_fi": "Dragonflight-traumat vaikuttavat vielä siihen, miten hän pelaa tätä peliä.",
+        "title_fi": "Dragonflight-traumat"
+      },
+      "duration_seconds": 4.1
+    },
+    {
+      "clip_id": "7f2b55b29f62dff53dfb84138568d74a",
+      "title": "Kuinka monta guildia tämä bossi vielä tappaa?",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0013580",
+        "end_word_id": "w_0013616",
+        "idea_word_id": "w_0013580",
+        "category": "joke",
+        "scores": {
+          "standalone": 2,
+          "opening": 3,
+          "substance": 3,
+          "payoff": 3,
+          "fidelity": 3
+        },
+        "flags": [
+          "Lura/boss-viittaus jää ilman aiempaa kontekstia",
+          "Automaattinen englanninkielinen litterointi voi sisältää epävarmuutta"
+        ],
+        "reason": "Toimiva gamer-henkinen banter: guildien tappamisesta siirrytään ironiseen rekrytointi-ilmoitukseen ja Julaa kehutaan poikkeukselliseksi pelaajaksi. Loppuun jäävä Katsotaanko ei ole tarpeellinen. Lura-viittaus on katsojalle epäselvä, mutta vitsi toimii osittain myös ilman sitä.",
+        "summary_fi": "Guildien tuhoamisesta tulee yllättäen rekrytointipuhe, jossa Julaa etsitään huippupelaajaksi.",
+        "title_fi": "Kuinka monta guildia tämä bossi vielä tappaa?"
+      },
+      "duration_seconds": 21.24
+    },
+    {
+      "clip_id": "e142a613fb214806e3669a4694d1a736",
+      "title": "Treasure Breach oli kultakaivos",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0016987",
+        "end_word_id": "w_0017013",
+        "idea_word_id": "w_0016987",
+        "category": "story",
+        "scores": {
+          "standalone": 2,
+          "opening": 2,
+          "substance": 3,
+          "payoff": 3,
+          "fidelity": 4
+        },
+        "flags": [
+          "Peliviittaus ja termi “treasure breach” voivat vaatia katsojalta kontekstia."
+        ],
+        "reason": "Lyhyt, konkreettinen pelitarina: streamer kertoo päässeensä Treasure Breachiin kahdesti ja saaneensa sieltä valtavasti kultaa. Alun “Ai niin, varmaan” on expendable, joten leikkaus alkaa ehdosta luonnollisemmin.",
+        "summary_fi": "Treasure Breachiin pääsi kahdesti, ja kultaa tuli aivan valtavasti.",
+        "title_fi": "Treasure Breach oli kultakaivos"
+      },
+      "duration_seconds": 7.58
+    },
+    {
+      "clip_id": "a6b40e431fd667c80b8b1810fbfde35c",
+      "title": "“Käytä kesäloma siihen”",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "maybe with more earlier context",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0011604",
+        "end_word_id": "w_0011619",
+        "idea_word_id": "w_0011604",
+        "category": "joke",
+        "scores": {
+          "standalone": 2,
+          "opening": 2,
+          "substance": 3,
+          "payoff": 3,
+          "fidelity": 4
+        },
+        "flags": [
+          "Alun “siihen” viittaa aiempaan pelitapahtumaan."
+        ],
+        "reason": "Lyhyt ja uskollinen gamer-kuitti: kesäloman käyttäminen sisällä videopelien pelaamiseen toimii selkeänä punchlinena. Asiayhteydestä riippuvainen aloitus ei estä vitsin ymmärtämistä.",
+        "summary_fi": "Kesäloma kuluu videopeleissä istuen.",
+        "title_fi": "“Käytä kesäloma siihen”"
+      },
+      "duration_seconds": 5.3
+    },
+    {
+      "clip_id": "640db617f77062acd89f1e9ee953fa64",
+      "title": "Kun rasistiselle vitsille odotetaan aplodeja",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "needs_context",
+        "start_word_id": "w_0005990",
+        "end_word_id": "w_0006024",
+        "idea_word_id": "w_0005990",
+        "category": "observation",
+        "scores": {
+          "standalone": 2,
+          "opening": 1,
+          "substance": 3,
+          "payoff": 3,
+          "fidelity": 4
+        },
+        "flags": [
+          "Alkaa kesken relatiivilauseen: “jotka” viittaa edeltäviin Stormreaver-pelaajiin.",
+          "Stormreaver-konteksti ja aiempi rajaus puuttuvat katkelmasta.",
+          "Ei väärää attribuutiota: puhuja kuvaa muiden kertomia rasistisia vitsejä, ei omaa vitsiään."
+        ],
+        "reason": "Havainto on tunnistettava ja siinä on selkeä koominen payoff: rasistisen vitsin kertoja odottaa aplodeja ja räkänauroja, mutta yleisö jää hiljaiseksi. Nykyinen alku on kuitenkin kieliopillisesti kesken ja tarvitsee edeltävän viittauksen.",
+        "summary_fi": "Stormreaveriltä tulevat rasististen vitsien kertojat odottavat aplodeja, vaikka kukaan ei naura.",
+        "title_fi": "Kun rasistiselle vitsille odotetaan aplodeja"
+      },
+      "duration_seconds": 14.65
+    },
+    {
+      "clip_id": "2af790beb15970408e711178a0c5acfd",
+      "title": "“Mulla on semmonen tyyni valtameri”",
+      "status": "ready",
+      "review": "approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0003121",
+        "end_word_id": "w_0003151",
+        "idea_word_id": "w_0003121",
+        "category": "joke",
+        "scores": {
+          "standalone": 2,
+          "opening": 3,
+          "substance": 3,
+          "payoff": 3,
+          "fidelity": 2
+        },
+        "flags": [
+          "Keskellä on epäselvää transkriptiota: “leööö” ja “Mulla on molemmat ollaan Iceman.”",
+          "“Toi” ja vertaus vaativat hieman pelitilanteen kontekstia."
+        ],
+        "reason": "Hauska streamer-persoonallisuushetki: häntä pyydetään panikoimaan, mutta hän vertaa itseään Kimi Räikköseen/Icemaniin ja kuvaa itseään tyynenä valtamerenä. Ajatus päättyy luontevasti, vaikka muutama sana on epäselvä.",
+        "summary_fi": "Hän ei panikoi — hän on Kimi Räikkönen eli Iceman, tyyni valtameri.",
+        "title_fi": "“Mulla on semmonen tyyni valtameri”"
+      },
+      "duration_seconds": 19.49
+    },
+    {
+      "clip_id": "fe5fbdb654ba1793f1813691ed5965ba",
+      "title": "Mitä itemin tähdet oikeasti tarkoittavat?",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0016792",
+        "end_word_id": "w_0016869",
+        "idea_word_id": "w_0016802",
+        "category": "explanation",
+        "scores": {
+          "standalone": 3,
+          "opening": 2,
+          "substance": 3,
+          "payoff": 3,
+          "fidelity": 2
+        },
+        "flags": [
+          "transcription_uncertainty",
+          "game_context"
+        ],
+        "reason": "Selittää konkreettisesti, mitä itemin tähti tarkoittaa: vähintään yksi statti on max roll. Lopun väite pro-pelaajien neljän tähden itemeistä toimii liioittelevana päätöksenä. Muutamat kohdat, kuten “Road of Honduras” ja sen jälkeinen puhe, ovat epäselvästi transkriboituja, joten ne kannattaa tarkistaa.",
+        "summary_fi": "Vaarattu avaa, mitä itemin tähdet tarkoittavat ja miksi täydellisten neljän tähden itemien löytäminen on endgame-tavoite.",
+        "title_fi": "Mitä itemin tähdet oikeasti tarkoittavat?"
+      },
+      "duration_seconds": 43.86
+    },
+    {
+      "clip_id": "ed1589d7b5b422d8d363a2f0ca58ba77",
+      "title": "”Firma ei tehnyt muuta kuin niputti modit yhteen”",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "needs_context",
+        "start_word_id": "w_0000257",
+        "end_word_id": "w_0000282",
+        "idea_word_id": "w_0000263",
+        "category": "opinion",
+        "scores": {
+          "standalone": 2,
+          "opening": 2,
+          "substance": 3,
+          "payoff": 3,
+          "fidelity": 3
+        },
+        "flags": [
+          "Aloitus viittaa aiempaan keskusteluun.",
+          "Yksi lopun sana on epäselvä transkriptiossa."
+        ],
+        "reason": "Kohtauksen varsinainen pointti on selkeä ja peliharrastajille kiinnostava: päivitys olisi lähinnä muiden tekemien modien niputtamista. Referentti ja keskustelun vastapuolen väite jäävät kuitenkin osin puuttuvan kontekstin varaan.",
+        "summary_fi": "Streamer epäilee, ettei firma tehnyt päivityksessä juuri muuta kuin niputti yhteisön tekemät modit yhteen.",
+        "title_fi": "”Firma ei tehnyt muuta kuin niputti modit yhteen”"
+      },
+      "duration_seconds": 9.77
+    },
+    {
+      "clip_id": "d8ee91db3c5ba6b7293fff9baf1dd92f",
+      "title": "Espanjan-loma olikin guildireissu",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0000760",
+        "end_word_id": "w_0000786",
+        "idea_word_id": "w_0000760",
+        "category": "joke",
+        "scores": {
+          "standalone": 2,
+          "opening": 3,
+          "substance": 3,
+          "payoff": 3,
+          "fidelity": 2
+        },
+        "flags": [
+          "epäselvä litterointi",
+          "edeltävä guild-konteksti puuttuu hieman"
+        ],
+        "reason": "Hauska pieni keskustelu: Espanjaan lähtö tulkitaan lomaksi, vaikka tarkoitus on laajentaa firmaa ja liittyä espanjalaiseen kiltaan. Lopetus selventää vitsin; seuraava ajatus kannattaa jättää pois.",
+        "summary_fi": "Espanjaan ei lähdetäkään lomalle vaan laajentamaan firmaa ja liittymään espanjalaiseen kiltaan.",
+        "title_fi": "Espanjan-loma olikin guildireissu"
+      },
+      "duration_seconds": 19.26
+    },
+    {
+      "clip_id": "04a0b34701452c70f79ed7f465e0effc",
+      "title": "Lil Häiske olisi ylpeä",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0008060",
+        "end_word_id": "w_0008073",
+        "idea_word_id": "w_0008060",
+        "category": "joke",
+        "scores": {
+          "standalone": 2,
+          "opening": 2,
+          "substance": 2,
+          "payoff": 3,
+          "fidelity": 4
+        },
+        "flags": [
+          "Sisäpiiriviittaus: Lil Häiske jää katsojalle tuntemattomaksi"
+        ],
+        "reason": "Lyhyt streamer-persoonallisuutta ja sisäpiirihuumoria sisältävä heitto. Alkuperäinen englanninkielinen heitto saa heti perään luonnollisen suomenkielisen täsmennyksen, joten molemmat kannattaa säilyttää.",
+        "summary_fi": "Vaarattu haluaa tehdä Lil Häiskestä ylpeän ja kuvittelee tämän näkevän suorituksen.",
+        "title_fi": "Lil Häiske olisi ylpeä"
+      },
+      "duration_seconds": 7.03
+    },
+    {
+      "clip_id": "d88e8dd296578cc210cdf788687da67d",
+      "title": "Miten LHR rajoitti näytönohjainten louhintaa",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0014803",
+        "end_word_id": "w_0014847",
+        "idea_word_id": "w_0014803",
+        "category": "explanation",
+        "scores": {
+          "standalone": 2,
+          "opening": 2,
+          "substance": 3,
+          "payoff": 3,
+          "fidelity": 3
+        },
+        "flags": [
+          "LHR:n viittaus vaatii hieman edeltävää kontekstia",
+          "Transkriptiossa on epäselviä kohtia, kuten “muutama” ja “pitästi kiinni”"
+        ],
+        "reason": "Vaarattu selittää konkreettisesti, että LHR tunnisti Bitcoin-louhinnan ja rajoitti näytönohjaimen tehoa. Lopun näytönohjainpula antaa selkeän historiallisen syyn ilmiölle. Leikkaus alkaa annetun ehdotuksen sisältä ja päättyy luonnollisesti.",
+        "summary_fi": "LHR tunnisti Bitcoin-louhinnan ja rajoitti näytönohjainten tehoa aikana, jolloin louhinta pahensi näytönohjainpulaa.",
+        "title_fi": "Miten LHR rajoitti näytönohjainten louhintaa"
+      },
+      "duration_seconds": 17.11
+    },
+    {
+      "clip_id": "da4919b272c69bd1665f11cdae884317",
+      "title": "Jaettua RAM-muistia, mutta vähän dedikoitua muistia",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0014857",
+        "end_word_id": "w_0014877",
+        "idea_word_id": "w_0014859",
+        "category": "explanation",
+        "scores": {
+          "standalone": 2,
+          "opening": 2,
+          "substance": 3,
+          "payoff": 3,
+          "fidelity": 3
+        },
+        "flags": [
+          "Laitteen tai komponentin referentti jää epäselväksi.",
+          "Transkriptiossa on hieman epävarma pronominimuoto: “he jakaa”."
+        ],
+        "reason": "Lyhyt ja hyödyllinen pelilaitteiston selitys: jaettu RAM-muisti vähentää dedikoidun muistin määrää. Ajatus tulee valmiiksi, mutta ilman aiempaa kontekstia ei täysin selviä, mistä laitteesta puhutaan.",
+        "summary_fi": "Jaettua RAM-muistia voidaan käyttää, mutta dedikoitua muistia jää vähemmän.",
+        "title_fi": "Jaettua RAM-muistia, mutta vähän dedikoitua muistia"
+      },
+      "duration_seconds": 5.82
+    },
+    {
+      "clip_id": "b12f08056e789029ac86f28b117e605c",
+      "title": "Kenen puolella HR oikeasti on?",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0001085",
+        "end_word_id": "w_0001129",
+        "idea_word_id": "w_0001085",
+        "category": "opinion",
+        "scores": {
+          "standalone": 3,
+          "opening": 3,
+          "substance": 3,
+          "payoff": 2,
+          "fidelity": 2
+        },
+        "flags": [
+          "transkription epäselvä",
+          "loppu jää kysymykseksi"
+        ],
+        "reason": "Ytimekäs työelämäaiheinen huomio: YT-neuvotteluissa HR:n tehtävä nähdään yrityksen, ei työntekijöiden, suojelemisena. Alku toimii suoraan, mutta HR:ää koskeva sana ja muutamat ilmaukset ovat epäselviä, eikä keskustelu tarjoa varsinaista päätöstä.",
+        "summary_fi": "YT-neuvottelut herättävät kyynisen kysymyksen: suojeleeko HR yritystä vai työntekijöitä?",
+        "title_fi": "Kenen puolella HR oikeasti on?"
+      },
+      "duration_seconds": 22.47
+    },
+    {
+      "clip_id": "d53cfafbc2ac7ce0799d8cc0037a05f1",
+      "title": "Miljoona pelituntia ja kaikki meni vituiksi",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "needs_context",
+        "start_word_id": "w_0015317",
+        "end_word_id": "w_0015353",
+        "idea_word_id": "w_0015317",
+        "category": "joke",
+        "scores": {
+          "standalone": 2,
+          "opening": 3,
+          "substance": 3,
+          "payoff": 3,
+          "fidelity": 2
+        },
+        "flags": [
+          "epäselvä transkriptio kohdassa w_0015317–w_0015327",
+          "Alzheimer-aiheen tarkka asiayhteys jää avoimeksi"
+        ],
+        "reason": "Lyhyt gamer-vitsi: Alzheimerin selityksen jälkeen streamer tajuaa pelanneensa miljoona tuntia ja pelin menneen vituiksi alusta asti. Kohta w_0015353 päättää ensimmäisen punchlinen luonnollisesti; myöhempi sohva- ja jalkapallokuvaus toistaa samaa ideaa, mutta sen transkriptio on epäselvä.",
+        "summary_fi": "Alzheimerin selitys johtaa streamerille karuun oivallukseen miljoonasta pelitunnista ja pelin surkeudesta alusta asti.",
+        "title_fi": "Miljoona pelituntia ja kaikki meni vituiksi"
+      },
+      "duration_seconds": 17.04
+    },
+    {
+      "clip_id": "c7a3e2805c5550a0c6faf0c87bf70aff",
+      "title": "Kun vaikeampi mekaniikka ei ollutkaan pahin",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "needs_context",
+        "start_word_id": "w_0014176",
+        "end_word_id": "w_0014234",
+        "idea_word_id": "w_0014176",
+        "category": "observation",
+        "scores": {
+          "standalone": 2,
+          "opening": 2,
+          "substance": 3,
+          "payoff": 3,
+          "fidelity": 2
+        },
+        "flags": [
+          "Epäselviä pelitermejä ja erisnimiä",
+          "Vertailun kohteet jäävät osin ilman aiempaa kontekstia"
+        ],
+        "reason": "Katkelmassa on selkeä gamer-aiheinen vertailu: Rekliaari ei ollutkaan niin paha, vaan Linnun R-range- ja pallomekaniikka oli tiimille pahempi. Ajatus päättyy luontevasti, mutta nimet ja termit ovat epäselviä ja katsoja tarvitsee todennäköisesti aiempaa kontekstia.",
+        "summary_fi": "Streamer vertailee kahta mekaniikkaa ja toteaa Linnun R-rangen olevan tiimille pahempi.",
+        "title_fi": "Kun vaikeampi mekaniikka ei ollutkaan pahin"
+      },
+      "duration_seconds": 28.0
+    },
+    {
+      "clip_id": "9a2d84673940ebbb73b9f1a80d2b502d",
+      "title": "Älä paina pommia yksittäin",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0007512",
+        "end_word_id": "w_0007549",
+        "idea_word_id": "w_0007512",
+        "category": "explanation",
+        "scores": {
+          "standalone": 2,
+          "opening": 2,
+          "substance": 3,
+          "payoff": 3,
+          "fidelity": 2
+        },
+        "flags": [
+          "epäselvä litterointi",
+          "pelijargonia"
+        ],
+        "reason": "Konkreettinen pelimekaniikkavinkki: pommia ei pidä painaa yksittäin, vaan sitä täytyy holdata hoverlapissa, muuten pelaaja kuolee. Litterointi on paikoin epävarma, mutta ajatus ja seuraus välittyvät.",
+        "summary_fi": "Vexin pommimekaniikassa pommia pitää holdata hoverlapissa — yksittäisen pommin painaminen tappaa.",
+        "title_fi": "Älä paina pommia yksittäin"
+      },
+      "duration_seconds": 11.83
+    },
+    {
+      "clip_id": "ab37f38c61fcdbbbb0dbafb986ee3fba",
+      "title": "Bossi ei pysty enää tekemään mitään",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0008851",
+        "end_word_id": "w_0008880",
+        "idea_word_id": "w_0008851",
+        "category": "observation",
+        "scores": {
+          "standalone": 2,
+          "opening": 2,
+          "substance": 3,
+          "payoff": 3,
+          "fidelity": 2
+        },
+        "flags": [
+          "pelin ja P4-vaiheen konteksti jää osin epäselväksi",
+          "automaattitranskriptissä useita epävarmoja sanoja"
+        ],
+        "reason": "Lyhyt gamer-observaatio siitä, että bossi on käytännössä voitettu P4-vaiheessa eikä pysty enää uhkaamaan pelaajia. Loppu antaa ajatukselle selkeän päätöksen, mutta P4- ja bossiviittaukset vaativat pelin tuntemista ja muutama sana on epäselvä.",
+        "summary_fi": "Bossi on P4-vaiheessa käytännössä jo voitettu.",
+        "title_fi": "Bossi ei pysty enää tekemään mitään"
+      },
+      "duration_seconds": 13.16
+    },
+    {
+      "clip_id": "700225085560ca3f41ece8ce1721052c",
+      "title": "Aina valmiina lähtemään",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0016320",
+        "end_word_id": "w_0016336",
+        "idea_word_id": "w_0016320",
+        "category": "conversation",
+        "scores": {
+          "standalone": 2,
+          "opening": 2,
+          "substance": 2,
+          "payoff": 3,
+          "fidelity": 3
+        },
+        "flags": [
+          "Toistuva lause poistettu",
+          "ASR-transkriptio on paikoin epäselvä"
+        ],
+        "reason": "Lyhyt banter-pätkä, jossa streamer naljailee toisen jatkuvasta valmiudesta lähteä mukaan. Lopun “Aina valmiina menemään” toimii selkeänä päätöksenä, vaikka konteksti jää hieman avoimeksi.",
+        "summary_fi": "Streamer ihmettelee, eikö toisella ole mitään muuta tekemistä, kun tämä on aina valmis lähtemään.",
+        "title_fi": "Aina valmiina lähtemään"
+      },
+      "duration_seconds": 4.62
+    },
+    {
+      "clip_id": "a8b17c41f34f81082e5588d6cd28f481",
+      "title": "Bugittava dispel ei mene cooldownille",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0003374",
+        "end_word_id": "w_0003400",
+        "idea_word_id": "w_0003378",
+        "category": "observation",
+        "scores": {
+          "standalone": 2,
+          "opening": 2,
+          "substance": 3,
+          "payoff": 2,
+          "fidelity": 3
+        },
+        "flags": [
+          "Transkriptiossa epäselvä kohta: “Onks täs järves pois?”",
+          "Keskustelu jää ilman vastausta"
+        ],
+        "reason": "Spesifi pelihavainto: lead dispel vaikuttaa bugittavan eikä mene cooldownille tankkiin käytettäessä. Lyhyt katkelma toimii gamer-yleisölle, vaikka aloituksen transkriptio ja asiayhteys ovat osin epäselviä.",
+        "summary_fi": "Lead dispel ei mene cooldownille, vaikka sen käyttää tankkiin.",
+        "title_fi": "Bugittava dispel ei mene cooldownille"
+      },
+      "duration_seconds": 8.7
+    },
+    {
+      "clip_id": "449d48e801add90ec7e7fa9cd958cd01",
+      "title": "Laillista uhkapelaamista",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "needs_context",
+        "start_word_id": "w_0007902",
+        "end_word_id": "w_0007910",
+        "idea_word_id": "w_0007902",
+        "category": "joke",
+        "scores": {
+          "standalone": 2,
+          "opening": 3,
+          "substance": 2,
+          "payoff": 3,
+          "fidelity": 2
+        },
+        "flags": [
+          "missing essential context",
+          "unclear transcription"
+        ],
+        "reason": "Lyhyt vetoa koskeva sanaleikittelevä heitto: kysymys saa vastaukseksi kommentin laillisesta uhkapelaamisesta. Itsenäisenä katsoja ei kuitenkaan tiedä, mistä vedonlyönti koskee, ja keskimmäinen ilmaus on epäselvästi litteroitu. Lopun w_0007911:n “Niin” voi jättää pois.",
+        "summary_fi": "Veto muuttuu streamer-kaverin mielessä lailliseksi uhkapelaamiseksi.",
+        "title_fi": "Laillista uhkapelaamista"
+      },
+      "duration_seconds": 6.49
+    },
+    {
+      "clip_id": "4e950b272bc1c396235b5eea2ee09953",
+      "title": "Diabloa katsoessa tulee vain päänsärky",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "needs_context",
+        "start_word_id": "w_0013904",
+        "end_word_id": "w_0013939",
+        "idea_word_id": "w_0013904",
+        "category": "observation",
+        "scores": {
+          "standalone": 2,
+          "opening": 3,
+          "substance": 3,
+          "payoff": 2,
+          "fidelity": 2
+        },
+        "flags": [
+          "epäselvä transkriptio",
+          "toisto",
+          "viittaus Diablo Davidiin jää epäselväksi"
+        ],
+        "reason": "Lyhyt, persoonallinen gamer-havainto siitä, että pelin katsominen aiheuttaa päänsärkyä. Ajatus toistuu, mutta useat sanat ovat epäselviä ja erityisesti \"Diablo David\" sekä lopun ilmaus vaativat tarkistuksen. Paras leikkaus alkaa suoraan varsinaisesta kommentista ja päättyy toistoon luonnollisesti.",
+        "summary_fi": "Streamer vitsailee, että Diablo-pelin katsominen aiheuttaa pelkkää päänsärkyä.",
+        "title_fi": "Diabloa katsoessa tulee vain päänsärky"
+      },
+      "duration_seconds": 10.53
+    },
+    {
+      "clip_id": "92f06c2944997c2d66317f40998076c9",
+      "title": "Teleportit korjaantuivat vasta toisella avauksella",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0007366",
+        "end_word_id": "w_0007422",
+        "idea_word_id": "w_0007366",
+        "category": "explanation",
+        "scores": {
+          "standalone": 2,
+          "opening": 2,
+          "substance": 3,
+          "payoff": 3,
+          "fidelity": 2
+        },
+        "flags": [
+          "epäselvä litterointi",
+          "pelimekaniikan konteksti jää osin avoimeksi"
+        ],
+        "reason": "Selittää konkreettisen teleportti/UI-bugin: ensimmäinen avaus muuttaa järjestystä ja toinen korjaa teleporttien kohteet. Alun score-maininta on expendable, mutta muutamat tekniset sanat ovat epäselvästi litteroituneet.",
+        "summary_fi": "Vaarattu selvittää, miksi teleportit eivät toimineet: käyttöliittymä piti avata kahdesti, jotta järjestys korjaantui.",
+        "title_fi": "Teleportit korjaantuivat vasta toisella avauksella"
+      },
+      "duration_seconds": 20.87
+    },
+    {
+      "clip_id": "1e894a59c4c354b7ab60a4c4e44ae67c",
+      "title": "Balls against my face",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0004460",
+        "end_word_id": "w_0004469",
+        "idea_word_id": "w_0004460",
+        "category": "joke",
+        "scores": {
+          "standalone": 2,
+          "opening": 3,
+          "substance": 2,
+          "payoff": 3,
+          "fidelity": 2
+        },
+        "flags": [
+          "epäselvä transkriptio kohdissa w_0004462–w_0004464",
+          "pelikonteksti jää osin auki"
+        ],
+        "reason": "Lyhyt pelitilanteesta syntyvä vitsi: pallo tulee ja englanninkielinen “Balls against my face” toimii punchlinena. Alun Vortex-viittaus on epäselvä ja tarpeeton, joten leikkaus alkaa varsinaisesta setupista.",
+        "summary_fi": "Pallo tulee suoraan naamaan — ainakin Vaaratun mukaan.",
+        "title_fi": "Balls against my face"
+      },
+      "duration_seconds": 10.66
+    },
+    {
+      "clip_id": "9091e9b0ce8008b6bb3d8b9dd9ad52f8",
+      "title": "Räppäri Haaland Discord-DM:ssä",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0006655",
+        "end_word_id": "w_0006688",
+        "idea_word_id": "w_0006655",
+        "category": "joke",
+        "scores": {
+          "standalone": 2,
+          "opening": 3,
+          "substance": 2,
+          "payoff": 2,
+          "fidelity": 2
+        },
+        "flags": [
+          "transkriptissä on epäselviä kohtia",
+          "viittaus Haaland-videoon jää osin ilman kontekstia"
+        ],
+        "reason": "Lyhyt streamer-henkinen vitsi: Haaland esitellään räppärinä ja lopuksi puhuja aikoo tehdä botin, joka lähettää Haaland-kappaleen Discord-DM:nä. Alku toimii koukkuna, mutta “13-13” ja muu video -kohta ovat epäselviä, mikä heikentää ymmärrettävyyttä.",
+        "summary_fi": "Haaland onkin räppäri — ja kohta botti lähettää kappaleen Discordissa.",
+        "title_fi": "Räppäri Haaland Discord-DM:ssä"
+      },
+      "duration_seconds": 20.23
+    },
+    {
+      "clip_id": "62fe06d005b3ec4be44915511bc1043c",
+      "title": "“Jos en lähde Alter Timella, en tiedä mitä teen”",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0008305",
+        "end_word_id": "w_0008334",
+        "idea_word_id": "w_0008305",
+        "category": "joke",
+        "scores": {
+          "standalone": 2,
+          "opening": 2,
+          "substance": 2,
+          "payoff": 3,
+          "fidelity": 2
+        },
+        "flags": [
+          "pelikonteksti jää osin avoimeksi",
+          "transkriptio on paikoin epävarma"
+        ],
+        "reason": "Lyhyt gamer-huumorin hetki: hän kysyy, voiko lähteä pelkällä Alter Timella, ja päätyy itsevarmaan mutta koomisen ehdottomaan toteamukseen. Aiempi preamble on tarpeeton, mutta transkription epäselvyys heikentää uskollisuutta.",
+        "summary_fi": "Streamer vakuuttaa lähtevänsä Alter Timella — muuten hän ei tiedä, mitä tekee.",
+        "title_fi": "“Jos en lähde Alter Timella, en tiedä mitä teen”"
+      },
+      "duration_seconds": 8.43
+    },
+    {
+      "clip_id": "597b07a1b7d90a957dc34fcf32539ebf",
+      "title": "Mummot osasivat oikeasti kokata",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0015879",
+        "end_word_id": "w_0015945",
+        "idea_word_id": "w_0015879",
+        "category": "story",
+        "scores": {
+          "standalone": 2,
+          "opening": 2,
+          "substance": 3,
+          "payoff": 2,
+          "fidelity": 2
+        },
+        "flags": [
+          "Transkriptio on paikoin epäselvä, etenkin ensimmäisessä lauseessa.",
+          "Alkuperäinen loppu katkaisee uuden kysymyksen; rajaus päättyy edelliseen ajatukseen."
+        ],
+        "reason": "Hauska ja henkilökohtainen muistelu isoäitien ruoanlaitosta sekä pelitilanteeseen liittyvä vertaus. Ajatus välittyy, mutta useat sanat ovat epävarmoja, joten tarkistus kannattaa.",
+        "summary_fi": "Vaarattu muistelee isoäitejään ja toteaa, että nämä osasivat oikeasti kokata — toisin kuin pelin ankea ruoka.",
+        "title_fi": "Mummot osasivat oikeasti kokata"
+      },
+      "duration_seconds": 37.78
+    },
+    {
+      "clip_id": "30f62564d6baca93e8fd7911e7be1a03",
+      "title": "Nyt meni 40–50 sekuntia nopeammin",
+      "status": "held",
+      "review": "unreviewed",
+      "review_note": "",
+      "selection": {
+        "outcome": "needs_context",
+        "start_word_id": "w_0011403",
+        "end_word_id": "w_0011418",
+        "idea_word_id": "w_0011403",
+        "category": "observation",
+        "scores": {
+          "standalone": 2,
+          "opening": 3,
+          "substance": 3,
+          "payoff": 1,
+          "fidelity": 2
+        },
+        "flags": [
+          "epäselvä transkriptio",
+          "vertailukohta jää epäselväksi",
+          "maksiminopeus tai pelitilanne puuttuu"
+        ],
+        "reason": "Kohta sisältää kiinnostavan gamer-havainnon noin 40–50 sekunnin aikaerosta, mutta lauseen vertailukohta ('siinä 21') ja asiayhteys jäävät epäselviksi. Lisäkonteksti voisi varmistaa, onko kyse vuoden 2021 ajasta vai jostain muusta.",
+        "summary_fi": "Hän huomaa tehneensä tällä kertaa noin 40–50 sekuntia nopeamman ajan kuin aiemmassa vertailukohdassa.",
+        "title_fi": "Nyt meni 40–50 sekuntia nopeammin"
+      },
+      "duration_seconds": 8.7
+    },
+    {
+      "clip_id": "03e909f80101c5c4364c738b7efc0598",
+      "title": "Vain jättiveto voi enää pelastaa tilanteen",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "needs_context",
+        "start_word_id": "w_0005321",
+        "end_word_id": "w_0005343",
+        "idea_word_id": "w_0005321",
+        "category": "observation",
+        "scores": {
+          "standalone": 1,
+          "opening": 2,
+          "substance": 2,
+          "payoff": 2,
+          "fidelity": 3
+        },
+        "flags": [
+          "pelikonteksti puuttuu",
+          "transkriptio on osin epäselvä"
+        ],
+        "reason": "Pelissä on selkeä tilannearvio: P4 on vielä progeematta ja vain 15 minuuttia aikaa, joten vain valtava veto voisi muuttaa tilanteen. P3/P4-viittaukset ja muutama sana ovat kuitenkin epäselviä ilman pelin visuaalista kontekstia.",
+        "summary_fi": "P4 on vielä progeematta, ja 15 minuutissa tilanteen voisi muuttaa vain valtava veto.",
+        "title_fi": "Vain jättiveto voi enää pelastaa tilanteen"
+      },
+      "duration_seconds": 10.14
+    },
+    {
+      "clip_id": "0084ef4c5f367f29f451270a20f6f4a7",
+      "title": "Kun ilmainen Assy-lippu on jo luvattu kaikille",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0001212",
+        "end_word_id": "w_0001248",
+        "idea_word_id": "w_0001212",
+        "category": "conversation",
+        "scores": {
+          "standalone": 2,
+          "opening": 2,
+          "substance": 2,
+          "payoff": 1,
+          "fidelity": 3
+        },
+        "flags": [
+          "transkriptio_epäselvä",
+          "Assy-yhteys_oletetaan"
+        ],
+        "reason": "Hauska streamer-persoonallisuutta näyttävä pätkä: hän on kertonut kaikille saavansa ilmaisen Assy-lipun kontaktin kautta ja yrittää nyt varmistaa lipun. Lopun luottamusrepliikki antaa kevyen päätöksen, vaikka varsinainen punchline jää puuttumaan ja transkriptiossa on epäselviä kohtia. Alun lipunpyyntö on tarpeeton, joten paras leikkaus alkaa väitteestä kontaktista.",
+        "summary_fi": "Streamer on kertonut kaikille saavansa ilmaisen Assy-lipun kontaktin kautta — nyt hän yrittää saada lupauksen toteutumaan.",
+        "title_fi": "Kun ilmainen Assy-lippu on jo luvattu kaikille"
+      },
+      "duration_seconds": 14.01
+    },
+    {
+      "clip_id": "fc8bc63b50d16474c24eba9350c0bff8",
+      "title": "Jatkuuko raid samasta kohdasta?",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "accept",
+        "start_word_id": "w_0004191",
+        "end_word_id": "w_0004223",
+        "idea_word_id": "w_0004191",
+        "category": "conversation",
+        "scores": {
+          "standalone": 2,
+          "opening": 2,
+          "substance": 3,
+          "payoff": 1,
+          "fidelity": 2
+        },
+        "flags": [
+          "Transkriptio on paikoin epäselvä",
+          "Kysymys jää avoimeksi",
+          "Vaatii hieman peliyhteyttä"
+        ],
+        "reason": "Pätkä välittää aidon gamer-tilanteen: aiempi yritys bossin ja kaikkien mobien kanssa meni huonosti, joten seuraava yritys pelottaa. Lopun kysymys raidikohdan jatkumisesta on selkeä, mutta vastausta ei kuulu. Useat sanat ovat epävarmoja, joten transkriptio kannattaa tarkistaa.",
+        "summary_fi": "Aiempi yritys meni huonosti bossin ja kaikkien mobien kanssa, joten seuraava yritys pelottaa. Hän kysyy, jatkuuko raid samasta kohdasta, jos bossi ei kaadu.",
+        "title_fi": "Jatkuuko raid samasta kohdasta?"
+      },
+      "duration_seconds": 18.37
+    },
+    {
+      "clip_id": "7c827508c6cabce5ac7c2267fd9ec2f1",
+      "title": "Tuhat tuntia Bad Saste of Exileä",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "reject",
+        "start_word_id": "w_0015087",
+        "end_word_id": "w_0015100",
+        "idea_word_id": "w_0015087",
+        "category": "conversation",
+        "scores": {
+          "standalone": 1,
+          "opening": 3,
+          "substance": 1,
+          "payoff": 2,
+          "fidelity": 2
+        },
+        "flags": [
+          "epäselvä pelinimi tai transkriptio",
+          "taustakonteksti puuttuu"
+        ],
+        "reason": "Kysymys toimii alkuna, mutta sisältö jää lyhyeksi pelinimen ja Mordillan tuntimäärän toteamiseksi. Mahdollinen vitsi perustuu epäselvään nimeen, eikä tekstissä ole varmaa punchlinea tai riittävää kontekstia.",
+        "summary_fi": "Kysyjä tiedustelee Bad Saste of Exile -pelistä ja toteaa Mordillalla olleen sitä noin tuhat tuntia.",
+        "title_fi": "Tuhat tuntia Bad Saste of Exileä"
+      },
+      "duration_seconds": 6.32
+    },
+    {
+      "clip_id": "004c9dcfaf2ae11bcdd56aade5a48eae",
+      "title": "Magen ympärille rakennettu metatiimi",
+      "status": "held",
+      "review": "unreviewed",
+      "review_note": "",
+      "selection": {
+        "outcome": "reject",
+        "start_word_id": "w_0010440",
+        "end_word_id": "w_0010468",
+        "idea_word_id": "w_0010440",
+        "category": "explanation",
+        "scores": {
+          "standalone": 2,
+          "opening": 2,
+          "substance": 2,
+          "payoff": 1,
+          "fidelity": 2
+        },
+        "flags": [
+          "epäselvä transkriptio",
+          "puuttuva pelikontexti",
+          "rutiininomainen pelisuunnittelu"
+        ],
+        "reason": "Katkelmassa kuvataan magen ympärille rakennettua metatiimiä, mutta ajatus jää lyhyeksi pelikoordinaatioksi eikä saa selkeää seurausta tai oivallusta. Transkriptio on osin epävarma, erityisesti lopun title rank -kohta. Paras uskollinen rajaus alkaa varsinaisesta väitteestä, mutta julkaistavaksi arvo jää heikoksi.",
+        "summary_fi": "Streamer kertoo rakentaneensa magen ympärille metatiimin, mutta katkelma jää keskeneräiseksi pelisuunnitteluksi.",
+        "title_fi": "Magen ympärille rakennettu metatiimi"
+      },
+      "duration_seconds": 17.56
+    },
+    {
+      "clip_id": "cf2ac073cad204c76c3efff89fdcab85",
+      "title": "CP:ien manifestointi",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "reject",
+        "start_word_id": "w_0010754",
+        "end_word_id": "w_0010767",
+        "idea_word_id": "w_0010754",
+        "category": "joke",
+        "scores": {
+          "standalone": 1,
+          "opening": 2,
+          "substance": 1,
+          "payoff": 1,
+          "fidelity": 4
+        },
+        "flags": [
+          "epäselvä viittaus",
+          "ei selkeää punchlinea"
+        ],
+        "reason": "Puhekielinen manifestointi-heitto on uskollisesti rajattu, mutta CP:t ja “lustipulli” jäävät ilman ymmärrettävää kontekstia eikä katkelmassa muodostu selkeää vitsiä tai oivallusta. Laajempi konteksti voisi paljastaa pelin sisäisen punchlinen.",
+        "summary_fi": "Streamer puhuu CP:ien manifestoinnista, mutta heiton merkitys jää epäselväksi.",
+        "title_fi": "CP:ien manifestointi"
+      },
+      "duration_seconds": 7.76
+    },
+    {
+      "clip_id": "ea3ec908709794845ec60240cfa37b6e",
+      "title": "Kielimalli juttuseuraksi?",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "nothing clip worthy",
+      "selection": {
+        "outcome": "needs_context",
+        "start_word_id": "w_0009565",
+        "end_word_id": "w_0009578",
+        "idea_word_id": "w_0009565",
+        "category": "conversation",
+        "scores": {
+          "standalone": 2,
+          "opening": 2,
+          "substance": 2,
+          "payoff": 1,
+          "fidelity": 2
+        },
+        "flags": [
+          "epäselvä litterointi",
+          "heikko lopetus"
+        ],
+        "reason": "Lyhyt banter-hetki, jossa streamer tarjoaa kielimallibottia juttelemaan, mutta litterointi on paikoin vaikeasti tulkittava eikä keskustelulla ole selvää punchlinea. Laajempi konteksti voisi paljastaa vitsin tai tilanteen.",
+        "summary_fi": "Streamer tarjoaa kielimallibottia juttuseuraksi.",
+        "title_fi": "Kielimalli juttuseuraksi?"
+      },
+      "duration_seconds": 5.68
+    },
+    {
+      "clip_id": "d08ee97bd4bc5e0c1a2d4bdad0132d95",
+      "title": "\"Painan niin paljon kun tästä koneesta lähtee\"",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "nothing clip worthy",
+      "selection": {
+        "outcome": "needs_context",
+        "start_word_id": "w_0012256",
+        "end_word_id": "w_0012289",
+        "idea_word_id": "w_0012264",
+        "category": "joke",
+        "scores": {
+          "standalone": 1,
+          "opening": 2,
+          "substance": 2,
+          "payoff": 2,
+          "fidelity": 1
+        },
+        "flags": [
+          "epäselvä transkriptio",
+          "pelitilanteen konteksti puuttuu"
+        ],
+        "reason": "Tässä on tunnistettava koominen eskalaatio: hän kysyy mitä toinen haluaa, kertoo painavansa niin kovaa kuin koneesta lähtee ja toteaa heti perään, ettei kohde kuole vaan jää eloon. Keskeiset sanat ovat kuitenkin pahasti epäselviä, joten pelitilanne ja vitsi kannattaa tarkistaa ennen julkaisua.",
+        "summary_fi": "Turhautunut painallus ei vieläkään tapa kohdetta.",
+        "title_fi": "\"Painan niin paljon kun tästä koneesta lähtee\""
+      },
+      "duration_seconds": 24.72
+    },
+    {
+      "clip_id": "3a80a705c4e45a2c76243628be6b2649",
+      "title": "Mage’s Season ja Arcane palaavat",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "nothing clip worthy",
+      "selection": {
+        "outcome": "reject",
+        "start_word_id": "w_0004948",
+        "end_word_id": "w_0004964",
+        "idea_word_id": "w_0004948",
+        "category": "conversation",
+        "scores": {
+          "standalone": 1,
+          "opening": 1,
+          "substance": 2,
+          "payoff": 1,
+          "fidelity": 2
+        },
+        "flags": [
+          "keskeneräinen ajatus",
+          "epäselvä pelikontexti",
+          "epäselvä transkriptio"
+        ],
+        "reason": "Pätkä kertoo Mage’s Seasonin ja Arcanen palaamisesta sekä yleisesti niiden ominaisuuksista, mutta jää kesken kohtaan ”ja kaikkea on”. Väite ei muodosta kiinnostavaa havaintoa tai vitsiä ilman lisäkontekstia, eikä loppuun tule selkeää payoff’ta.",
+        "summary_fi": "Streamer mainitsee Mage’s Seasonin ja Arcanen paluun, mutta kuvaus jää keskeneräiseksi.",
+        "title_fi": "Mage’s Season ja Arcane palaavat"
+      },
+      "duration_seconds": 9.78
+    },
+    {
+      "clip_id": "d75992f7082bb046b4e925d24b5b5408",
+      "title": "Hahmo tuntuu heikommalta kuin viimeksi",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "nothing clip worthy",
+      "selection": {
+        "outcome": "reject",
+        "start_word_id": "w_0017144",
+        "end_word_id": "w_0017157",
+        "idea_word_id": "w_0017144",
+        "category": "observation",
+        "scores": {
+          "standalone": 1,
+          "opening": 2,
+          "substance": 1,
+          "payoff": 0,
+          "fidelity": 3
+        },
+        "flags": [
+          "epäselvä transkriptio",
+          "puuttuva pelitilannekonteksti",
+          "ei selkeää lopetusta"
+        ],
+        "reason": "Puhe sisältää havainnon hahmon heikentymisestä, mutta syy ja vertailu jäävät epäselviksi. Jälkimmäinen lause ei muodosta selkeää perustelua tai loppuratkaisua, joten katkelma on lähinnä keskeneräistä pelimekaniikan ihmettelyä.",
+        "summary_fi": "Striimaaja epäilee hahmonsa olevan aiempaa heikompi, mutta ei saa vielä selville miksi.",
+        "title_fi": "Hahmo tuntuu heikommalta kuin viimeksi"
+      },
+      "duration_seconds": 6.95
+    },
+    {
+      "clip_id": "ac9b751caa021aad962286bf26063349",
+      "title": "Epäselvä vatupassivitsi",
+      "status": "ready",
+      "review": "not_approved",
+      "review_note": "",
+      "selection": {
+        "outcome": "reject",
+        "start_word_id": "w_0009666",
+        "end_word_id": "w_0009683",
+        "idea_word_id": "w_0009666",
+        "category": "observation",
+        "scores": {
+          "standalone": 1,
+          "opening": 1,
+          "substance": 1,
+          "payoff": 1,
+          "fidelity": 1
+        },
+        "flags": [
+          "Epäselvä transkriptio",
+          "Vitsi tai viittaus ei avaudu",
+          "Ei selkeää loppuratkaisua"
+        ],
+        "reason": "Katkelmassa on mahdollinen lattiaan ja vatupassiin liittyvä huumori, mutta sanat ja viittaus “briitsin vatupassiin” jäävät epäselviksi. Inspectorin maininta ei muodosta tunnistettavaa punchlinea, joten katkelma ei ole julkaistavaksi ymmärrettävä ilman lisäkontekstia.",
+        "summary_fi": "Epäselvä kommentti tasaisesta lattiasta, vatupassista ja tarkastajasta.",
+        "title_fi": "Epäselvä vatupassivitsi"
+      },
+      "duration_seconds": 16.36
+    }
+  ],
+  "pacing_plans": [
+    {
+      "clip_id": "bbd2cab2f1c7096a4db22934e4ad3145",
+      "title": "Kun anime keksii mangalle oman lopun",
+      "previous_seconds": 54.87,
+      "planned_seconds": 31.98,
+      "previous_trim_enabled": false,
+      "source_words_preserved": 87,
+      "plan": {
+        "version": 2,
+        "method": "transcript_gaps",
+        "minimum_gap_us": 1500000,
+        "margin_us": 300000,
+        "retained": [
+          {
+            "source_start_us": 20898730000,
+            "source_end_us": 20908690000,
+            "output_start_us": 0
+          },
+          {
+            "source_start_us": 20915310000,
+            "source_end_us": 20917450000,
+            "output_start_us": 9960000
+          },
+          {
+            "source_start_us": 20933720000,
+            "source_end_us": 20953600000,
+            "output_start_us": 12100000
+          }
+        ],
+        "removed": [
+          [
+            20908690000,
+            20915310000
+          ],
+          [
+            20917450000,
+            20933720000
+          ]
+        ],
+        "output_duration_us": 31980000
+      }
+    },
+    {
+      "clip_id": "ef957e5c6105c79a00d0073e3839026a",
+      "title": "Stormreaveriltä tulee lootin perässä käyviä ongelmapelaajia",
+      "previous_seconds": 67.373959,
+      "planned_seconds": 61.68,
+      "previous_trim_enabled": true,
+      "source_words_preserved": 113,
+      "plan": {
+        "version": 2,
+        "method": "transcript_gaps",
+        "minimum_gap_us": 1500000,
+        "margin_us": 300000,
+        "retained": [
+          {
+            "source_start_us": 6437280000,
+            "source_end_us": 6443720000,
+            "output_start_us": 0
+          },
+          {
+            "source_start_us": 6447930000,
+            "source_end_us": 6468810000,
+            "output_start_us": 6440000
+          },
+          {
+            "source_start_us": 6470870000,
+            "source_end_us": 6475450000,
+            "output_start_us": 27320000
+          },
+          {
+            "source_start_us": 6481510000,
+            "source_end_us": 6484450000,
+            "output_start_us": 31900000
+          },
+          {
+            "source_start_us": 6488380000,
+            "source_end_us": 6515220000,
+            "output_start_us": 34840000
+          }
+        ],
+        "removed": [
+          [
+            6443720000,
+            6447930000
+          ],
+          [
+            6468810000,
+            6470870000
+          ],
+          [
+            6475450000,
+            6481510000
+          ],
+          [
+            6484450000,
+            6488380000
+          ]
+        ],
+        "output_duration_us": 61680000
+      }
+    },
+    {
+      "clip_id": "e76bdb6ccb7f19a6594b4583ab0b3b7a",
+      "title": "Kun neliydinprossusta sai kuusiytimisen",
+      "previous_seconds": 64.91,
+      "planned_seconds": 47.0,
+      "previous_trim_enabled": true,
+      "source_words_preserved": 120,
+      "plan": {
+        "version": 2,
+        "method": "transcript_gaps",
+        "minimum_gap_us": 1500000,
+        "margin_us": 300000,
+        "retained": [
+          {
+            "source_start_us": 17237660000,
+            "source_end_us": 17242030000,
+            "output_start_us": 0
+          },
+          {
+            "source_start_us": 17244650000,
+            "source_end_us": 17247870000,
+            "output_start_us": 4370000
+          },
+          {
+            "source_start_us": 17255010000,
+            "source_end_us": 17259670000,
+            "output_start_us": 7590000
+          },
+          {
+            "source_start_us": 17262750000,
+            "source_end_us": 17265530000,
+            "output_start_us": 12250000
+          },
+          {
+            "source_start_us": 17267740000,
+            "source_end_us": 17280950000,
+            "output_start_us": 15030000
+          },
+          {
+            "source_start_us": 17282010000,
+            "source_end_us": 17285310000,
+            "output_start_us": 28240000
+          },
+          {
+            "source_start_us": 17287110000,
+            "source_end_us": 17302570000,
+            "output_start_us": 31540000
+          }
+        ],
+        "removed": [
+          [
+            17242030000,
+            17244650000
+          ],
+          [
+            17247870000,
+            17255010000
+          ],
+          [
+            17259670000,
+            17262750000
+          ],
+          [
+            17265530000,
+            17267740000
+          ],
+          [
+            17280950000,
+            17282010000
+          ],
+          [
+            17285310000,
+            17287110000
+          ]
+        ],
+        "output_duration_us": 47000000
+      }
+    },
+    {
+      "clip_id": "eeda83d179337af6194a42cf8ed8a660",
+      "title": "Naapurin mystinen katoaminen",
+      "previous_seconds": 51.77,
+      "planned_seconds": 22.92,
+      "previous_trim_enabled": true,
+      "source_words_preserved": 60,
+      "plan": {
+        "version": 2,
+        "method": "transcript_gaps",
+        "minimum_gap_us": 1500000,
+        "margin_us": 300000,
+        "retained": [
+          {
+            "source_start_us": 15277020000,
+            "source_end_us": 15281240000,
+            "output_start_us": 0
+          },
+          {
+            "source_start_us": 15286780000,
+            "source_end_us": 15290020000,
+            "output_start_us": 4220000
+          },
+          {
+            "source_start_us": 15300260000,
+            "source_end_us": 15302300000,
+            "output_start_us": 7460000
+          },
+          {
+            "source_start_us": 15312360000,
+            "source_end_us": 15321220000,
+            "output_start_us": 9500000
+          },
+          {
+            "source_start_us": 15322720000,
+            "source_end_us": 15324320000,
+            "output_start_us": 18360000
+          },
+          {
+            "source_start_us": 15325830000,
+            "source_end_us": 15328790000,
+            "output_start_us": 19960000
+          }
+        ],
+        "removed": [
+          [
+            15281240000,
+            15286780000
+          ],
+          [
+            15290020000,
+            15300260000
+          ],
+          [
+            15302300000,
+            15312360000
+          ],
+          [
+            15321220000,
+            15322720000
+          ],
+          [
+            15324320000,
+            15325830000
+          ]
+        ],
+        "output_duration_us": 22920000
+      }
+    }
+  ]
+}

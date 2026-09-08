@@ -1,32 +1,11 @@
-"""Conservative source-to-output edits: quiet audio AND unoccupied transcript gaps."""
+"""Shorten internal transcript gaps while preserving word spans and speech margins."""
 
 from __future__ import annotations
 
-import math
-import re
-
 from .contracts import MIN_CLIP_US
-from .processes import run_tool
 
 
-def quiet_intervals(log, origin_us, end_us):
-    intervals, start = [], None
-    for kind, value in re.findall(r"silence_(start|end):\s*([-+\d.eE]+)", log):
-        seconds = float(value)
-        if not math.isfinite(seconds):
-            raise ValueError("Silence timing could not be read safely.")
-        point = origin_us + round(seconds * 1e6)
-        if kind == "start":
-            start = point
-        elif start is not None:
-            if point > start:
-                intervals.append((start, min(point, end_us)))
-            start = None
-    # A trailing silence has no following speech and is not an internal pacing edit.
-    return intervals
-
-
-def plan(start, end, words, quiet, timing_issues=()):
+def plan(start, end, words, timing_issues=(), *, enabled=True):
     # Merge occupied word spans, including nested ASR overlaps, before finding gaps.
     occupied = []
     for word in sorted(words, key=lambda w: w.start_us):
@@ -40,16 +19,14 @@ def plan(start, end, words, quiet, timing_issues=()):
     removed = []
     for left, right in zip(occupied, occupied[1:]):
         gap_start, gap_end = left[1], right[0]
-        if gap_end - gap_start < 2000000 or any(
-            i["start_us"] < gap_end and i["end_us"] > gap_start for i in timing_issues
+        if (
+            not enabled
+            or gap_end - gap_start < 1500000
+            or any(i["start_us"] < gap_end and i["end_us"] > gap_start for i in timing_issues)
         ):
             continue
-        for a, b in quiet:
-            a, b = max(a, gap_start), min(b, gap_end)
-            if b - a < 2000000:
-                continue
-            # Preserve half a second at either end, including around untranscribed sound.
-            removed.append([a + 500000, b - 500000])
+        # Keep 300 ms of breathing room before and after every transcript gap.
+        removed.append([gap_start + 300000, gap_end - 300000])
     removed.sort()
     retained, cursor = [], start
     for a, b in removed:
@@ -65,7 +42,15 @@ def plan(start, end, words, quiet, timing_issues=()):
     for a, b in retained:
         spans.append({"source_start_us": a, "source_end_us": b, "output_start_us": offset})
         offset += b - a
-    return {"version": 1, "retained": spans, "removed": removed, "output_duration_us": duration}
+    return {
+        "version": 2,
+        "method": "transcript_gaps",
+        "minimum_gap_us": 1500000,
+        "margin_us": 300000,
+        "retained": spans,
+        "removed": removed,
+        "output_duration_us": duration,
+    }
 
 
 def retime(words, edit_plan):
@@ -80,36 +65,6 @@ def retime(words, edit_plan):
                 break
         else:
             raise ValueError("A silence edit would remove speech. Keep the original pacing.")
-    return result
-
-
-def analyze(settings, section, mapping, body, words, folder, check):
-    start, end = body["start_us"], body["end_us"]
-    # Keep all audio channels: downmixing can cancel speech present in one channel.
-    local_start = (start - mapping["origin_us"]) / 1e6
-    run_tool(
-        [
-            settings.ffmpeg,
-            "-nostdin",
-            "-v",
-            "info",
-            "-i",
-            section,
-            "-vn",
-            "-af",
-            f"atrim=start={local_start:.6f}:duration={(end - start) / 1e6:.6f},asetpts=PTS-STARTPTS,silencedetect=n=-50dB:d=2",
-            "-f",
-            "null",
-            "-",
-        ],
-        settings,
-        folder,
-        "silence",
-        check,
-    )
-    quiet = quiet_intervals((folder / "silence.log").read_text("utf-8", errors="replace"), start, end)
-    result = plan(start, end, words, quiet, body.get("transcript_timing_issues", []))
-    result.update({"noise_db": -50, "minimum_quiet_us": 2000000, "margin_us": 500000, "quiet": quiet})
     return result
 
 

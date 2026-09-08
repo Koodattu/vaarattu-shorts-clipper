@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from vaarattu_shorts import discover, render, youtube
 from vaarattu_shorts.contracts import Candidate, Proposals, RunRequest, Word
 from vaarattu_shorts.pipeline import Pipeline
+from vaarattu_shorts.selection import ReviewPriority, prioritize
 from vaarattu_shorts.web import create_app
 
 
@@ -27,8 +28,9 @@ def proposal(start, end):
 
 
 @pytest.mark.parametrize("leading_silence_us", [0, 800000])
-def test_all_distinct_proposals_are_verified_and_exported_without_count_quota(
-    settings, store, monkeypatch, leading_silence_us
+@pytest.mark.parametrize("ranked", [False, True])
+def test_all_proposals_are_verified_then_new_runs_are_capped_and_legacy_exports_preserved(
+    settings, store, monkeypatch, leading_silence_us, ranked
 ):
     words = [
         Word(
@@ -40,7 +42,7 @@ def test_all_distinct_proposals_are_verified_and_exported_without_count_quota(
         for i in range(360)
     ]
     candidates = [proposal(i * 15, i * 15 + 9) for i in range(20)]
-    candidates[1] = proposal(3, 12)  # Distinct overlapping cuts must both reach review.
+    candidates[1] = proposal(3, 12)  # Distinct overlapping cuts both reach verification.
     candidates[-1].outcome = "reject"  # Discovery's recommendation is advisory too.
     calls = []
 
@@ -60,6 +62,15 @@ def test_all_distinct_proposals_are_verified_and_exported_without_count_quota(
 
         def call(self, system, prompt, schema, step, *, validate=None, reasoning_effort=None):
             calls.append(step)
+            if schema is ReviewPriority:
+                result = schema(
+                    candidates=[
+                        {"candidate_id": c["candidate_id"], "recommendation": "review", "reason": "A story"}
+                        for c in json.loads(prompt)
+                    ]
+                )
+                validate(result)
+                return result
             result = (
                 Proposals(feedback="Fixture section feedback.", candidates=candidates)
                 if schema == Proposals
@@ -97,6 +108,12 @@ def test_all_distinct_proposals_are_verified_and_exported_without_count_quota(
         "selection": selection,
         "chat": {"status": "unavailable"},
     }
+    if ranked:
+        values["review-priority"] = prioritize(selection, transcript["words"], Evaluator())
+    else:
+        # Completed v9 checkpoints keep their original uncapped delivery behavior.
+        selection.pop("review_policy")
+        selection["version"] = "conversation-v9"
     monkeypatch.setattr(pipeline, "stage", lambda name, *args: values[name])
     delivered = []
 
@@ -111,7 +128,8 @@ def test_all_distinct_proposals_are_verified_and_exported_without_count_quota(
 
     monkeypatch.setattr(pipeline, "deliver", deliver)
     result = pipeline.execute()
-    assert len(delivered) == len(result["ready"]) == 20
+    assert len(delivered) == len(result["ready"]) == (10 if ranked else 20)
+    assert len(result["verified"]) == 20
     assert result["transcript_timing_issues"] == timing_issues
 
 

@@ -39,6 +39,7 @@ def public_clip(clip):
                 "end_us",
                 "flags",
                 "review_notes",
+                "review_rank",
                 "words",
                 "source_url",
                 "selection",

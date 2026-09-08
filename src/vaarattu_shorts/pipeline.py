@@ -8,7 +8,7 @@ from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
 
-from . import discover, render, stream_data, transcribe, youtube
+from . import discover, render, selection as review_selection, stream_data, transcribe, youtube
 from .contracts import CHANNEL_ID, Candidate, RunRequest, Word
 from .llm import Evaluator, check_provider, local_server
 from .models import model_path
@@ -172,6 +172,8 @@ class Pipeline:
         return self.export_selection(selection, transcript, metadata, source)
 
     def export_selection(self, selection, transcript, metadata, source):
+        if selection.get("review_policy") == "ranked-v1":
+            selection = self.prioritize_selection(selection, transcript)
         legacy_selection = selection.get("version") in {None, "passages-v2"}
         review_first = selection.get("review_first", False)
         enrichment = selection.get("chat")
@@ -180,7 +182,9 @@ class Pipeline:
             enrichment = self.stage("chat", lambda: (stream_data.enrich(metadata, self.config), []))
         existing = self.store.clips(self.run_id)
         existing_ids = {clip["id"] for clip in existing}
-        candidates = [item for item in selection["verified"] if item["eligible"]]
+        candidates = [
+            item for item in selection["verified"] if item["eligible"] and item.get("review_selected", True)
+        ]
         candidates.sort(
             key=lambda item: (
                 Candidate.model_validate(item["candidate"]).scores.total()
@@ -192,6 +196,8 @@ class Pipeline:
             ),
             reverse=True,
         )
+        if selection.get("review_policy") == "ranked-v1":
+            candidates.sort(key=lambda item: item["review_rank"])
         chosen = []
         for item in candidates:
             if (
@@ -225,6 +231,15 @@ class Pipeline:
             clip_id = hashlib.sha256(identity.encode()).hexdigest()[:32]
             if clip_id in existing_ids:
                 continue
+            if (
+                selection.get("review_policy") == "ranked-v1"
+                and len(existing_ids) >= review_selection.REVIEW_LIMIT
+            ):
+                item["review_selected"] = False
+                item["review_exclusion_reasons"].append(
+                    "The run already has its review allocation; existing clips were preserved."
+                )
+                continue
             words = [Word.model_validate(w) for w in transcript["words"]]
             a, b = item["start_us"], item["end_us"]
             previous = max((w.end_us for w in words if w.end_us <= a), default=0)
@@ -238,6 +253,7 @@ class Pipeline:
                 "title": item["candidate"]["title_fi"],
                 "selection": item["candidate"],
                 "review_notes": item.get("review_notes", []),
+                "review_rank": item.get("review_rank"),
                 "trim_silence": self.config.get("trim_silence", False),
                 "video_encoder": self.config.get("video_encoder", "libx264"),
                 "discovery_sources": item.get("discovery_sources", ["transcript"]),
@@ -252,7 +268,13 @@ class Pipeline:
                 "words": [w.model_dump() for w in words if w.start_us >= start and w.end_us <= end],
             }
             self.store.save_clip(clip_id, self.run_id, 1, body)
+            existing_ids.add(clip_id)
         clips = self.store.clips(self.run_id)
+        if selection.get("review_summary") is not None:
+            selection["review_summary"] = {
+                **selection["review_summary"],
+                "selected": sum(item["review_selected"] for item in selection["verified"]),
+            }
         for i, clip in enumerate(clips):
             self.check()
             if clip["body"]["status"] in {"ready", "held"}:
@@ -262,6 +284,35 @@ class Pipeline:
         return self.finish(
             enrichment, {**selection, "transcript_timing_issues": transcript.get("timing_issues", [])}
         )
+
+    def prioritize_selection(self, selection, transcript):
+        folder = self.folder / "inference" / f"review-priority-{self.chain[:16]}"
+
+        def operation():
+            folder.mkdir(parents=True, exist_ok=True)
+            manager = (
+                local_server(self.settings, self.config, folder, self.check)
+                if self.config["provider"] == "local"
+                else nullcontext(None)
+            )
+            with manager as client:
+                evaluator = Evaluator(
+                    self.config["provider"],
+                    self.store,
+                    self.run_id,
+                    folder,
+                    self.config["budget_usd"],
+                    self.check,
+                    client,
+                    self.config.get("context_size", 16384),
+                    codex_config=self.config.get("codex"),
+                    verification_reasoning=self.config.get("verification_reasoning", "low"),
+                )
+                result = review_selection.prioritize(selection, transcript["words"], evaluator)
+            atomic_json(folder / "review-priority.json", result)
+            return result, [folder / "review-priority.json"]
+
+        return self.stage("review-priority", operation, "ranked-v1")
 
     def deliver(self, clip, source, duration_us):
         body, clip_id, revision = clip["body"], clip["id"], clip["revision"]
@@ -364,7 +415,13 @@ class Pipeline:
                 key: selection.get(key)
                 if selection is not None
                 else self.store.get(self.run_id)["result"].get(key)
-                for key in ("section_feedback", "verified", "anchor_adjustments", "recovery_version")
+                for key in (
+                    "section_feedback",
+                    "verified",
+                    "anchor_adjustments",
+                    "recovery_version",
+                    "review_summary",
+                )
             },
             "transcript_timing_issues": timing_issues,
             "chat": enrichment,
