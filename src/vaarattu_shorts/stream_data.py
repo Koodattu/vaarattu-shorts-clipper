@@ -40,6 +40,8 @@ def rank_matches(metadata, streams):
             (
                 SequenceMatcher(None, normalize(metadata["title"]), normalize(s["title"])).ratio()
                 for s in stream.get("segments", [])
+                if sorted(re.findall(r"\d+", normalize(metadata["title"])))
+                == sorted(re.findall(r"\d+", normalize(s["title"])))
             ),
             default=0,
         )
@@ -78,7 +80,11 @@ def search(metadata, check=lambda: None):
             complete = False
             for page in range(1, 21):
                 check()
-                data = client.get(f"{BASE}/streams", params={"page": page, "limit": 100}).raise_for_status().json()
+                data = (
+                    client.get(f"{BASE}/streams", params={"page": page, "limit": 100})
+                    .raise_for_status()
+                    .json()
+                )
                 batch = data["data"]
                 streams.extend(batch)
                 if len(batch) < 100:
@@ -87,13 +93,20 @@ def search(metadata, check=lambda: None):
             matches = rank_matches(metadata, streams)
             title = normalize(metadata.get("title", ""))
             clear = (
-                complete and matches and matches[0]["similarity"] >= 0.88
+                complete
+                and matches
+                and matches[0]["similarity"] >= 0.88
                 and (len(matches) == 1 or matches[0]["similarity"] - matches[1]["similarity"] >= 0.1)
-                and (recording_date(metadata.get("title", "")) or (len(title) >= 10 and len(title.split()) >= 2))
+                and (
+                    recording_date(metadata.get("title", ""))
+                    or (len(title) >= 10 and len(title.split()) >= 2)
+                )
                 and not re.search(r"\b(?:part|osa|pt)\.?\s*\d+", title)
             )
             return {
-                "status": "ready", "source": "legacy", "matches": matches,
+                "status": "ready",
+                "source": "legacy",
+                "matches": matches,
                 "suggestedStreamId": matches[0]["id"] if clear else None,
                 "warning": "Using title suggestions; the new search API is not deployed yet."
                 + (" Only the first 2,000 streams were searched." if not complete else ""),
@@ -108,7 +121,9 @@ def stream_detail(stream_id):
             response = client.get(f"{BASE}/streams/{stream_id}").raise_for_status().json()
             return response["data"]
     except (httpx.HTTPError, ValueError, KeyError, TypeError):
-        raise ValueError("This stream could not be loaded from vaarattu.tv. Check the ID and try again.") from None
+        raise ValueError(
+            "This stream could not be loaded from vaarattu.tv. Check the ID and try again."
+        ) from None
 
 
 def enrich(metadata, config, check=lambda: None):
@@ -116,7 +131,12 @@ def enrich(metadata, config, check=lambda: None):
         stream_id = config.get("stream_id")
         if not config.get("alignment_confirmed"):
             result = search(metadata, check)
-            return {**result, "status": "unavailable" if result["status"] == "unavailable" else "timing_unconfirmed", "points": [], "coverage": "unknown"}
+            return {
+                **result,
+                "status": "unavailable" if result["status"] == "unavailable" else "timing_unconfirmed",
+                "points": [],
+                "coverage": "unknown",
+            }
         check()
         selected = stream_detail(stream_id)
         with httpx.Client(timeout=15, trust_env=False) as client:
