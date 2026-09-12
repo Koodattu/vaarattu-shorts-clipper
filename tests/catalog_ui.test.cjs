@@ -409,11 +409,15 @@ test("channel selection, local filters and explicit page fetching", async()=>{
      available:true,processed:true,state:"completed",outcome:"no_candidates",url:"https://www.youtube.com/watch?v=0123456789_"},
   ];
   const library={configured:true,channel_id:"UCfixture",channel_title:"VaarattuVODs",has_older:true,fetched_at:1,videos};
-  const calls=[];
+  const calls=[],streamSearches=[];
   const context=vm.createContext({
     document:{getElementById(id){assert.ok(nodes.has(id),`Missing HTML element: ${id}`);return nodes.get(id);},
               createElement:tag=>new Element(tag)},
     fetch:async(url,options)=>{
+      if(url.startsWith("/api/streams/search?")){
+        streamSearches.push(url);
+        return {ok:true,json:async()=>({status:"ready",matches:[],suggestedStreamId:null})};
+      }
       calls.push({url,method:options.method||"GET"});
       const responses={"/api/status":{token:"fixture",models:{turbo:true},providers:{}},
                        "/api/layouts":[],"/api/runs":[],"/api/videos":library,
@@ -446,6 +450,7 @@ test("channel selection, local filters and explicit page fetching", async()=>{
   nodes.get("video-search").oninput();
   assert.ok(find(list,"No saved videos match these filters."));
   assert.equal(calls.length,before,"Filtering must not use API quota");
+  assert.equal(streamSearches.length,2,"Each selected recording gets one read-only stream lookup");
   await nodes.get("older-videos").onclick();
   assert.deepEqual(calls.at(-1),{url:"/api/videos/older",method:"POST"});
   assert.equal(nodes.get("older-videos").hidden,true);
