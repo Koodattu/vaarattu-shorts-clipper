@@ -13,6 +13,7 @@ function reviewControls(){
   $("review-rejection-reason").disabled=$("review-reject").disabled;
   $("review-skip").disabled=reviewBusy||Boolean(reviewRendering&&!reviewRendering.context)||!clip;
   $("review-context").disabled=locked||!clip||clip.status!=="ready"||!clip.has_preview;
+  $("review-caption-check").disabled=locked||!clip||clip.status!=="ready"||!clip.has_preview;
   $("review-undo").disabled=locked||!reviewLast;
   $("refresh-review").disabled=reviewBusy;
   $("review-notes").disabled=locked||!clip;
@@ -202,7 +203,7 @@ $("review-context-cancel").onclick=()=>{$("review-context-dialog").close();revie
 $("review-context-dialog").oncancel=event=>{if(reviewBusy)event.preventDefault();else reviewContextClip=null;};
 $("review-player").onerror=()=>{if(reviewQueue.length)reviewMessage("This preview could not load. Refresh the queue or skip this clip.",true);};
 document.addEventListener("keydown",event=>{
-  if(currentView!=="review"||event.repeat||event.ctrlKey||event.metaKey||event.altKey||event.shiftKey||$("clip-notes-dialog").open||$("review-context-dialog").open)return;
+  if(currentView!=="review"||event.repeat||event.ctrlKey||event.metaKey||event.altKey||event.shiftKey||$("clip-notes-dialog").open||$("review-context-dialog").open||$("caption-dialog").open)return;
   if(event.target.closest("input,textarea,select,[contenteditable='true']"))return;
   const key=event.key.toLowerCase();
   if(key==="a"||key==="r"||key==="s"||key==="u"){

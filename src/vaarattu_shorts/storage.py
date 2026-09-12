@@ -464,6 +464,8 @@ class Store:
                 raise ValueError("This clip changed. Reload it before saving.")
             if clip["body"].get("context_request", {}).get("status") == "pending":
                 raise ValueError("Finish or resume this clip's context review before editing it.")
+            if (clip["body"].get("caption_check") or {}).get("status") == "pending":
+                raise ValueError("Finish or resume this clip's caption check before editing it.")
             active = db.execute(
                 "SELECT id FROM runs WHERE id=? AND state IN ('queued','running','paused')", (clip["run_id"],)
             ).fetchone()
@@ -480,23 +482,26 @@ class Store:
             return revision
 
     def queue_context(self, clip_id, request):
+        return self.queue_clip_analysis(clip_id, request, "context_request", "context_repair_requested", "context-repair")
+
+    def queue_clip_analysis(self, clip_id, request, body_key, result_key, stage):
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             clip = self.unpack(db.execute("SELECT * FROM clips WHERE id=?", (clip_id,)).fetchone())
             if clip["revision"] != request["expected_revision"]:
-                raise ValueError("This clip changed. Reload it before requesting context.")
+                raise ValueError("This clip changed. Reload it before requesting a check.")
             run = self.unpack(db.execute("SELECT * FROM runs WHERE id=?", (clip["run_id"],)).fetchone())
             if run["state"] != "completed":
-                raise ValueError("Wait for this recording's current work to finish before requesting context.")
+                raise ValueError("Wait for this recording's current work to finish before requesting a check.")
             body = clip["body"]
             if body["status"] != "ready" or not body.get("folder") or not (Path(body["folder"]) / "short.mp4").is_file():
-                raise ValueError("Choose a clip with a finished preview to request more context.")
-            request = {**request, "id": uuid.uuid4().hex, "status": "pending", "note": request["note"].strip()}
-            db.execute("UPDATE clips SET body=? WHERE id=?", (json.dumps({**body, "context_request": request}), clip_id))
-            result = {**run["result"], "context_repair_requested": clip_id}
+                raise ValueError("Choose a clip with a finished preview to request a check.")
+            request = {**request, "id": uuid.uuid4().hex, "status": "pending", "note": request.get("note", "").strip()}
+            db.execute("UPDATE clips SET body=? WHERE id=?", (json.dumps({**body, body_key: request}), clip_id))
+            result = {**run["result"], result_key: clip_id}
             db.execute(
-                "UPDATE runs SET state='queued',stage='context-repair',intent='',message='',progress=0,result=?,updated=? WHERE id=?",
-                (json.dumps(result), time.time(), clip["run_id"]),
+                "UPDATE runs SET state='queued',stage=?,intent='',message='',progress=0,result=?,updated=? WHERE id=?",
+                (stage, json.dumps(result), time.time(), clip["run_id"]),
             )
             return {"run_id": clip["run_id"], "revision": clip["revision"], "request_id": request["id"]}
 

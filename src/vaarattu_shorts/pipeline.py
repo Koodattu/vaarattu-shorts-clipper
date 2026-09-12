@@ -8,9 +8,9 @@ from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
 
-from . import context_repair, discover, render, selection as review_selection, stream_data, transcribe, youtube
+from . import caption_correction, context_repair, discover, render, selection as review_selection, stream_data, transcribe, youtube
 from .contracts import CHANNEL_ID, Candidate, RunRequest, Word
-from .llm import Evaluator, check_provider, local_server
+from .llm import Evaluator, ModelAnchorError, ModelOutputError, check_provider, local_server
 from .models import model_path
 from .processes import Interrupted, ToolError
 from .storage import atomic_json, digest
@@ -296,6 +296,7 @@ class Pipeline:
                 "verified": selection["verified"], "review_summary": selection["review_summary"],
             })
         self.refine_captions(source, transcript["duration_us"])
+        self.correct_captions(transcript)
         clips = self.store.clips(self.run_id)
         if selection.get("review_summary") is not None:
             selection["review_summary"] = {
@@ -360,6 +361,9 @@ class Pipeline:
             if c["body"]["status"] == "pending" and not c["body"].get("caption_transcript")
             and not c["body"].get("audit_caption_warning")
             and not c["body"].get("caption_warning")
+            and not c["body"].get("caption_locked_word_ids")
+            and not c["body"].get("caption_correction_pass")
+            and not c["body"].get("reviewed")
         ]
         if not clips:
             return
@@ -393,6 +397,61 @@ class Pipeline:
                 else:
                     body = {**clip["body"], "status": "held", "flags": [str(exc)]}
             self.store.save_clip(clip["id"], self.run_id, clip["revision"], body)
+
+    def caption_proposal(self, clip, transcript, folder, client=None):
+        folder.mkdir(parents=True, exist_ok=True)
+        manager = local_server(self.settings, self.config, folder, self.check) if self.config["provider"] == "local" and client is None else nullcontext(client)
+        with manager as client:
+            evaluator = Evaluator(
+                self.config["provider"], self.store, self.run_id, folder, self.config["budget_usd"],
+                self.check, client, self.config.get("context_size", 16384),
+                codex_config=self.config.get("codex"),
+                verification_reasoning=self.config.get("verification_reasoning", "low"),
+            )
+            return caption_correction.propose(clip["body"], transcript, evaluator)
+
+    def correct_captions(self, transcript):
+        if not self.config.get("correct_captions"):
+            return
+        clips = [c for c in self.store.clips(self.run_id) if c["body"]["status"] == "pending"
+                 and not c["body"].get("caption_correction_pass") and not c["body"].get("reviewed")]
+        if not clips:
+            return
+        runtime = self.folder / "caption-corrections" / "runtime"
+        runtime.mkdir(parents=True, exist_ok=True)
+        manager = local_server(self.settings, self.config, runtime, self.check) if self.config["provider"] == "local" else nullcontext(None)
+        with manager as client:
+            for clip in clips:
+                body = clip["body"]
+                self.check()
+                self.store.update(self.run_id, stage="caption-check", message="Checking caption word errors.")
+                folder = self.folder / "caption-corrections" / clip["id"] / caption_correction.fingerprint(body)
+                try:
+                    proposal = self.caption_proposal(clip, transcript, folder, client)
+                    body = caption_correction.apply(body, proposal.changes, automatic=True)
+                except (ModelOutputError, ModelAnchorError):
+                    body = {**body, "caption_correction_pass": caption_correction.VERSION,
+                            "caption_correction_warning": "Caption corrections could not be validated. Original captions kept."}
+                self.check()
+                self.store.save_clip(clip["id"], self.run_id, clip["revision"], body)
+
+    def check_captions(self):
+        run = self.store.get(self.run_id)
+        clip = self.store.clip(run["result"]["caption_check_requested"])
+        request = clip["body"]["caption_check"]
+        transcript = json.loads((self.folder / "asr" / "transcript.json").read_text("utf-8"))
+        self.store.update(self.run_id, stage="caption-check", message="Checking caption word errors.")
+        proposal = self.caption_proposal(clip, transcript, self.folder / "caption-corrections" / request["id"])
+        self.check()
+        self.store.save_clip(clip["id"], self.run_id, clip["revision"], {
+            **clip["body"], "caption_check": {**request, "status": "complete",
+                "fingerprint": caption_correction.fingerprint(clip["body"]),
+                "changes": proposal.model_dump()["changes"]},
+        })
+        result = dict(self.store.get(self.run_id)["result"])
+        result.pop("caption_check_requested", None)
+        self.store.update(self.run_id, state="completed", stage="complete", progress=1, intent="",
+                          message="Caption suggestions are ready for review.", result=result)
 
     def prioritize_selection(self, selection, transcript):
         folder = self.folder / "inference" / f"review-priority-{review_selection.VERSION}-{self.chain[:16]}"
@@ -688,6 +747,8 @@ class Pipeline:
         if not source.is_file():
             source = youtube.acquire(self.settings, self.config["video"], self.folder / "audio", self.check)
         self.refine_captions(source, round(audio["duration"] * 1e6))
+        if self.config.get("correct_captions"):
+            self.correct_captions(json.loads((self.folder / "asr" / "transcript.json").read_text("utf-8")))
         for clip in self.store.clips(self.run_id):
             if clip["body"]["status"] == "pending":
                 self.store.update(self.run_id, stage="render", message="Rendering the revised clip.")

@@ -14,7 +14,7 @@ from fastapi import Body, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import catalog, discover, stream_data
+from . import caption_correction, catalog, discover, stream_data
 from .context_repair import ContextRequest
 from .contracts import MIN_CLIP_US, EditRequest, LayoutSave, RunRequest, Word, clip_duration_limit, video_id
 from .llm import PROVIDERS, codex_settings
@@ -44,6 +44,9 @@ def public_clip(clip):
                 "review_selected",
                 "audit_caption_warning",
                 "caption_warning",
+                "caption_correction_warning",
+                "caption_check",
+                "caption_corrections",
                 "words",
                 "source_url",
                 "selection",
@@ -338,6 +341,40 @@ def create_app(settings):
     ):
         return queue_render(clip_id, expected_revision, layout_id, trim_silence, video_encoder)
 
+    @app.post("/api/clips/{clip_id}/caption-check", status_code=202)
+    def check_captions(clip_id: str, expected_revision: int = Body(embed=True, ge=1)):
+        clip = store.clip(clip_id)
+        if not (settings.work / "runs" / clip["run_id"] / "asr" / "transcript.json").is_file():
+            raise ValueError("Restore the saved transcript before checking captions.")
+        return store.queue_clip_analysis(clip_id, {"expected_revision": expected_revision},
+                                         "caption_check", "caption_check_requested", "caption-check")
+
+    @app.post("/api/clips/{clip_id}/caption-corrections", status_code=202)
+    def apply_captions(clip_id: str, expected_revision: int = Body(ge=1),
+                       check_id: str = Body(min_length=1, max_length=100),
+                       word_ids: list[str] = Body(max_length=12)):
+        clip = store.clip(clip_id)
+        body = clip["body"]
+        checked = body.get("caption_check") or {}
+        if (checked.get("status") != "complete" or checked.get("id") != check_id
+                or checked.get("fingerprint") != caption_correction.fingerprint(body)):
+            raise ValueError("These suggestions no longer match the captions. Check them again.")
+        selected = [c for c in checked["changes"] if c["word_id"] in word_ids]
+        if not word_ids or len(set(word_ids)) != len(word_ids) or len(selected) != len(word_ids):
+            raise ValueError("Select one or more saved caption suggestions.")
+        revised = caption_correction.apply(body, selected)
+        revised.update(status="pending", folder=None, flags=[], previous_revision=clip["revision"])
+        revision = store.queue_edit(clip_id, expected_revision, revised)
+        return {"revision": revision, "run_id": clip["run_id"]}
+
+    @app.post("/api/clips/{clip_id}/caption-undo", status_code=202)
+    def undo_captions(clip_id: str, expected_revision: int = Body(embed=True, ge=1)):
+        clip = store.clip(clip_id)
+        body = caption_correction.undo(clip["body"])
+        body.update(status="pending", folder=None, flags=[], previous_revision=clip["revision"])
+        revision = store.queue_edit(clip_id, expected_revision, body)
+        return {"revision": revision, "run_id": clip["run_id"]}
+
     @app.post("/api/clips/{clip_id}/edit", status_code=202)
     def edit(clip_id: str, edit: EditRequest):
         clip = store.clip(clip_id)
@@ -381,12 +418,19 @@ def create_app(settings):
             or words != original["words"]
         ) and not edit.reviewed:
             raise ValueError("Confirm the edited excerpt preserves the original meaning before rerendering.")
+        original_text = {w["id"]: w["text"].strip() for w in original["words"]}
         body = {
             **original,
             "start_us": edit.start_us,
             "end_us": edit.end_us,
             "title": edit.title,
             "words": words,
+            "caption_locked_word_ids": sorted(set(original.get("caption_locked_word_ids", [])) | {
+                w["id"] for w in words
+                if w["text"].strip() != original_text.get(w["id"], known[w["id"]].text.strip())
+            }),
+            "caption_check": None,
+            "caption_correction_pass": original.get("caption_correction_pass") or "manual-edit",
             "layout": store.layout(edit.layout_id),
             "reviewed": edit.reviewed,
             "status": "pending",

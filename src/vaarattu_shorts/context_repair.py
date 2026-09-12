@@ -121,4 +121,6 @@ def propose(body, transcript, evaluator):
     revised.pop("caption_error", None)
     revised.pop("audit_caption_warning", None)
     revised.pop("audit_caption_error", None)
+    revised.pop("caption_check", None)
+    revised.pop("caption_correction_pass", None)
     return result, revised
