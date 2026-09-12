@@ -126,7 +126,7 @@ function chooseStream(match){
   $("stream-match-status").textContent=`Stream ${match.id} selected. ${match.streamOffsetSeconds==null?"Enter the timing offset and confirm it to enable chat peaks.":"Saved offset filled. Confirm the timing to enable chat peaks."}`;
 }
 async function findStream(){
-  const request=++streamLookup;$("find-stream").disabled=true;$("stream-match-status").textContent="Looking for a matching stream…";$("stream-matches").replaceChildren();
+  const request=++streamLookup;$("find-stream").disabled=true;$("check-stream").disabled=false;$("stream-match-status").textContent="Looking for a matching stream…";$("stream-matches").replaceChildren();
   try{
     const result=await api(`/api/streams/search?video=${encodeURIComponent($("video").value)}&q=${encodeURIComponent($("stream-query").value)}`);
     if(request!==streamLookup)return;
