@@ -1,6 +1,20 @@
 # vaarattu.tv enrichment contract
 
-Status: optional activity adapter and separate LLM peak discovery are implemented, 2026-09-06. No changes were made to vaarattu.tv or its deployment. Stream identity and timing still require confirmation.
+## Update: VOD matching, 2026-09-12
+
+The new-run form automatically looks up a selected library recording. **Find matching stream** also accepts an editable VOD title. A clear identity fills the stream ID; ambiguous candidates remain available as **Use this stream** choices. **Check stream ID** loads a manually entered vaarattu.tv ID directly, including old streams outside the fallback catalog scan. Changing the video clears the mapping. Editing the stream or offset clears timing confirmation, and stale search responses cannot overwrite a later selection or manual input.
+
+The clipper uses `GET /api/streams/search?q=...&youtubeId=...&limit=10` on the existing `dev.vaarattu.tv` API. The matching endpoint was implemented in the sibling vaarattu.tv repository, sharing its existing collector matcher. Exact saved YouTube associations take priority and return saved offsets for split recordings. Otherwise it compares Finnish recording dates and fuzzy segment/recording titles. It returns candidates and an unambiguous suggested identity, not a confidence probability or a measured alignment. No LLM requests or media downloads are used for matching.
+
+The form fills a saved offset when provided, but the timing checkbox remains unchecked. Confirm timing before starting to enable chat-peak discovery. A fuzzy title match cannot determine the stream position at YouTube second zero. Missing matches and API outages retain transcript-only processing. Confirmed manual IDs fetch stream details and activity directly without scanning the catalog. The selected ID, offset and confirmation remain in the existing run configuration.
+
+The new vaarattu.tv backend route requires that project's normal deployment; this task did not deploy it or change its database. Until then, the clipper falls back to the existing paginated stream list (up to 2,000 streams), labels the fallback, and offers local title/date suggestions. An incomplete scan never auto-selects a candidate. Live verification on September 12 matched `OJ-bDXbfEos`, “9.7.2026 - pushing 40(00 rio score)”, to stream 254 through this fallback. No timing offset was inferred.
+
+Checks: `tests/test_stream_matching.py`, `tests/test_chat_peak_selection.py`, `tests/test_media_contracts.py`, and `tests/catalog_ui.test.cjs`; backend contract and rollout details are in vaarattu.tv's `docs/stream-search.md`.
+
+The sections below describe the earlier integration and research; the matching UI and API availability notes above supersede their matching proposals.
+
+Status at initial implementation: optional activity adapter and separate LLM peak discovery implemented, 2026-09-06.
 
 ## Current integration and activation
 
