@@ -51,6 +51,8 @@ def main():
     models = sub.add_parser("models", help="Explicitly prepare a model inside this project's .cache/models")
     models.add_argument("model", choices=["turbo", "large-v3", "gemma4-31b", "gemma4-26b-a4b"])
     sub.add_parser("backup", help="Back up state and durable project artifacts")
+    review_all = sub.add_parser("review-all", help="Queue fresh ranking and render all saved suggestions for review")
+    review_all.add_argument("run_ids", nargs="+")
     compare = sub.add_parser(
         "compare-reasoning", help="Compare low/medium on saved speech; makes model requests, no videos"
     )
@@ -91,6 +93,18 @@ def main():
         print(prepare(settings, args.model))
         return
     settings.initialize()
+    if args.command == "review-all":
+        from .storage import Store
+
+        store = Store(settings.work / "state.sqlite3")
+        for run_id in args.run_ids:
+            run = store.get(run_id)
+            if run["state"] != "completed" or not (settings.work / "runs" / run_id / "selection.checkpoint.json").is_file():
+                raise ValueError("Choose completed runs with saved selection before requesting all suggestions.")
+        for run_id in args.run_ids:
+            store.control(run_id, "review-all")
+            print(f"Queued ranking and all suggestions for {run_id}")
+        return
     if args.command in {"compare-reasoning", "benchmark-render"}:
         from .evaluation import benchmark_render, compare_reasoning
 

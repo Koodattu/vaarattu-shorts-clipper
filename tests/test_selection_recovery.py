@@ -66,6 +66,65 @@ def test_real_interior_anchors_expand_but_unknown_ids_never_do():
         discover.normalize_proposal(candidate(8, 1), words)
 
 
+def test_global_shortlist_caps_context_work_and_retains_every_exclusion(settings, store):
+    run = store.admit({}, "shortlist")
+    proposed = [candidate(i * 5, i * 5 + 3) for i in range(60)]
+    for c in proposed[40:]:
+        c.scores.substance = 4
+    proposed[-1].outcome = "needs_context"
+    fuller = proposed[-1].model_copy(update={"end_word_id": "w299"})
+    proposed += [fuller, candidate(310, 313, outcome="reject"), candidate(320, 323)]
+    proposed[-1].scores.substance = 2
+    calls = []
+
+    class FixtureEvaluator(Evaluator):
+        def call(self, system, prompt, schema, key, **kwargs):
+            calls.append(key)
+            if schema is Proposals:
+                return Proposals(candidates=proposed, feedback="Fixture candidates.")
+            a, b = re.search(r"Proposed start=w(\d+), end=w(\d+)", prompt).groups()
+            result = candidate(int(a), int(b))
+            kwargs["validate"](result)
+            return result
+
+    result = discover.discover(speech(360), FixtureEvaluator(
+        "openai", store, run, settings.work, 1, lambda: None), lambda _: None)
+    assert len(calls) == 21  # One discovery plus twenty candidates, including the promising context gap.
+    assert len(result["proposals"]) == 63
+    assert len(result["verified"]) == 20
+    assert {v["proposal"]["start_word_id"] for v in result["verified"]} == {
+        f"w{i * 5}" for i in range(40, 60)}
+    assert result["verified"][-1]["proposal"]["end_word_id"] == "w299"
+    reasons = [i["reason"] for i in result["issues"]]
+    assert reasons.count("duplicate_moment") == 1
+    assert reasons.count("insufficient_editorial_value") == 2
+    assert reasons.count("outside_verification_budget") == 40
+    assert result["verification_shortlist"]["selected"] == 20
+    assert all(i["candidate"] and i["interval"] for i in result["issues"])
+
+
+def test_weak_discovery_never_triggers_context_work(settings, store):
+    run = store.admit({"video": "abc_def-ghI"}, "weak")
+    calls, progress = [], []
+
+    class FixtureEvaluator(Evaluator):
+        def call(self, system, prompt, schema, key, **kwargs):
+            calls.append(key)
+            assert schema is Proposals
+            c = candidate(0, 5)
+            c.scores.substance = 2
+            return Proposals(candidates=[c], feedback="Passing remark.")
+
+    result = discover.discover(speech(30), FixtureEvaluator(
+        "openai", store, run, settings.work, 1, lambda: None), progress.append)
+    assert len(calls) == 1 and result["verified"] == []
+    assert result["verification_shortlist"]["selected"] == 0
+    assert progress[-1] == 1
+    finished = Pipeline(settings, store, run).finish({"status": "unavailable"}, result)
+    assert finished["outcome"] == "no_candidates"
+    assert finished["verification_shortlist"]["selected"] == 0
+
+
 def test_missing_empty_section_feedback_gets_bounded_repair_and_is_saved(settings, store, monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "fixture")
     run = store.admit({}, "feedback")

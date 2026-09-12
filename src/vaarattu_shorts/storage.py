@@ -216,7 +216,10 @@ class Store:
             run = self.unpack(db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone())
             state, intent = run["state"], run["intent"]
             stage, result = run["stage"], run["result"]
-            if action == "recheck" and state == "completed":
+            if action == "review-all" and state == "completed":
+                state, intent, stage = "queued", "", "review-priority"
+                result = {**result, "review_all_requested": True}
+            elif action == "recheck" and state == "completed":
                 state, intent, stage = "queued", "", "recheck"
                 result = {**result, "selection_recheck_requested": True}
             elif action == "resume" and state in {"paused", "failed", "cancelled"}:

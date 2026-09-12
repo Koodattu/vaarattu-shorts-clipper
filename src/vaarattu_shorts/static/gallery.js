@@ -13,7 +13,7 @@ function gallerySource(clip){
   const recording=library?.videos.find(v=>v.url===clip.source_url);
   return recording?.title||clip.source_url||"Original recording";
 }
-function clipNotes(clip){return [...(clip.status==="held"?["Render needs attention"]:[]),...(clip.context_request?.note?[`Your context note: ${clip.context_request.note}`]:[]),...(clip.context_request?.reason?[`Context review: ${clip.context_request.reason}`]:[]),...(clip.review_notes||[]),...(clip.flags||[])];}
+function clipNotes(clip){return [...((clip.caption_warning||clip.audit_caption_warning)?[clip.caption_warning||clip.audit_caption_warning]:[]),...(clip.status==="held"?["Render needs attention"]:[]),...(clip.context_request?.note?[`Your context note: ${clip.context_request.note}`]:[]),...(clip.context_request?.reason?[`Context review: ${clip.context_request.reason}`]:[]),...(clip.review_notes||[]),...(clip.flags||[])];}
 function showClipNotes(clip){
   if(reviewNoteSaving)return;
   reviewNotesClip=clip;

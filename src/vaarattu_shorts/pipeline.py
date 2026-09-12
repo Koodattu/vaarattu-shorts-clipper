@@ -174,9 +174,13 @@ class Pipeline:
         selection = self.stage("selection", selection_stage, selection_version)
         return self.export_selection(selection, transcript, metadata, source)
 
-    def export_selection(self, selection, transcript, metadata, source):
+    def export_selection(self, selection, transcript, metadata, source, *, audit=False):
         if selection.get("review_policy") == "ranked-v1":
             selection = self.prioritize_selection(selection, transcript)
+        if audit:
+            if selection["review_summary"]["quality_passed"] > 1 and selection["review_summary"]["method"] != "comparison":
+                raise ValueError("Ranking did not complete. Resume to retry before refreshing the review queue.")
+            selection = self.audit_proposals(selection, transcript)
         legacy_selection = selection.get("version") in {None, "passages-v2"}
         review_first = selection.get("review_first", False)
         enrichment = selection.get("chat")
@@ -186,7 +190,9 @@ class Pipeline:
         existing = self.store.clips(self.run_id)
         existing_ids = {clip["id"] for clip in existing}
         candidates = [
-            item for item in selection["verified"] if item["eligible"] and item.get("review_selected", True)
+            item for item in selection["verified"]
+            if (item["eligible"] and (audit or item.get("review_selected", True)))
+            or (audit and item.get("audit_original_bounds"))
         ]
         candidates.sort(
             key=lambda item: (
@@ -200,7 +206,7 @@ class Pipeline:
             reverse=True,
         )
         if selection.get("review_policy") == "ranked-v1":
-            candidates.sort(key=lambda item: item["review_rank"])
+            candidates.sort(key=lambda item: (not item.get("review_selected", False), item.get("review_rank") or float("inf")))
         chosen = []
         for item in candidates:
             if (
@@ -225,6 +231,7 @@ class Pipeline:
             chosen.append(item)
             if legacy_selection and len(chosen) == self.config.get("max_clips"):
                 break
+        handled_ids = set()
         for i, item in enumerate(chosen):
             identity = (
                 f"{self.run_id}:{i}"
@@ -232,10 +239,20 @@ class Pipeline:
                 else f"{self.run_id}:{item['candidate']['start_word_id']}:{item['candidate']['end_word_id']}"
             )
             clip_id = hashlib.sha256(identity.encode()).hexdigest()[:32]
+            if clip_id in handled_ids:
+                continue
+            handled_ids.add(clip_id)
             if clip_id in existing_ids:
+                if audit:
+                    old = self.store.clip(clip_id)
+                    body = {**old["body"], **self.review_metadata(item)}
+                    if old["body"]["status"] == "held" and not old["body"].get("folder"):
+                        body.update(status="pending", audit_preview=True)
+                    self.store.save_clip(clip_id, self.run_id, old["revision"], body)
                 continue
             if (
-                selection.get("review_policy") == "ranked-v1"
+                not audit
+                and selection.get("review_policy") == "ranked-v1"
                 and len(existing_ids) >= review_selection.REVIEW_LIMIT
             ):
                 item["review_selected"] = False
@@ -255,8 +272,9 @@ class Pipeline:
                 "end_us": end,
                 "title": item["candidate"]["title_fi"],
                 "selection": item["candidate"],
-                "review_notes": item.get("review_notes", []),
-                "review_rank": item.get("review_rank"),
+                **self.review_metadata(item),
+                **({"audit_preview": True} if audit else {}),
+                **({"audit_original_bounds": item["audit_original_bounds"]} if item.get("audit_original_bounds") else {}),
                 "trim_silence": self.config.get("trim_silence", False),
                 "video_encoder": self.config.get("video_encoder", "libx264"),
                 "discovery_sources": item.get("discovery_sources", ["transcript"]),
@@ -272,6 +290,11 @@ class Pipeline:
             }
             self.store.save_clip(clip_id, self.run_id, 1, body)
             existing_ids.add(clip_id)
+        if audit:
+            self.store.update(self.run_id, result={
+                **self.store.get(self.run_id)["result"],
+                "verified": selection["verified"], "review_summary": selection["review_summary"],
+            })
         self.refine_captions(source, transcript["duration_us"])
         clips = self.store.clips(self.run_id)
         if selection.get("review_summary") is not None:
@@ -289,6 +312,45 @@ class Pipeline:
             enrichment, {**selection, "transcript_timing_issues": transcript.get("timing_issues", [])}
         )
 
+    @staticmethod
+    def review_metadata(item):
+        return {
+            "review_notes": list(dict.fromkeys([
+                *item.get("review_notes", []), *item.get("review_exclusion_reasons", []),
+                *([item["priority_reason"]] if item.get("priority_reason") else []),
+            ])),
+            "review_rank": item.get("review_rank"),
+            "review_selected": item.get("review_selected", True),
+        }
+
+    def audit_proposals(self, selection, transcript):
+        selection = {**selection, "verified": [dict(v) for v in selection["verified"]]}
+        words = [Word.model_validate(w) for w in transcript["words"]]
+        represented = {discover.identity(Candidate.model_validate(v.get("proposal", v["candidate"])))
+                       for v in selection["verified"]}
+        for proposal in selection.get("proposals", []):
+            candidate = Candidate.model_validate(proposal)
+            if discover.identity(candidate) in represented:
+                continue
+            a, b = discover.resolve(candidate, words)
+            selection["verified"].append({
+                "candidate": proposal, "proposal": proposal, "start_us": a, "end_us": b,
+                "eligible": False, "review_selected": False, "review_rank": None,
+                "review_exclusion_reasons": [
+                    "Original suggestion was not verified; included for your audit.",
+                    *(["Full original suggestion exceeds 90 seconds."] if b - a > 90000000 else []),
+                ],
+                "audit_original_bounds": {"start_us": a, "end_us": b},
+            })
+            represented.add(discover.identity(candidate))
+        for item in selection["verified"]:
+            if not item["eligible"] and not item.get("audit_original_bounds"):
+                a, b = discover.resolve(Candidate.model_validate(item["candidate"]), words)
+                item["audit_original_bounds"] = {"start_us": a, "end_us": b}
+        selection["review_summary"] = {**selection["review_summary"], "audit_all": True,
+                                       "audit_candidates": len(selection["verified"])}
+        return selection
+
     def refine_captions(self, source, duration_us):
         if not self.config.get("final_transcription", False):
             return
@@ -296,6 +358,8 @@ class Pipeline:
             c
             for c in self.store.clips(self.run_id)
             if c["body"]["status"] == "pending" and not c["body"].get("caption_transcript")
+            and not c["body"].get("audit_caption_warning")
+            and not c["body"].get("caption_warning")
         ]
         if not clips:
             return
@@ -322,11 +386,16 @@ class Pipeline:
             try:
                 body = transcribe.apply_refinement(clip["body"], results[clip["id"]])
             except ValueError as exc:
-                body = {**clip["body"], "status": "held", "flags": [str(exc)]}
+                if clip["body"].get("words"):
+                    body = {**clip["body"], "caption_warning":
+                            "Final captions could not be verified. Using the saved Turbo transcript.",
+                            "caption_error": str(exc)}
+                else:
+                    body = {**clip["body"], "status": "held", "flags": [str(exc)]}
             self.store.save_clip(clip["id"], self.run_id, clip["revision"], body)
 
     def prioritize_selection(self, selection, transcript):
-        folder = self.folder / "inference" / f"review-priority-{self.chain[:16]}"
+        folder = self.folder / "inference" / f"review-priority-{review_selection.VERSION}-{self.chain[:16]}"
 
         def operation():
             folder.mkdir(parents=True, exist_ok=True)
@@ -352,7 +421,13 @@ class Pipeline:
             atomic_json(folder / "review-priority.json", result)
             return result, [folder / "review-priority.json"]
 
-        return self.stage("review-priority", operation, "ranked-v1")
+        # A fallback is useful during ordinary processing, but must be retried on resume.
+        checkpoint = self.folder / "review-priority.checkpoint.json"
+        if checkpoint.exists():
+            cached = json.loads(checkpoint.read_text("utf-8"))
+            if cached.get("result", {}).get("review_summary", {}).get("warning"):
+                self.chain = hashlib.sha256(f"{self.chain}:retry:{digest(checkpoint)}".encode()).hexdigest()
+        return self.stage("review-priority", operation, review_selection.VERSION)
 
     def deliver(self, clip, source, duration_us):
         body, clip_id, revision = clip["body"], clip["id"], clip["revision"]
@@ -391,7 +466,10 @@ class Pipeline:
                 start = max(0, body["start_us"] / 1e6 - 10)
                 end = min(duration_us / 1e6, body["end_us"] / 1e6 + 10)
                 section = youtube.acquire(self.settings, body["source_id"], folder, self.check, (start, end))
-                mapping = render.align(self.settings, source, section, start, folder, self.check)
+                mapping = render.align(
+                    self.settings, source, section, start, folder, self.check,
+                    (body["end_us"] - body["start_us"]) / 1e6,
+                )
             body.update({"section": str(section), "section_sha256": digest(section), "mapping": mapping})
             self.store.save_clip(clip_id, self.run_id, revision, body)
             check_space(self.settings)
@@ -433,6 +511,7 @@ class Pipeline:
             else self.store.get(self.run_id)["result"].get("selection_issues", [])
         )
         missed = sum(issue["reason"] == "section_unreadable" for issue in issues)
+        failures = [issue for issue in issues if issue["reason"] not in discover.EDITORIAL_EXCLUSIONS]
         timing_issues = (
             selection.get("transcript_timing_issues", [])
             if selection is not None
@@ -449,7 +528,7 @@ class Pipeline:
             "run_id": self.run_id,
             "video_id": self.config["video"],
             "coverage": "partial" if missed else "complete",
-            "outcome": "needs_attention" if missed or ((issues or timing_issues) and not clips) else outcome,
+            "outcome": "needs_attention" if missed or ((failures or timing_issues) and not clips) else outcome,
             "selection_issues": issues,
             **{
                 key: selection.get(key)
@@ -461,6 +540,7 @@ class Pipeline:
                     "anchor_adjustments",
                     "recovery_version",
                     "review_summary",
+                    "verification_shortlist",
                 )
             },
             "transcript_timing_issues": timing_issues,
@@ -498,23 +578,26 @@ class Pipeline:
         )
         return result
 
-    def recheck_selection(self):
-        # Keep original selection/checkpoints immutable; recovery has its own cache and checkpoint.
-        def saved(name):
+    def saved_selection_inputs(self):
+        results = []
+        for name in ("metadata", "audio", "transcript", "selection"):
             path = self.folder / f"{name}.checkpoint.json"
             data = json.loads(path.read_text("utf-8"))
             for artifact in data["artifacts"]:
                 source = Path(artifact["path"])
                 if not source.is_file() or digest(source) != artifact["sha256"]:
-                    raise ValueError(
-                        "A saved processing file changed or is missing. Restore it before rechecking."
-                    )
+                    raise ValueError("A saved processing file changed or is missing. Restore it before rechecking.")
             self.chain = hashlib.sha256(f"{self.chain}:{digest(path)}".encode()).hexdigest()
-            return data["result"]
+            results.append(data["result"])
+        return results
 
-        metadata, audio, transcript, previous = [
-            saved(name) for name in ("metadata", "audio", "transcript", "selection")
-        ]
+    def review_all(self):
+        metadata, audio, transcript, previous = self.saved_selection_inputs()
+        return self.export_selection(previous, transcript, metadata, Path(audio["path"]), audit=True)
+
+    def recheck_selection(self):
+        # Keep original selection/checkpoints immutable; recovery has its own cache and checkpoint.
+        metadata, audio, transcript, previous = self.saved_selection_inputs()
         # Include clips delivered by earlier recovery versions so their edits are not duplicated.
         seed = {**previous, "verified": list(previous["verified"])}
         words = [Word.model_validate(w) for w in transcript["words"]]

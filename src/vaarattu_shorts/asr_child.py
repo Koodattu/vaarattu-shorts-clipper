@@ -47,7 +47,8 @@ def main():
         started = time.perf_counter()
         segments, info = transcriber.transcribe(
             chunk["audio"],
-            language="fi",
+            language=chunk.get("language", "fi"),
+            task="transcribe",
             word_timestamps=True,
             vad_filter=True,
             beam_size=5,
@@ -63,6 +64,7 @@ def main():
                     "text": segment.text,
                     "no_speech_prob": segment.no_speech_prob,
                     "avg_logprob": segment.avg_logprob,
+                    "temperature": segment.temperature,
                 }
             )
             for word in segment.words or []:
@@ -81,6 +83,8 @@ def main():
                 "words": words,
                 "segments": diagnostics,
                 "language": info.language,
+                "language_probability": info.language_probability,
+                "duration_after_vad": info.duration_after_vad,
                 "fingerprint": request["fingerprint"],
                 "runtime": runtime,
                 "timing": timing,

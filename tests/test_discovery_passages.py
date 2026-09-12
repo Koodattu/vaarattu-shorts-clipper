@@ -6,7 +6,7 @@ import pytest
 from vaarattu_shorts.contracts import Candidate, Proposals, Word
 from vaarattu_shorts.discover import (
     CONTEXT_US,
-    SYSTEM,
+    DISCOVERY_SYSTEM,
     anchors,
     discover,
     discovery_prompt,
@@ -97,7 +97,7 @@ def test_six_hour_dense_finnish_stays_in_six_minute_api_windows(tmp_path):
     assert len(planned) == 60
     assert set(w.id for _, _, c in planned for w in c) == set(w.id for w in words)
     assert all(
-        evaluator.request_size(SYSTEM, discovery_prompt(c, a, b), Proposals) <= evaluator.discovery_budget
+        evaluator.request_size(DISCOVERY_SYSTEM, discovery_prompt(c, a, b), Proposals) <= evaluator.discovery_budget
         for a, b, c in planned
     )
     assert (

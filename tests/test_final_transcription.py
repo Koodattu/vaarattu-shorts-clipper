@@ -46,6 +46,68 @@ def prepared(settings, monkeypatch):
     return model
 
 
+@pytest.mark.parametrize("text,language", [
+    ("Tää buildi on ihan hyvä mutta loot oli taas huono ja sitten tuli boss fight", "fi"),
+    ("Heavyweight sukulointi ja vähän socializing mutta ei tässä mitään muuta ole", "fi"),
+    ("The Lord of the Rings", "fi"),
+    ("Mä sanoin että The Lord of the Rings on hyvä mutta en ole katsonut sitä", "fi"),
+    ("I would love to see that and it would have made the movie a five star film", "en"),
+])
+def test_caption_language_requires_sustained_english(text, language):
+    assert transcribe.caption_language([word(text=text)]) == language
+
+
+def test_refinement_rejects_english_translation_even_with_full_timing_coverage():
+    original = word(text="I would love to see that and it would have made the movie a five star film")
+    translated = word(text="Haluaisin nähdä sen ja se olisi tehnyt elokuvasta viiden tähden elokuvan")
+    with pytest.raises(ValueError, match="changed the language"):
+        transcribe.apply_refinement({**clip_body(), "words": [original]}, captions([translated]))
+    preserved = word(text="I'd love to see that and it would have made this movie a five star film")
+    assert transcribe.apply_refinement({**clip_body(), "words": [original]}, captions([preserved]))["words"] == [preserved]
+
+
+@pytest.mark.parametrize("recover", [True, False])
+def test_final_transcription_retries_only_invalid_clips_once(settings, monkeypatch, recover):
+    prepared(settings, monkeypatch)
+    source = settings.work / "source.opus"
+    source.write_bytes(b"source")
+    original = [word(t * 1000000, t * 1000000 + 700000, id=f"w{t}") for t in range(10, 20)]
+    clips = [dict(id=key, body={**clip_body(), "words": original}) for key in ("good", "bad")]
+    requests = []
+
+    @contextmanager
+    def lock(*args):
+        yield
+
+    def child(args, *a, **kw):
+        request = json.loads(args[-1].read_text())
+        requests.append(request)
+        for chunk in request["chunks"]:
+            retry = chunk["offset_us"] == 10000000
+            words = original if chunk["clip_id"] == "good" or (retry and recover) else original[-1:]
+            atomic_json(Path(chunk["output"]), dict(fingerprint=request["fingerprint"], words=[
+                dict(start=(w["start_us"] - chunk["offset_us"]) / 1e6,
+                     end=(w["end_us"] - chunk["offset_us"]) / 1e6, text=w["text"])
+                for w in words
+            ]))
+
+    monkeypatch.setattr(transcribe, "waiting_lock", lock)
+    monkeypatch.setattr(transcribe, "pcm", lambda settings, source, output, *a: output.write_bytes(b"PCM"))
+    monkeypatch.setattr(transcribe, "run_tool", child)
+    args = (settings, source, 60000000, clips, settings.work / "final", lambda: None, lambda _: None)
+    results = transcribe.refine_clips(*args)
+    assert [[c["clip_id"] for c in r["chunks"]] for r in requests] == [["good", "bad"], ["bad"]]
+    assert results["good"]["context_us"] == 1000000 and "retry_reason" not in results["good"]
+    assert results["bad"]["context_us"] == 0 and "omitted speech" in results["bad"]["retry_reason"]
+    if recover:
+        assert len(transcribe.apply_refinement(clips[1]["body"], results["bad"])["words"]) == 10
+    else:
+        with pytest.raises(ValueError, match="omitted speech"):
+            transcribe.apply_refinement(clips[1]["body"], results["bad"])
+    assert transcribe.refine_clips(*args) == results
+    assert len(requests) == 2
+
+
 def test_final_transcription_is_optional_and_preflight_pins_only_requested_model(settings, monkeypatch):
     monkeypatch.setattr(pipeline, "check_provider", lambda *_: None)
     monkeypatch.setattr(pipeline.shutil, "which", lambda *_: "fixture")
@@ -102,7 +164,7 @@ def test_final_sections_share_one_child_and_resume_partial_cache(settings, monke
                     Path(chunk["output"]),
                     {
                         "fingerprint": req["fingerprint"],
-                        "words": [{"start": 11, "end": 12, "text": "Korjattu"}],
+                        "words": [{"start": 2, "end": 3, "text": "Korjattu"}],
                     },
                 )
                 if interrupt:
@@ -119,7 +181,7 @@ def test_final_sections_share_one_child_and_resume_partial_cache(settings, monke
         transcribe.refine_clips(*args)
     result = transcribe.refine_clips(*args)
     assert [len(r["chunks"]) for r in requests] == [2, 1]
-    assert extracted == [(0, 30), (40, 30), (40, 30)]
+    assert extracted == [(9, 12), (49, 12), (49, 12)]
     assert events == ["lock", "load", "exit", "unlock"] * 2
     assert all(r["profile"] == "large-v3" and r["batch_size"] == 0 for r in requests)
     assert result["a"]["words"][0]["start_us"] == 11000000
@@ -148,6 +210,23 @@ def test_refinement_preserves_discovery_and_snaps_crossing_word():
 def test_empty_or_large_boundary_disagreement_is_not_silently_rendered(words):
     with pytest.raises(ValueError):
         transcribe.apply_refinement(clip_body(), captions(words))
+
+
+@pytest.mark.parametrize("missing_at", [10, 14, 17])
+def test_refinement_rejects_missing_speech_at_start_middle_or_end(missing_at):
+    original = [word(t * 1000000, t * 1000000 + 700000, id=f"w{t}") for t in range(10, 20)]
+    refined = [w for i, w in enumerate(original, 10) if not missing_at <= i < missing_at + 3]
+    body = {**clip_body(), "words": original}
+    with pytest.raises(ValueError, match="omitted speech"):
+        transcribe.apply_refinement(body, captions(refined))
+    assert body["words"] == original
+
+
+def test_refinement_allows_real_silence_and_changed_word_segmentation():
+    original = [word(10000000, 10700000), word(18000000, 18700000, id="w2")]
+    refined = [word(10200000, 10900000, text="Better wording"), word(18200000, 18900000, id="f2")]
+    result = transcribe.apply_refinement({**clip_body(), "words": original}, captions(refined))
+    assert result["words"] == refined
 
 
 def test_final_pass_follows_ranking_exit_and_precedes_every_render(settings, store, monkeypatch):
@@ -208,7 +287,7 @@ def test_final_pass_follows_ranking_exit_and_precedes_every_render(settings, sto
     assert len(events) == 6
 
 
-def test_bad_final_alignment_holds_only_affected_clip(settings, store, monkeypatch):
+def test_bad_final_alignment_preserves_original_captions(settings, store, monkeypatch):
     model = prepared(settings, monkeypatch)
     run = store.admit(
         dict(final_transcription=True, model_manifests={"large-v3": digest(model / "manifest.json")}),
@@ -219,8 +298,10 @@ def test_bad_final_alignment_holds_only_affected_clip(settings, store, monkeypat
     monkeypatch.setattr(transcribe, "refine_clips", lambda *args: {"good": captions(), "empty": captions([])})
     pipeline.Pipeline(settings, store, run).refine_captions(Path("unused"), 60000000)
     assert store.clip("good")["body"]["status"] == "pending"
-    assert store.clip("empty")["body"]["status"] == "held"
-    assert "no words" in store.clip("empty")["body"]["flags"][0]
+    assert store.clip("empty")["body"]["status"] == "pending"
+    assert store.clip("empty")["body"]["words"] == clip_body()["words"]
+    assert "no words" in store.clip("empty")["body"]["caption_error"]
+    assert "Turbo" in store.clip("empty")["body"]["caption_warning"]
 
 
 def test_editor_uses_final_canonical_words_and_retains_context(settings, store):
@@ -266,3 +347,43 @@ def test_editor_uses_final_canonical_words_and_retains_context(settings, store):
         saved = store.clip("clip")["body"]
         assert saved["words"][0]["text"] == "Ihmisen korjaus"
         assert saved["caption_transcript"]["words"][0]["text"] == "Korjattu"
+
+
+def test_audit_preview_keeps_saved_speech_when_final_timing_cannot_align(settings, store, monkeypatch):
+    model = prepared(settings, monkeypatch)
+    run = store.admit(dict(final_transcription=True,
+                          model_manifests={"large-v3": digest(model / "manifest.json")}), "audit-captions")
+    original = {**clip_body(), "audit_preview": True}
+    store.save_clip("audit", run, 1, original)
+    calls = []
+    def refine(*args):
+        calls.append(True)
+        return {"audit": captions([])}
+    monkeypatch.setattr(transcribe, "refine_clips", refine)
+    for _ in range(2):
+        pipeline.Pipeline(settings, store, run).refine_captions(Path("unused"), 60000000)
+    body = store.clip("audit")["body"]
+    assert body["status"] == "pending" and body["words"] == original["words"]
+    assert body["start_us"] == original["start_us"] and body["end_us"] == original["end_us"]
+    assert "Turbo" in body["caption_warning"]
+    assert calls == [True]
+
+
+def test_missing_final_speech_preserves_original_for_audit_and_normal_exports(settings, store, monkeypatch):
+    model = prepared(settings, monkeypatch)
+    run = store.admit(dict(final_transcription=True,
+                          model_manifests={"large-v3": digest(model / "manifest.json")}), "missing-captions")
+    original = {**clip_body(), "words": [
+        word(t * 1000000, t * 1000000 + 700000, id=f"w{t}") for t in range(10, 20)
+    ]}
+    for key in ("audit", "normal"):
+        store.save_clip(key, run, 1, {**original, "audit_preview": key == "audit"})
+    partial = captions(original["words"][-1:])
+    monkeypatch.setattr(transcribe, "refine_clips", lambda *args: dict(audit=partial, normal=partial))
+    pipeline.Pipeline(settings, store, run).refine_captions(Path("unused"), 60000000)
+    audit, normal = (store.clip(key)["body"] for key in ("audit", "normal"))
+    assert audit["status"] == "pending" and audit["words"] == original["words"]
+    assert "Turbo" in audit["caption_warning"]
+    assert "omitted speech" in audit["caption_error"]
+    assert normal["status"] == "pending" and normal["words"] == original["words"]
+    assert "omitted speech" in normal["caption_error"]

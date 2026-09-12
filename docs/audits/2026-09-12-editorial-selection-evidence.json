@@ -1,0 +1,437 @@
+{
+  "date": "2026-09-12",
+  "method": "Saved transcript content and current revision human decisions; no audiovisual rewatch",
+  "labels": {
+    "not_approved": 298,
+    "approved": 83,
+    "unreviewed": 4
+  },
+  "duration": {
+    "approved": {
+      "median_output_seconds": 22.68,
+      "n": 83
+    },
+    "not_approved": {
+      "median_output_seconds": 12.219999999999999,
+      "n": 298
+    }
+  },
+  "runs": [
+    {
+      "run_id": "32917ac59bd942488098eca116eaf7c4",
+      "source_title": "2.7.2026 - alumnium folio my beloved - https://suomiwow.vaarattu.tv/",
+      "labels": {
+        "not_approved": 53,
+        "approved": 30
+      },
+      "original_top10": {
+        "not_approved": 3,
+        "approved": 7
+      }
+    },
+    {
+      "run_id": "2ff31ffeab094ae3ad7f29f358a257dd",
+      "source_title": "3.7.2026 - fidget spinning - https://suomiwow.vaarattu.tv/",
+      "labels": {
+        "not_approved": 75,
+        "approved": 21
+      },
+      "original_top10": {
+        "not_approved": 4,
+        "approved": 6
+      }
+    },
+    {
+      "run_id": "462b57889cab44658844bef2097aa24d",
+      "source_title": "12.4.2026 - millo leagues - https://suomiwow.vaarattu.tv/",
+      "labels": {
+        "not_approved": 42,
+        "approved": 7
+      },
+      "original_top10": {
+        "not_approved": 8,
+        "approved": 2
+      }
+    },
+    {
+      "run_id": "24fb2eeb510545df997d6f013e04ba5a",
+      "source_title": "4.7.2026 - F - https://suomiwow.vaarattu.tv/",
+      "labels": {
+        "not_approved": 62,
+        "approved": 6
+      },
+      "original_top10": {
+        "not_approved": 9,
+        "approved": 1
+      }
+    }
+  ],
+  "final_ranking_replay": [
+    {
+      "run_id": "32917ac59bd942488098eca116eaf7c4",
+      "shortlisted": {
+        "proposed": 83,
+        "distinct_quality_passed": 64,
+        "limit": 20,
+        "selected": 20,
+        "deferred": 63,
+        "priority": [
+          "substance",
+          "payoff",
+          "standalone",
+          "fidelity",
+          "opening"
+        ]
+      },
+      "matched_verified": 20,
+      "selected": [
+        {
+          "id": "83283488402ce3e76855930c580a93e1",
+          "label": "approved",
+          "title": "Rippijuhlat ovat sukuloinnin heavyweight-sarja"
+        },
+        {
+          "id": "83f28d79f4afa87dfd4f76cafd6ff185",
+          "label": "not_approved",
+          "title": "Kaksi kuukautta myöhemmin — mikään ei muuttunut"
+        },
+        {
+          "id": "76a17290f15563f286ab30a2f8683eb7",
+          "label": "approved",
+          "title": "Kuinka monta tuntia WoW:ssa pitää pelata ollakseen hyvä?"
+        },
+        {
+          "id": "ea0e0e5d5a4c0dc7dacf673efe3389f0",
+          "label": "approved",
+          "title": "Ehkä ongelma onkin sinussa"
+        },
+        {
+          "id": "b80974aee0d1c91becf3403311a1cd21",
+          "label": "approved",
+          "title": "Väärä Diablo, sama kokemus"
+        },
+        {
+          "id": "97e59402140124c4e25bc7bd436fd394",
+          "label": "not_approved",
+          "title": "Ilmaisen Twitch Turbon todellinen hinta"
+        },
+        {
+          "id": "fcc4e126a6a2fc6ad303b6ee3fb4dc6a",
+          "label": "approved",
+          "title": "“Back to login screen” – pelisuunnittelu pähkinänkuoressa"
+        },
+        {
+          "id": "ea3fc998b5ca9ffb0c814f509ecc3468",
+          "label": "not_approved",
+          "title": "Pakko olla Agilitya treenattu"
+        },
+        {
+          "id": "6b42590087c5cd80b1e99abf2de6bb08",
+          "label": "approved",
+          "title": "Kun hype kuolee yhdessä vuodessa"
+        }
+      ],
+      "labels": {
+        "approved": 6,
+        "not_approved": 3
+      },
+      "ranking": {
+        "limit": 10,
+        "candidates": 20,
+        "quality_passed": 20,
+        "selected": 9,
+        "method": "comparison",
+        "warning": null,
+        "version": "ranked-v3",
+        "comparisons": 1
+      }
+    },
+    {
+      "run_id": "2ff31ffeab094ae3ad7f29f358a257dd",
+      "shortlisted": {
+        "proposed": 97,
+        "distinct_quality_passed": 82,
+        "limit": 20,
+        "selected": 20,
+        "deferred": 77,
+        "priority": [
+          "substance",
+          "payoff",
+          "standalone",
+          "fidelity",
+          "opening"
+        ]
+      },
+      "matched_verified": 20,
+      "selected": [
+        {
+          "id": "37b53cce1cc1dc91f83cc410a54e76da",
+          "label": "not_approved",
+          "title": "Kärpäsen paska on ennen kaikkea kokemus"
+        },
+        {
+          "id": "a73b52cda08924e1fffca9ae5eac4c92",
+          "label": "approved",
+          "title": "Kun työkokemus on palkkaa arvokkaampaa"
+        },
+        {
+          "id": "0505a1d71b2b5bda8f43f471cc4965db",
+          "label": "approved",
+          "title": "Viraaliksi ja saman tien kadoksiin"
+        },
+        {
+          "id": "74f051bd436a808d2394ada0cb5d6a3a",
+          "label": "not_approved",
+          "title": "Kun Guescape muuttui häpeästä respektiksi"
+        },
+        {
+          "id": "86c998fa7dfc31c1b0bfb1e1e17a21ea",
+          "label": "approved",
+          "title": "“Odottakaa ensi seasoniin, että saatte niitä gamea”"
+        },
+        {
+          "id": "6114ca8ac2e3820d7ffa552092eb87e7",
+          "label": "approved",
+          "title": "Kun joku varastaa killan lockoutin"
+        },
+        {
+          "id": "f19779d1d9086191b64c485efc537b49",
+          "label": "approved",
+          "title": "Wikipedia oli epäluotettava – Google AI onkin luotettava?"
+        }
+      ],
+      "labels": {
+        "not_approved": 2,
+        "approved": 5
+      },
+      "ranking": {
+        "limit": 10,
+        "candidates": 20,
+        "quality_passed": 20,
+        "selected": 7,
+        "method": "comparison",
+        "warning": null,
+        "version": "ranked-v3",
+        "comparisons": 1
+      }
+    },
+    {
+      "run_id": "462b57889cab44658844bef2097aa24d",
+      "shortlisted": {
+        "proposed": 49,
+        "distinct_quality_passed": 41,
+        "limit": 20,
+        "selected": 20,
+        "deferred": 29,
+        "priority": [
+          "substance",
+          "payoff",
+          "standalone",
+          "fidelity",
+          "opening"
+        ]
+      },
+      "matched_verified": 20,
+      "selected": [
+        {
+          "id": "c0ba6b3088ff50a5950fdae722835943",
+          "label": "not_approved",
+          "title": "Vanha kansa on build different"
+        },
+        {
+          "id": "b69d260344c255611672531dacda66c2",
+          "label": "not_approved",
+          "title": "“Me kill boss, just tankit”"
+        },
+        {
+          "id": "27d521dc21d16fe65bcaf98e069ccf28",
+          "label": "not_approved",
+          "title": "Peli pelaa itseään AFK:na"
+        },
+        {
+          "id": "527e42d9f2cc547a31f9f80c7f45b0f7",
+          "label": "not_approved",
+          "title": "Kaksi vuotta salattu hahmo paljastuu"
+        },
+        {
+          "id": "7ffa6f22bee56d0e992039e572928358",
+          "label": "approved",
+          "title": "Et tule koskaan olemaan animen päähenkilö"
+        },
+        {
+          "id": "cb37ccabfddc181bcc4a57a9c042a3a3",
+          "label": "approved",
+          "title": "“Kirottu videopeli” – mythicin trinketit eivät tipu koskaan"
+        }
+      ],
+      "labels": {
+        "not_approved": 4,
+        "approved": 2
+      },
+      "ranking": {
+        "limit": 10,
+        "candidates": 20,
+        "quality_passed": 19,
+        "selected": 6,
+        "method": "comparison",
+        "warning": null,
+        "version": "ranked-v3",
+        "comparisons": 1
+      }
+    },
+    {
+      "run_id": "24fb2eeb510545df997d6f013e04ba5a",
+      "shortlisted": {
+        "proposed": 68,
+        "distinct_quality_passed": 49,
+        "limit": 20,
+        "selected": 20,
+        "deferred": 48,
+        "priority": [
+          "substance",
+          "payoff",
+          "standalone",
+          "fidelity",
+          "opening"
+        ]
+      },
+      "matched_verified": 20,
+      "selected": [
+        {
+          "id": "a6df903933d818ddf109c070accf4ad5",
+          "label": "not_approved",
+          "title": "Poistettu Minions-kohtaus olisi ollut viiden tähden materiaalia"
+        },
+        {
+          "id": "47354d189795746e38eac4525f25b761",
+          "label": "not_approved",
+          "title": "En halua pelata tätä bossia… paitsi haluan"
+        },
+        {
+          "id": "6f27e69b3235ebc8011b4e437cef57f7",
+          "label": "not_approved",
+          "title": "Rakastaisitko mua, jos olisin siittiö?"
+        },
+        {
+          "id": "9f0a18e9b812e8980a9fbe76b7982977",
+          "label": "not_approved",
+          "title": "Unkit pushaa nelikymppisenä"
+        },
+        {
+          "id": "36ffd60c566311f358ca1fcd96537e57",
+          "label": "not_approved",
+          "title": "Nykyään kaikilla pitää olla hyvä mieli"
+        },
+        {
+          "id": "426f2d4308061646f7134e11e692c311",
+          "label": "not_approved",
+          "title": "Miksi Winter tässä tarkoittaa kaikkea?"
+        },
+        {
+          "id": "5ab7ecebb49214478b8875691477cdb7",
+          "label": "not_approved",
+          "title": "Kun koko pelipäivä katosi"
+        },
+        {
+          "id": "e4f281dc31089e0858bf4d727adc0667",
+          "label": "approved",
+          "title": "“Olisi pitänyt mennä Tuskaan”"
+        }
+      ],
+      "labels": {
+        "not_approved": 7,
+        "approved": 1
+      },
+      "ranking": {
+        "limit": 10,
+        "candidates": 20,
+        "quality_passed": 18,
+        "selected": 8,
+        "method": "comparison",
+        "warning": null,
+        "version": "ranked-v3",
+        "comparisons": 1
+      }
+    }
+  ],
+  "discovery_replay": [
+    {
+      "run_id": "24fb2eeb510545df997d6f013e04ba5a",
+      "type": "negative",
+      "start_us": 15840000000,
+      "end_us": 16200000000,
+      "old_proposals": 5,
+      "new_proposals": 1,
+      "feedback": "Valtaosa puheesta oli pelin spawnien, magen ja lootin hetkellistä kommentointia; valitsin vain päivän huomaamatta kulumisen selkeän koomisen tarinan."
+    },
+    {
+      "run_id": "24fb2eeb510545df997d6f013e04ba5a",
+      "type": "positive",
+      "start_us": 17280000000,
+      "end_us": 17640000000,
+      "old_proposals": 2,
+      "new_proposals": 0,
+      "feedback": "Puhe käsitteli festarien artistikattauksia ja Elden Ringin aloittelijaystävällisyyttä, mutta kumpikaan keskustelu ei kehittynyt riittävän konkreettiseksi tai palkitsevaksi klipiksi."
+    },
+    {
+      "run_id": "2ff31ffeab094ae3ad7f29f358a257dd",
+      "type": "negative",
+      "start_us": 1080000000,
+      "end_us": 1440000000,
+      "old_proposals": 4,
+      "new_proposals": 1,
+      "feedback": "OSRS:n ja WoW:n questien eroista syntyy selkein katsottava mielipide; muu osuus jää lähinnä toistuvaksi pakkoquestien valitukseksi tai irrallisiksi väitteiksi."
+    },
+    {
+      "run_id": "2ff31ffeab094ae3ad7f29f358a257dd",
+      "type": "positive",
+      "start_us": 2880000000,
+      "end_us": 3240000000,
+      "old_proposals": 4,
+      "new_proposals": 3,
+      "feedback": "Osion parhaat palat ovat palkattoman startup-työn sarkastinen myyntipuhe, ”overqualified”-tekosyy ja lentomatkaan päättyvä karenssitarina."
+    },
+    {
+      "run_id": "32917ac59bd942488098eca116eaf7c4",
+      "type": "negative",
+      "start_us": 2160000000,
+      "end_us": 2520000000,
+      "old_proposals": 3,
+      "new_proposals": 1,
+      "feedback": "Valtaosa osuudesta oli hajanaista buildi- ja loot-tilannepuhetta; bonusrollien nopean gearauksen ja sen rajoitteiden vertailu erottui katsottavaksi kokonaisuudeksi."
+    },
+    {
+      "run_id": "32917ac59bd942488098eca116eaf7c4",
+      "type": "positive",
+      "start_us": 12600000000,
+      "end_us": 12960000000,
+      "old_proposals": 4,
+      "new_proposals": 3,
+      "feedback": "Osiossa syntyy kolme erillistä WoW-vitsiä: pelituntien absurdi mittakaava, aloittelijan ivallinen lohdutus ja toistuvan pommittamisen syyn kääntäminen uhrin viaksi."
+    },
+    {
+      "run_id": "462b57889cab44658844bef2097aa24d",
+      "type": "negative",
+      "start_us": 2880000000,
+      "end_us": 3240000000,
+      "old_proposals": 2,
+      "new_proposals": 2,
+      "feedback": "Valitsin raidiluennon 50 DKP -punchlinella sekä League–Leagues-sekoilun, jossa väärä tulkinta johtaa oikeaan raidivahinkoon."
+    },
+    {
+      "run_id": "462b57889cab44658844bef2097aa24d",
+      "type": "positive",
+      "start_us": 5760000000,
+      "end_us": 6120000000,
+      "old_proposals": 3,
+      "new_proposals": 2,
+      "feedback": "Valintaan nousivat Tšernobyl-isoäidin absurdi syntymäpäivävitsi ja pelitaitojen sekä sekavan calloutin koominen kontrasti; muu puhe oli lähinnä koordinointia tai geneeristä kannustusta."
+    }
+  ],
+  "limitations": [
+    "Retrospective calibration, not a held-out evaluation.",
+    "Current labels can reflect caption and boundary edits after initial discovery.",
+    "Clip versions include overlapping moments.",
+    "Discovery replay covers eight chosen sections, not full recordings."
+  ]
+}

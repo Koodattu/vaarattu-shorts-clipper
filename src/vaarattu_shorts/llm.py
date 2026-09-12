@@ -43,6 +43,10 @@ class ModelAnchorError(ValueError):
     """A fixed, safe explanation of an invalid source reference."""
 
 
+class ModelRankingError(ValueError):
+    """Validation feedback containing only application-supplied candidate IDs."""
+
+
 def codex_settings():
     base_url = os.environ.get("CODEX_BASE_URL", "http://127.0.0.1:18080/v1").strip().rstrip("/")
     model = os.environ.get("CODEX_MODEL", PROVIDERS["codex"]["model"]).strip()
@@ -519,7 +523,7 @@ class Evaluator:
                 except ValueError as exc:
                     raise ModelOutputError(
                         str(exc)
-                        if isinstance(exc, ModelAnchorError)
+                        if isinstance(exc, (ModelAnchorError, ModelRankingError))
                         else "The model's response could not be validated."
                     ) from exc
                 atomic_json(cache, parsed.model_dump())
@@ -533,6 +537,8 @@ class Evaluator:
                     raise
                 prompt += (
                     f"\nValidation problem: {exc} Return valid JSON matching the schema. "
-                    "Use only supplied anchors in their original order and keep the proposed idea inside the clip."
+                    + ("Return only the supplied candidate IDs, each exactly once in ranked order."
+                       if isinstance(exc.__cause__, ModelRankingError)
+                       else "Use only supplied anchors in their original order and keep the proposed idea inside the clip.")
                 )
         raise AssertionError("Unreachable")

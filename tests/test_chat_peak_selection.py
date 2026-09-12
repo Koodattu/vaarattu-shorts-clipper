@@ -224,6 +224,11 @@ def test_live_contract_mapping_needs_explicit_confirmation(monkeypatch, confirme
 
     def handle(request):
         calls.append(request.url.path)
+        stream = {"id": 254, "startTime": "2026-07-09T14:51:00Z", "segments": [{"title": "Keskustelu"}]}
+        if request.url.path.endswith("/search"):
+            return httpx.Response(200, json={"data": {"matches": [stream], "suggestedStreamId": 254}})
+        if request.url.path.endswith("/254"):
+            return httpx.Response(200, json={"data": stream})
         if request.url.path.endswith("/activity"):
             return httpx.Response(
                 200,

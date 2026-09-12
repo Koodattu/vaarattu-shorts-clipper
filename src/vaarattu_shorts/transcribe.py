@@ -7,7 +7,7 @@ import time
 import re
 from pathlib import Path
 
-from .contracts import MAX_CLIP_US, Word
+from .contracts import Word, clip_duration_limit
 from .models import model_path
 from .processes import run_tool, waiting_lock
 from .storage import atomic_json, digest
@@ -247,14 +247,29 @@ def transcribe(settings, source, duration, profile, folder, check, progress):
     return transcript
 
 
-def refine_clips(settings, source, duration_us, clips, folder, check, progress):
-    """Decode selected source sections in one finite, unbatched large-v3 process."""
+def caption_language(words):
+    """Recognize sustained English text; isolated loanwords keep the Finnish default."""
+    tokens = re.findall(r"[^\W\d_]+", " ".join(w["text"] for w in words).casefold())
+    english = set(("the a an and or of to in is are was were be been it that this with for from as but not "
+                   "we you i he she they my your would could have has do does").split())
+    finnish = set(("ja että ei se kun mutta mikä mitä tämä tää tuo toi ihan mä sä joo kyllä sitten niin "
+                   "olla oli ovat jos vaan myös").split())
+    hits = [t for t in tokens if t in english]
+    if (len(tokens) >= 12 and len(hits) >= 6 and len(set(hits)) >= 3
+            and len(hits) >= len(tokens) * 0.25
+            and len(hits) >= 4 * max(1, sum(t in finnish for t in tokens))):
+        return "en"
+    return "fi"
+
+
+def refine_clips(settings, source, duration_us, clips, folder, check, progress, *, context_us=1000000):
+    """Refine selected sections, with one tighter retry for invalid captions."""
     if not clips:
         return {}
     model = model_path(settings, "large-v3", verify=True)
     manifest_hash = digest(settings.models / "large-v3" / "manifest.json")
     fingerprint = hashlib.sha256(
-        (digest(source) + manifest_hash + "final-fi-fp16-beam5-vad-unconditioned-context10-v1").encode()
+        (digest(source) + manifest_hash + f"final-source-language-fp16-beam5-vad-context{context_us}-v2").encode()
     ).hexdigest()
     folder = folder / fingerprint
     folder.mkdir(parents=True, exist_ok=True)
@@ -262,9 +277,10 @@ def refine_clips(settings, source, duration_us, clips, folder, check, progress):
     for clip in clips:
         check()
         body = clip["body"]
-        start = max(0, body["start_us"] - 10000000)
-        end = min(duration_us, body["end_us"] + 10000000)
-        stem = f"{clip['id']}-{start}-{end}"
+        start = max(0, body["start_us"] - context_us)
+        end = min(duration_us, body["end_us"] + context_us)
+        language = caption_language(body["words"])
+        stem = f"{clip['id']}-{start}-{end}-{language}"
         audio, output = folder / f"{stem}.wav", folder / f"{stem}.json"
         if output.exists():
             try:
@@ -284,6 +300,7 @@ def refine_clips(settings, source, duration_us, clips, folder, check, progress):
                 "offset_us": start,
                 "core_start_us": start,
                 "core_end_us": end,
+                "language": language,
             }
         )
     missing = [c for c in chunks if not Path(c["output"]).exists()]
@@ -338,8 +355,24 @@ def refine_clips(settings, source, duration_us, clips, folder, check, progress):
             "end_us": chunk["core_end_us"],
             "words": [w.model_dump() for w in words],
             "timing_issues": timing_issues,
+            "language": chunk["language"],
+            "context_us": context_us,
         }
         Path(chunk["audio"]).unlink(missing_ok=True)
+    if context_us:
+        retry = []
+        errors = {}
+        for clip in clips:
+            try:
+                apply_refinement(clip["body"], results[clip["id"]])
+            except ValueError as exc:
+                retry.append(clip)
+                errors[clip["id"]] = str(exc)
+        if retry:
+            retried = refine_clips(settings, source, duration_us, retry, folder, check,
+                                   lambda _: None, context_us=0)
+            for clip_id, result in retried.items():
+                results[clip_id] = {**result, "retry_reason": errors[clip_id]}
     progress(1)
     return results
 
@@ -348,6 +381,22 @@ def apply_refinement(body, transcript):
     """Keep cuts whole-word without letting a new alignment substantially change the excerpt."""
     start, end = body["start_us"], body["end_us"]
     words = transcript["words"]
+    selected = [w for w in words if w["start_us"] < end and w["end_us"] > start]
+    if caption_language(body["words"]) == "en" and caption_language(selected) != "en":
+        raise ValueError("Final captions changed the language of the saved speech. Check the transcript before rendering.")
+    # Compare speech coverage, not wording: a better transcription can still omit an utterance.
+    cursor = start
+    for word in sorted(words, key=lambda w: w["start_us"]) + [{"start_us": end + 500000, "end_us": end}]:
+        gap_end = min(end, word["start_us"] - 500000)
+        if gap_end - cursor >= 1500000:
+            missing = [w for w in body["words"] if cursor <= (w["start_us"] + w["end_us"]) / 2 <= gap_end]
+            if len(missing) >= 3 and sum(
+                min(gap_end, w["end_us"]) - max(cursor, w["start_us"]) for w in missing
+            ) >= 1500000:
+                raise ValueError(
+                    "Final transcription omitted speech found in the saved transcript. Check its captions before rendering."
+                )
+        cursor = max(cursor, word["end_us"] + 500000)
     # Expand over crossing words, including nested/overlapping word intervals.
     while True:
         crossing = [w for w in words if w["start_us"] < end and w["end_us"] > start]
@@ -361,7 +410,7 @@ def apply_refinement(body, transcript):
     if (
         body["start_us"] - start > 500000
         or end - body["end_us"] > 500000
-        or end - start > MAX_CLIP_US
+        or end - start > clip_duration_limit(body)
         or start < transcript["start_us"]
         or end > transcript["end_us"]
     ):

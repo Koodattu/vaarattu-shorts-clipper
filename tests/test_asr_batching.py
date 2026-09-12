@@ -13,8 +13,8 @@ from vaarattu_shorts.pipeline import Pipeline
 from vaarattu_shorts.storage import atomic_json, digest
 
 
-@pytest.mark.parametrize("batch_size,flash", [(0, False), (16, False), (32, True)])
-def test_asr_child_routes_batching_and_retains_word_timing(tmp_path, monkeypatch, batch_size, flash):
+@pytest.mark.parametrize("batch_size,flash,language", [(0, False, "fi"), (16, False, "fi"), (32, True, "fi"), (0, False, "en")])
+def test_asr_child_routes_batching_and_retains_word_timing(tmp_path, monkeypatch, batch_size, flash, language):
     calls = []
     segment = SimpleNamespace(
         start=1.25,
@@ -22,6 +22,7 @@ def test_asr_child_routes_batching_and_retains_word_timing(tmp_path, monkeypatch
         text="moi",
         no_speech_prob=0.01,
         avg_logprob=-0.1,
+        temperature=0.0,
         words=[SimpleNamespace(start=1.25, end=1.75, word="moi", probability=0.99)],
     )
 
@@ -32,7 +33,8 @@ def test_asr_child_routes_batching_and_retains_word_timing(tmp_path, monkeypatch
 
         def transcribe(self, audio, **kwargs):
             calls.append(("unbatched", kwargs))
-            return iter([segment]), SimpleNamespace(language="fi", duration=1200)
+            return iter([segment]), SimpleNamespace(language="fi", language_probability=1,
+                                                    duration=1200, duration_after_vad=1100)
 
     class Batched:
         def __init__(self, model):
@@ -40,7 +42,8 @@ def test_asr_child_routes_batching_and_retains_word_timing(tmp_path, monkeypatch
 
         def transcribe(self, audio, **kwargs):
             calls.append(("batched", kwargs))
-            return iter([segment]), SimpleNamespace(language="fi", duration=1200)
+            return iter([segment]), SimpleNamespace(language="fi", language_probability=1,
+                                                    duration=1200, duration_after_vad=1100)
 
     monkeypatch.setitem(
         sys.modules, "faster_whisper", SimpleNamespace(WhisperModel=Model, BatchedInferencePipeline=Batched)
@@ -58,7 +61,7 @@ def test_asr_child_routes_batching_and_retains_word_timing(tmp_path, monkeypatch
             "flash_attention": flash,
             "chunks": [
                 {"audio": "already-done.wav", "output": str(saved)},
-                {"audio": "pending.wav", "output": str(output)},
+                {"audio": "pending.wav", "output": str(output), **({"language": "en"} if language == "en" else {})},
             ],
         },
     )
@@ -69,7 +72,8 @@ def test_asr_child_routes_batching_and_retains_word_timing(tmp_path, monkeypatch
     assert calls[0][1].get("flash_attention", False) is flash
     assert calls[-1][0] == ("batched" if batch_size else "unbatched")
     opts = calls[-1][1]
-    assert opts["language"] == "fi" and opts["word_timestamps"] is True
+    assert opts["language"] == language and opts["word_timestamps"] is True
+    assert opts["task"] == "transcribe"
     assert opts["vad_filter"] is True and opts["beam_size"] == 5
     assert opts["condition_on_previous_text"] is False
     assert opts.get("batch_size", 0) == batch_size
@@ -78,6 +82,8 @@ def test_asr_child_routes_batching_and_retains_word_timing(tmp_path, monkeypatch
     assert result["words"][0]["start"] == 1.25 and result["words"][0]["end"] == 1.75
     assert result["timing"]["audio_seconds"] == 1200
     assert result["timing"]["elapsed_seconds"] > 0
+    assert result["duration_after_vad"] == 1100
+    assert result["segments"][0]["temperature"] == 0.0
     assert json.loads((tmp_path / "runtime.json").read_text())["batch_size"] == batch_size
 
 

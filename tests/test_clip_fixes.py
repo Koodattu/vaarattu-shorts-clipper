@@ -62,7 +62,7 @@ def test_all_proposals_are_verified_then_new_runs_are_capped_and_legacy_exports_
 
         def call(self, system, prompt, schema, step, *, validate=None, reasoning_effort=None):
             calls.append(step)
-            if schema is ReviewPriority:
+            if issubclass(schema, ReviewPriority):
                 result = schema(
                     candidates=[
                         {"candidate_id": c["candidate_id"], "recommendation": "review", "reason": "A story"}
@@ -260,3 +260,73 @@ def test_retry_queues_media_only_and_preserves_review_and_revision_guards(settin
     current = store.clip(clip_id)
     assert current["revision"] == 2 and not current["body"]["reviewed"]
     assert current["body"]["start_us"] == 0 and current["body"]["status"] == "pending"
+
+
+@pytest.mark.parametrize("speech", ["short", "silent", "repeated", "drift"])
+def test_alignment_fallback_finds_sparse_speech_without_relaxing_safety(settings, monkeypatch, speech):
+    rng = np.random.default_rng(21746)
+    rate = 2000
+    reference = np.zeros(180 * rate, dtype=np.int16)
+    utterance = rng.integers(-3000, 3000, round(6.38 * rate), dtype=np.int16)
+    if speech != "silent":
+        reference[60 * rate:60 * rate + len(utterance)] = utterance
+    if speech == "repeated":
+        reference[80 * rate:80 * rate + len(utterance)] = utterance
+    section = reference[50 * rate:round(76.4 * rate)].copy()
+    if speech == "drift":
+        section[13 * rate:17 * rate] = reference[round(63.2 * rate):round(67.2 * rate)]
+    paths = settings.work / "full.opus", settings.work / "section.mkv"
+    calls = []
+    def pcm(settings, source, output, start, duration, check, rate):
+        calls.append((source, start))
+        data = section if source == paths[1] else reference
+        begin = start or 0
+        with wave.open(str(output), "wb") as f:
+            f.setparams((1, 2, rate, 0, "NONE", "not compressed"))
+            f.writeframes(data[round(begin * rate):round((begin + duration) * rate)].tobytes())
+    monkeypatch.setattr(render, "pcm", pcm)
+    monkeypatch.setattr(render, "probe", lambda *_: {"format": {"duration": "26.4"}})
+    if speech == "short":
+        mapping = render.align(settings, *paths, 50, settings.work, lambda: None)
+        assert mapping["origin_us"] == 50000000
+        anchors = mapping["anchors"]
+        assert max(a["section_seconds"] for a in anchors) - min(a["section_seconds"] for a in anchors) >= 26.4*.35
+        assert any(a["section_seconds"] not in [2, 18.4, 6.6, 13.2, 19.8] for a in anchors)
+        assert all(a["correlation"] >= .65 for a in anchors)
+    else:
+        with pytest.raises(ValueError, match="drift apart" if speech == "drift" else "two clear"):
+            render.align(settings, *paths, 50, settings.work, lambda: None)
+    assert [start for source, start in calls if source == paths[1]] == [None]
+
+
+@pytest.mark.parametrize("padding", [10, 25])
+@pytest.mark.parametrize("clip_duration", [3.2, 60])
+def test_alignment_spacing_measures_clip_not_quiet_download_padding(settings, monkeypatch, padding, clip_duration):
+    rate = 2000
+    rng = np.random.default_rng(6571)
+    reference = np.zeros(240 * rate, dtype=np.int16)
+    # A brief utterance: two disjoint six-second queries are possible, but their starts
+    # cannot span 35% of a padded download or a genuinely long clip.
+    reference[100*rate:round(102.7*rate)] = rng.integers(-3000, 3000, round(2.7*rate), dtype=np.int16)
+    requested = 100-padding
+    duration = clip_duration+2*padding
+    section = reference[round(requested*rate):round((requested+duration)*rate)]
+    paths = settings.work / "full.opus", settings.work / "section.mkv"
+    def pcm(settings, source, output, start, duration, check, rate):
+        data = section if source == paths[1] else reference
+        begin = start or 0
+        with wave.open(str(output), "wb") as f:
+            f.setparams((1, 2, rate, 0, "NONE", "not compressed"))
+            f.writeframes(data[round(begin*rate):round((begin+duration)*rate)].tobytes())
+    monkeypatch.setattr(render, "pcm", pcm)
+    monkeypatch.setattr(render, "probe", lambda *_: {"format": {"duration": str(duration)}})
+    if clip_duration == 3.2:
+        mapping = render.align(settings, *paths, requested, settings.work, lambda: None, clip_duration)
+        assert mapping["origin_us"] == requested*1000000
+    else:
+        with pytest.raises(ValueError, match="two clear"):
+            render.align(settings, *paths, requested, settings.work, lambda: None, clip_duration)
+    audit = json.loads((settings.work / "alignment.json").read_text("utf-8"))
+    assert audit["required_separation_seconds"] == max(6, clip_duration*.35)
+    assert audit["offset_spread_seconds"] < .08
+    assert (audit["matched_span_seconds"] >= audit["required_separation_seconds"]) == (clip_duration == 3.2)

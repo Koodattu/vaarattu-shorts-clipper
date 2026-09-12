@@ -14,9 +14,9 @@ from fastapi import Body, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import catalog, discover
+from . import catalog, discover, stream_data
 from .context_repair import ContextRequest
-from .contracts import MAX_CLIP_US, MIN_CLIP_US, EditRequest, LayoutSave, RunRequest, Word
+from .contracts import MIN_CLIP_US, EditRequest, LayoutSave, RunRequest, Word, clip_duration_limit, video_id
 from .llm import PROVIDERS, codex_settings
 from .models import CATALOG, model_path
 from .pipeline import preflight
@@ -41,6 +41,9 @@ def public_clip(clip):
                 "flags",
                 "review_notes",
                 "review_rank",
+                "review_selected",
+                "audit_caption_warning",
+                "caption_warning",
                 "words",
                 "source_url",
                 "selection",
@@ -51,6 +54,7 @@ def public_clip(clip):
                 "pacing",
                 "previous_revision",
                 "context_request",
+                "context_expanded",
             )
         },
         "has_preview": bool(body.get("folder") and (Path(body["folder"]) / "short.mp4").exists()),
@@ -177,6 +181,20 @@ def create_app(settings):
         finally:
             catalog_lock.release()
 
+    @app.get("/api/streams/search")
+    def search_streams(video: str, q: str = ""):
+        vod_id = video_id(video)
+        if len(q) > 300:
+            raise ValueError("Use a VOD title of at most 300 characters.")
+        saved = next((v for v in store.videos(settings.youtube_channel_id) if v["id"] == vod_id), {})
+        return stream_data.search({"id": vod_id, "title": q.strip() or saved.get("title", "")})
+
+    @app.get("/api/streams/{stream_id}")
+    def get_stream(stream_id: int):
+        if not 0 < stream_id <= 2147483647:
+            raise ValueError("Enter a valid vaarattu.tv stream ID.")
+        return stream_data.stream_detail(stream_id)
+
     @app.get("/api/layouts")
     def layouts():
         return store.layouts()
@@ -233,7 +251,10 @@ def create_app(settings):
             and run["result"].get("recovery_version") != discover.VERSION
             and (settings.work / "runs" / run_id / "selection.checkpoint.json").is_file(),
             "usage": {k: v for k, v in usage.items() if k != "requests"},
-            "clips": [public_clip(c) for c in store.clips(run_id)],
+            "clips": sorted(
+                [public_clip(c) for c in store.clips(run_id)],
+                key=lambda c: (c["review_selected"] is False, c["review_rank"] or float("inf")),
+            ),
         }
 
     @app.get("/api/runs/{run_id}/usage")
@@ -324,10 +345,10 @@ def create_app(settings):
         transcript_path = settings.work / "runs" / clip["run_id"] / "asr" / "transcript.json"
         transcript = json.loads(transcript_path.read_text("utf-8"))
         if (
-            not MIN_CLIP_US <= edit.end_us - edit.start_us <= MAX_CLIP_US
+            not MIN_CLIP_US <= edit.end_us - edit.start_us <= clip_duration_limit(original)
             or edit.end_us > transcript["duration_us"]
         ):
-            raise ValueError("Choose a 3–90 second interval within this VOD.")
+            raise ValueError("Choose an interval of at least 3 seconds within this VOD and this clip's duration limit.")
         captions = original.get("caption_transcript", transcript)
         if original.get("caption_transcript") and not (
             captions["start_us"] <= edit.start_us and edit.end_us <= captions["end_us"]

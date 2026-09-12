@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from .contracts import MAX_CLIP_US, Contract, Word
+from .contracts import Contract, Word
 from .discover import lines
 from .llm import ModelAnchorError
 
@@ -30,7 +30,7 @@ or a later qualification that makes this same moment understandable. Gamer humor
 Add the smallest useful amount of surrounding speech; do not pad, switch topics, or invent context.
 The human note describes what they need; it is not evidence that the recording contains it.
 Respect allowed extension directions. Neither direction selected means either side is allowed.
-Return expand only if the extra speech actually helps. The complete source interval must be <=90 seconds.
+Return expand only if the extra speech actually helps. There is no fixed duration cap for this repair.
 Use only supplied source word IDs, in source order, enclosing the original moment. Never rewrite speech.
 Otherwise return unchanged with empty boundary IDs and explain why context could not rescue the clip.
 Write a short reason in Finnish identifying what the added speech supplies or what remains missing.
@@ -58,8 +58,8 @@ def bounds(proposal, body, request, words):
         and w.end_us <= end
         and (w.end_us <= body["start_us"] or w.start_us >= body["end_us"])
     ]
-    if end - start > MAX_CLIP_US or not added:
-        raise ModelAnchorError("The context proposal must add speech and stay within 90 seconds.")
+    if not added:
+        raise ModelAnchorError("The context proposal must add speech.")
     if any(w.start_us < start < w.end_us or w.start_us < end < w.end_us for w in words):
         raise ModelAnchorError("The context proposal cuts through a spoken word.")
     return start, end
@@ -92,7 +92,7 @@ def propose(body, transcript, evaluator):
         SYSTEM,
         prompt,
         ContextProposal,
-        "context-repair-v1",
+        "context-repair-v2",
         validate=lambda result: bounds(result, body, request, context),
         reasoning_effort=evaluator.verification_reasoning,
     )
@@ -105,6 +105,7 @@ def propose(body, transcript, evaluator):
         **body,
         "start_us": start,
         "end_us": end,
+        "context_expanded": True,
         "words": [
             edits.get(w.id, w.model_dump()) for w in canonical if start <= w.start_us and w.end_us <= end
         ],
@@ -116,4 +117,8 @@ def propose(body, transcript, evaluator):
     }
     # A changed excerpt needs its own final transcription when the run enables it.
     revised.pop("caption_transcript", None)
+    revised.pop("caption_warning", None)
+    revised.pop("caption_error", None)
+    revised.pop("audit_caption_warning", None)
+    revised.pop("audit_caption_error", None)
     return result, revised

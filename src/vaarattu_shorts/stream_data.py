@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from datetime import datetime
 from difflib import SequenceMatcher
 from zoneinfo import ZoneInfo
@@ -22,7 +23,10 @@ def recording_date(title):
 
 
 def normalize(title):
-    return " ".join(re.sub(r"https?://\S+", "", title.casefold()).replace("->", " ").split())
+    title = re.sub(r"https?://\S+", "", title.casefold())
+    if recording_date(title):
+        title = re.sub(r"^\s*\d{1,2}\.\d{1,2}\.\d{4}\b", "", title)
+    return " ".join(re.sub(r"[^\w]+", " ", unicodedata.normalize("NFKC", title)).split())
 
 
 def rank_matches(metadata, streams):
@@ -30,7 +34,7 @@ def rank_matches(metadata, streams):
     result = []
     for stream in streams:
         start = datetime.fromisoformat(stream["startTime"].replace("Z", "+00:00"))
-        if date is None or start.astimezone(ZoneInfo("Europe/Helsinki")).date() != date:
+        if date and start.astimezone(ZoneInfo("Europe/Helsinki")).date() != date:
             continue
         similarity = max(
             (
@@ -39,6 +43,8 @@ def rank_matches(metadata, streams):
             ),
             default=0,
         )
+        if similarity < 0.45:
+            continue
         result.append(
             {
                 "id": stream["id"],
@@ -47,35 +53,74 @@ def rank_matches(metadata, streams):
                 "titles": [s["title"] for s in stream.get("segments", [])],
                 "identity": "likely",
                 "alignment": "unknown",
+                "reason": "Recording date and similar title" if date else "Similar title",
+                "streamOffsetSeconds": None,
             }
         )
     return sorted(result, key=lambda row: row["similarity"], reverse=True)[:10]
 
 
-def enrich(metadata, config, check=lambda: None):
+def search(metadata, check=lambda: None):
+    """Prefer the backend's saved associations; support older API deployments."""
     try:
         with httpx.Client(timeout=15, trust_env=False) as client:
+            check()
+            params = {"q": metadata.get("title", "")[:300], "limit": 10}
+            if metadata.get("id"):
+                params["youtubeId"] = metadata["id"]
+            response = client.get(f"{BASE}/streams/search", params=params)
+            if response.status_code not in {400, 404}:
+                data = response.raise_for_status().json()["data"]
+                if not isinstance(data["matches"], list):
+                    raise ValueError("Invalid stream matches")
+                return {**data, "status": "ready", "source": "search"}
             streams = []
+            complete = False
             for page in range(1, 21):
                 check()
-                data = (
-                    client.get(f"{BASE}/streams", params={"page": page, "limit": 100})
-                    .raise_for_status()
-                    .json()
-                )
-                body = data.get("data", data)
-                batch = body if isinstance(body, list) else body.get("streams", [])
+                data = client.get(f"{BASE}/streams", params={"page": page, "limit": 100}).raise_for_status().json()
+                batch = data["data"]
                 streams.extend(batch)
                 if len(batch) < 100:
+                    complete = True
                     break
             matches = rank_matches(metadata, streams)
-            result = {"status": "timing_unconfirmed", "matches": matches, "points": [], "coverage": "unknown"}
-            if not config.get("alignment_confirmed"):
-                return result
-            stream_id = config["stream_id"]
-            selected = next((s for s in streams if s["id"] == stream_id), None)
-            if selected is None:
-                return {**result, "status": "stream_unavailable"}
+            title = normalize(metadata.get("title", ""))
+            clear = (
+                complete and matches and matches[0]["similarity"] >= 0.88
+                and (len(matches) == 1 or matches[0]["similarity"] - matches[1]["similarity"] >= 0.1)
+                and (recording_date(metadata.get("title", "")) or (len(title) >= 10 and len(title.split()) >= 2))
+                and not re.search(r"\b(?:part|osa|pt)\.?\s*\d+", title)
+            )
+            return {
+                "status": "ready", "source": "legacy", "matches": matches,
+                "suggestedStreamId": matches[0]["id"] if clear else None,
+                "warning": "Using title suggestions; the new search API is not deployed yet."
+                + (" Only the first 2,000 streams were searched." if not complete else ""),
+            }
+    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+        return {"status": "unavailable", "matches": [], "suggestedStreamId": None}
+
+
+def stream_detail(stream_id):
+    try:
+        with httpx.Client(timeout=15, trust_env=False) as client:
+            response = client.get(f"{BASE}/streams/{stream_id}").raise_for_status().json()
+            return response["data"]
+    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+        raise ValueError("This stream could not be loaded from vaarattu.tv. Check the ID and try again.") from None
+
+
+def enrich(metadata, config, check=lambda: None):
+    try:
+        stream_id = config.get("stream_id")
+        if not config.get("alignment_confirmed"):
+            result = search(metadata, check)
+            return {**result, "status": "unavailable" if result["status"] == "unavailable" else "timing_unconfirmed", "points": [], "coverage": "unknown"}
+        check()
+        selected = stream_detail(stream_id)
+        with httpx.Client(timeout=15, trust_env=False) as client:
+            result = {"matches": [], "points": [], "coverage": "unknown"}
             check()
             payload = client.get(f"{BASE}/streams/{stream_id}/activity").raise_for_status().json()
             activity = payload.get("data", payload)

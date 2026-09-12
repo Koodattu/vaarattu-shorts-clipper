@@ -4,7 +4,8 @@ let token = "", activeRun = null, editing = null, polling = false;
 let savedLayouts = [];
 let submittingRun = false, concurrencyLimit = 1;
 let library = null, videoPage = 0, fetchingVideos = false;
-const videoPageSize = 8, clipPageSize = 4;
+let matchingVideo = "", streamLookup = 0;
+const videoPageSize = 8, clipPageSize = 10;
 let clipPage = 0, displayedRun = null;
 let runList = [], detailSignature = "", clipsSignature = "", runListSignature = "", currentView = "library";
 const labels = {local:"Local · Gemma 4",gemini:"Gemini 3.8 Flash",openai:"GPT-5.6 Luna",codex:"Codex",zai:"GLM-5.3-Flash",deepseek:"DeepSeek V4 Flash",meta:"Meta Muse Spark 1.3"};
@@ -114,8 +115,49 @@ function paintLibrary(){
   $("previous-videos").hidden=videoPage===0;
   $("video-page").textContent=items.length?`${videoPage*videoPageSize+1}–${Math.min((videoPage+1)*videoPageSize,items.length)} of ${items.length} videos`:"0 videos";
 }
-function paintSelectedVideo(){const video=library?.videos.find(v=>v.url===$("video").value||v.id===$("video").value);const box=$("selected-video");box.replaceChildren();box.hidden=!video;if(video){const img=document.createElement("img");img.src=`https://i.ytimg.com/vi/${video.id}/mqdefault.jpg`;img.alt="";box.append(img,text("p",video.title));}}
+function paintSelectedVideo(){const video=library?.videos.find(v=>v.url===$("video").value||v.id===$("video").value);const box=$("selected-video");box.replaceChildren();box.hidden=!video;if(video){const img=document.createElement("img");img.src=`https://i.ytimg.com/vi/${video.id}/mqdefault.jpg`;img.alt="";box.append(img,text("p",video.title));}
+  if(matchingVideo!==$("video").value){matchingVideo=$("video").value;resetStreamMatch();$("stream-query").value=video?.title||"";if(video)findStream();}
+}
 $("video").oninput=paintSelectedVideo;
+$("video").onchange=()=>{paintSelectedVideo();if(!library?.videos.some(v=>v.url===$("video").value||v.id===$("video").value)&&$("video").value.trim())findStream();};
+function resetStreamMatch(){streamLookup++;$("stream-id").value="";$("stream-offset").value="";$("alignment").checked=false;$("stream-matches").replaceChildren();$("stream-match-status").textContent="";$("find-stream").disabled=false;$("check-stream").disabled=false;}
+function chooseStream(match){
+  $("stream-id").value=String(match.id);$("stream-offset").value=match.streamOffsetSeconds==null?"":String(match.streamOffsetSeconds);$("alignment").checked=false;
+  $("stream-match-status").textContent=`Stream ${match.id} selected. ${match.streamOffsetSeconds==null?"Enter the timing offset and confirm it to enable chat peaks.":"Saved offset filled. Confirm the timing to enable chat peaks."}`;
+}
+async function findStream(){
+  const request=++streamLookup;$("find-stream").disabled=true;$("stream-match-status").textContent="Looking for a matching stream…";$("stream-matches").replaceChildren();
+  try{
+    const result=await api(`/api/streams/search?video=${encodeURIComponent($("video").value)}&q=${encodeURIComponent($("stream-query").value)}`);
+    if(request!==streamLookup)return;
+    if(result.status==="unavailable"){$("stream-match-status").textContent="Stream search is unavailable. You can enter a stream ID or continue without chat peaks.";return;}
+    const suggested=result.matches.find(match=>match.id===result.suggestedStreamId);
+    $("stream-match-status").textContent=result.matches.length?"Choose a stream below, or enter its ID.":"No matching stream found. Try another title or enter the stream ID.";
+    if(suggested&&!$("stream-id").value)chooseStream(suggested);
+    if(result.warning)$("stream-matches").append(text("p",result.warning,"muted"));
+    for(const match of result.matches){
+      const row=text("div","","form-section");row.append(text("p",`Stream ${match.id} · ${new Date(match.startTime).toLocaleString()} · ${match.reason}`),text("p",match.titles.join(" / ")));
+      row.append(action("Use this stream",()=>chooseStream(match)));$("stream-matches").append(row);
+    }
+  }catch(e){if(request===streamLookup)$("stream-match-status").textContent=e.message;}
+  finally{if(request===streamLookup)$("find-stream").disabled=false;}
+}
+$("find-stream").onclick=findStream;
+$("stream-query").oninput=resetStreamMatch;
+$("stream-id").oninput=()=>{streamLookup++;$("stream-offset").value="";$("alignment").checked=false;$("stream-matches").replaceChildren();$("stream-match-status").textContent="Check this stream ID, then enter and confirm its timing.";$("find-stream").disabled=false;$("check-stream").disabled=false;};
+$("stream-offset").oninput=()=>{streamLookup++;$("alignment").checked=false;$("find-stream").disabled=false;$("check-stream").disabled=false;};
+$("check-stream").onclick=async()=>{
+  const id=Number($("stream-id").value);if(!Number.isInteger(id)||id<=0||id>2147483647){$("stream-match-status").textContent="Enter a valid vaarattu.tv stream ID.";return;}
+  const request=++streamLookup;$("check-stream").disabled=true;$("find-stream").disabled=false;$("stream-match-status").textContent="Checking stream…";
+  try{
+    const stream=await api(`/api/streams/${id}`);if(request!==streamLookup)return;
+    const input=$("video").value.trim();
+    const recording=stream.youtubeVideos?.find(v=>input===v.id||input===`https://www.youtube.com/watch?v=${v.id}`||input===`https://youtu.be/${v.id}`);
+    if(!$("stream-offset").value&&recording)$("stream-offset").value=String(recording.streamOffsetSeconds);
+    $("alignment").checked=false;$("stream-match-status").textContent=`Stream ${stream.id} · ${new Date(stream.startTime).toLocaleString()} · ${stream.segments.map(s=>s.title).join(" / ")}. Confirm the timing to enable chat peaks.`;
+  }catch(e){if(request===streamLookup)$("stream-match-status").textContent=e.message;}
+  finally{if(request===streamLookup)$("check-stream").disabled=false;}
+};
 async function fetchVideos(action){if(fetchingVideos)return;fetchingVideos=true;error("");paintLibrary();try{library=await api(`/api/videos/${action}`,{method:"POST"});}catch(e){error(e.message);}finally{fetchingVideos=false;paintLibrary();}}
 $("fetch-videos").onclick=()=>fetchVideos("refresh");
 $("older-videos").onclick=()=>fetchVideos("older");
@@ -155,7 +197,7 @@ async function detail(){
   }
   const decisions=run.result.verified||[], feedback=run.result.section_feedback||[];
   const priority=run.result.review_summary;
-  if(priority){box.append(text("p",`${priority.selected} of ${priority.candidates} candidates selected for review · Up to ${priority.limit} per run`));if(priority.warning)box.append(text("p",priority.warning,"muted"));}
+  if(priority){box.append(text("p",`${priority.selected} of ${priority.candidates} candidates in the top picks · Up to ${priority.limit} per run${priority.audit_all?" · All suggestions included for your audit":""}`));if(priority.warning)box.append(text("p",priority.warning,"muted"));}
   if(decisions.length||feedback.length){
     const audit=text("details","","disclosure");audit.append(text("summary","Selection feedback and decisions"));
     const stamp=us=>{const n=Math.floor(us/1e6);return `${Math.floor(n/3600)}:${String(Math.floor(n/60)%60).padStart(2,"0")}:${String(n%60).padStart(2,"0")}`;};
@@ -193,6 +235,8 @@ function paintClips(){
     if(clip.has_preview){const video=document.createElement("video");video.controls=true;video.preload="metadata";video.src=`/api/artifacts/${clip.id}/video?revision=${clip.revision}`;video.setAttribute("aria-label",clip.title);card.append(video);}
     else card.append(text("div","Preview unavailable","clip-no-preview"));
     body.append(text("h3",clip.title),text("p",`${clip.status==="held"?"Needs review":clip.status} · ${((clip.end_us-clip.start_us)/1e6).toFixed(1)} seconds`),text("p",`Original VOD ${(clip.start_us/1e6).toFixed(1)}–${(clip.end_us/1e6).toFixed(1)}s`));
+    if(clip.review_selected!=null)body.append(text("p",clip.review_selected?`Top pick${clip.review_rank?` · Priority ${clip.review_rank}`:""}`:"Additional suggestion for review","muted"));
+    if(clip.caption_warning||clip.audit_caption_warning)body.append(text("p",clip.caption_warning||clip.audit_caption_warning,"clip-flag"));
     for(const flag of clip.flags||[])body.append(text("p",flag,"clip-flag"));
     const buttons=text("div","","actions");buttons.append(action("Edit clip",()=>openEditor(clip.id),false));
     if(["held","ready"].includes(clip.status))buttons.append(action(clip.status==="held"?"Retry render":"Render new revision",async()=>{await api(`/api/clips/${clip.id}/retry`,{method:"POST",body:JSON.stringify({expected_revision:clip.revision})});await refresh();}));
@@ -210,7 +254,7 @@ function sameLayout(a,b){
   const normalize=value=>{const v={...defaults,...value};return Object.keys(v).sort().map(key=>[key,key==="camera"||key==="gameplay"?[v[key].x,v[key].y,v[key].width,v[key].height]:v[key]]);};
   return JSON.stringify(normalize(a))===JSON.stringify(normalize(b));
 }
-async function openEditor(id){$("editor-back").href="#results";$("editor-back").textContent="← Back to clips";editing=await api(`/api/clips/${id}`);const preset=savedLayouts.find(l=>sameLayout(l.body,editing.layout));if(preset)$("edit-layout").value=preset.id;else $("edit-layout").value="";$("use-source-frame").disabled=!editing.has_source;$("editor").hidden=false;$("editor-title").textContent=editing.title;$("edit-caption-coverage").hidden=!editing.caption_coverage;if(editing.caption_coverage)$("edit-caption-coverage").textContent=`Large-v3 captions: edits can use ${(editing.caption_coverage.start_us/1e6).toFixed(2)}–${(editing.caption_coverage.end_us/1e6).toFixed(2)} seconds of the original recording.`;$("edit-start").value=editing.start_us/1e6;$("edit-end").value=editing.end_us/1e6;$("edit-title").value=editing.title;$("edit-trim-silence").checked=Boolean(editing.trim_silence);$("edit-encoder").value=editing.video_encoder||"libx264";$("reviewed").checked=false;$("edit-words").value=editing.words.map(w=>`${w.id} | ${w.text}`).join("\n");$("source-player").hidden=!editing.has_source;if(editing.has_source){$("source-player").src=`/api/artifacts/${id}/source`;$("source-player").onloadedmetadata=()=>{$("source-player").currentTime=Math.max(0,(editing.start_us-editing.section_origin_us)/1e6-3);};}$("source-unavailable").hidden=editing.has_source;goView("editor");}
+async function openEditor(id){$("editor-back").href="#results";$("editor-back").textContent="← Back to clips";editing=await api(`/api/clips/${id}`);$("edit-duration-help").textContent=editing.context_expanded?"This context-expanded clip has no fixed duration cap. Keep at least 3 seconds within the recording.":"Choose a 3–90 second interval. The original recording keeps its full pacing.";const preset=savedLayouts.find(l=>sameLayout(l.body,editing.layout));if(preset)$("edit-layout").value=preset.id;else $("edit-layout").value="";$("use-source-frame").disabled=!editing.has_source;$("editor").hidden=false;$("editor-title").textContent=editing.title;$("edit-caption-coverage").hidden=!editing.caption_coverage;if(editing.caption_coverage)$("edit-caption-coverage").textContent=`Large-v3 captions: edits can use ${(editing.caption_coverage.start_us/1e6).toFixed(2)}–${(editing.caption_coverage.end_us/1e6).toFixed(2)} seconds of the original recording.`;$("edit-start").value=editing.start_us/1e6;$("edit-end").value=editing.end_us/1e6;$("edit-title").value=editing.title;$("edit-trim-silence").checked=Boolean(editing.trim_silence);$("edit-encoder").value=editing.video_encoder||"libx264";$("reviewed").checked=false;$("edit-words").value=editing.words.map(w=>`${w.id} | ${w.text}`).join("\n");$("source-player").hidden=!editing.has_source;if(editing.has_source){$("source-player").src=`/api/artifacts/${id}/source`;$("source-player").onloadedmetadata=()=>{$("source-player").currentTime=Math.max(0,(editing.start_us-editing.section_origin_us)/1e6-3);};}$("source-unavailable").hidden=editing.has_source;goView("editor");}
 $("edit-form").onsubmit=async event=>{event.preventDefault();error("");$("save-edit").disabled=true;$("save-edit").textContent="Saving revision…";try{const words=$("edit-words").value.split("\n").filter(Boolean).map(line=>{const split=line.indexOf("|");const id=line.slice(0,split).trim();const original=editing.words.find(w=>w.id===id);if(split<0||!original)throw new Error("Keep each original caption word ID before the |.");return {...original,text:line.slice(split+1).trim()};});const result=await api(`/api/clips/${editing.id}/edit`,{method:"POST",body:JSON.stringify({expected_revision:editing.revision,start_us:Math.round(Number($("edit-start").value)*1e6),end_us:Math.round(Number($("edit-end").value)*1e6),title:$("edit-title").value,words,layout_id:$("edit-layout").value,reviewed:$("reviewed").checked,trim_silence:$("edit-trim-silence").checked,video_encoder:$("edit-encoder").value})});activeRun=result.run_id;$("editor").hidden=true;detailSignature="";await refresh();goView("results");$("notice").textContent="Revision saved. Follow its render in Runs & clips.";$("notice").hidden=false;}catch(e){error(e.message);}finally{$("save-edit").disabled=false;$("save-edit").textContent="Save and render revision";}};
 let frame=null,frameSize=null,frameName="",frameVersion=0,frameLoading=false,drawMode="camera",gesture=null,redraw=false,rectangles={};
 let composition={camera_height:608,camera_fit:"cover",gameplay_fit:"cover",camera_ratio:"panel",gameplay_ratio:"panel"};
@@ -291,8 +335,8 @@ $("use-source-frame").onclick=()=>{
   video.pause();const image=document.createElement("canvas");image.width=video.videoWidth;image.height=video.videoHeight;image.getContext("2d").drawImage(video,0,0);
   syncComposition(editing.layout);setFrame(image,editing.layout);frameName=`Clip frame at ${video.currentTime.toFixed(1)}s`;
   $("frame-name").textContent=`${frameName} · saved with the preset`;
-  $("layout-name").value=editing.layout.name;$("solo-host").checked=editing.layout.solo_host;
-  $("preset-select").value=savedLayouts.find(l=>sameLayout(l.body,editing.layout))?.id||"";
+  $("layout-name").value="";$("solo-host").checked=editing.layout.solo_host;
+  $("preset-select").value="";$("layout-saved").textContent="";
   updatePresetActions();goView("layouts");
 };
 function setDrawMode(mode){

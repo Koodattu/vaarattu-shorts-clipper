@@ -4,8 +4,8 @@ from contextlib import contextmanager
 import pytest
 from fastapi.testclient import TestClient
 
-from vaarattu_shorts import context_repair, pipeline, worker
-from vaarattu_shorts.contracts import Word
+from vaarattu_shorts import context_repair, pipeline, transcribe, worker
+from vaarattu_shorts.contracts import MAX_CLIP_US, Word, clip_duration_limit
 from vaarattu_shorts.llm import ModelAnchorError
 from vaarattu_shorts.storage import atomic_json
 from vaarattu_shorts.web import create_app
@@ -81,13 +81,12 @@ def test_context_directions_preserve_existing_moment(context_clip, before, after
         (True, False, "w20", "w28"),
         (False, True, "w17", "w24"),
         (False, False, "w20", "w24"),
-        (True, True, "w1", "w130"),
         (True, True, "invented", "w24"),
         (True, True, "w50", "w60"),
         (True, True, "w24", "w17"),
     ],
 )
-def test_context_rejects_wrong_side_no_added_speech_invalid_ids_and_long_cuts(
+def test_context_rejects_wrong_side_no_added_speech_and_invalid_ids(
     context_clip, before, after, start, end
 ):
     _, body, transcript = context_clip
@@ -100,9 +99,58 @@ def test_context_rejects_wrong_side_no_added_speech_invalid_ids_and_long_cuts(
         )
 
 
+def test_long_context_proposal_survives_final_transcription(context_clip):
+    _, body, transcript = context_clip
+    body = {**body, "context_request": request()}
+
+    class Evaluator:
+        verification_reasoning = "low"
+        verification_budget = 48000
+
+        def request_size(self, *_):
+            return 100
+
+        def call(self, system, prompt, schema, key, *, validate, reasoning_effort):
+            assert "<=90" not in system
+            assert "[w110]" in json.loads(prompt)["surrounding_source_speech"]
+            result = proposal("w1", "w110")
+            validate(result)
+            return result
+
+    _, revised = context_repair.propose(body, transcript, Evaluator())
+    assert revised["end_us"] - revised["start_us"] == 109800000
+    assert revised["context_expanded"] is True
+    final = {**transcript, "start_us": 0, "end_us": transcript["duration_us"], "timing_issues": []}
+    refined = transcribe.apply_refinement(revised, final)
+    assert refined["end_us"] - refined["start_us"] > MAX_CLIP_US
+    assert clip_duration_limit(refined) > 600000000
+    assert clip_duration_limit(body) == MAX_CLIP_US
+
+
+@pytest.mark.parametrize("expanded", [False, True])
+def test_editor_allows_long_context_revisions_only(settings, store, context_clip, expanded):
+    run, original, transcript = context_clip
+    body = {**original, "context_expanded": expanded, "start_us": 1000000,
+            "end_us": 110800000, "words": transcript["words"][1:111]}
+    store.save_clip("clip", run, 1, body)
+    layout = store.add_layout({"name": "Test"})
+    with TestClient(create_app(settings), base_url="http://127.0.0.1:8765") as client:
+        headers = {"X-Local-Token": client.get("/api/status").json()["token"]}
+        assert client.get("/api/clips/clip").json()["context_expanded"] is expanded
+        result = client.post("/api/clips/clip/edit", headers=headers, json=dict(
+            expected_revision=1, start_us=1000000, end_us=110800000, title="Updated title",
+            words=body["words"], layout_id=layout, reviewed=True,
+        ))
+        assert result.status_code == (202 if expanded else 400), result.text
+    if expanded:
+        assert store.clip("clip")["revision"] == 2
+        assert store.clip("clip")["body"]["context_expanded"] is True
+
+
 def test_proposal_uses_current_caption_text_and_original_surrounding_ids(context_clip):
     _, body, transcript = context_clip
-    body = {**body, "context_request": request(True), "caption_transcript": {"profile": "large-v3"}}
+    body = {**body, "context_request": request(True), "caption_transcript": {"profile": "large-v3"},
+            "caption_warning": "Old fallback", "caption_error": "Old failure", "audit_caption_warning": "Old audit"}
     body["words"][0] = {**body["words"][0], "text": "Human correction"}
 
     class Evaluator:
@@ -127,6 +175,8 @@ def test_proposal_uses_current_caption_text_and_original_surrounding_ids(context
     assert revised["start_us"] == 17000000 and revised["end_us"] == 25000000
     assert revised["words"][3]["text"] == "Human correction"
     assert "caption_transcript" not in revised
+    assert "caption_warning" not in revised and "caption_error" not in revised
+    assert "audit_caption_warning" not in revised
     assert revised["status"] == "pending" and revised["folder"] is None
 
 

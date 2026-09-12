@@ -112,11 +112,36 @@ def test_one_candidate_needs_no_comparison_and_no_eligible_candidates_are_filled
     assert result["review_summary"]["selected"] == 0
 
 
+def test_comparison_reads_speech_without_prior_editorial_persuasion():
+    items = [candidate(i, reason="Persuasive model explanation", title_fi="Amazing title") for i in range(2)]
+    words = [dict(text=f"Actual speech {i}", start_us=v["start_us"], end_us=v["end_us"])
+             for i, v in enumerate(items)]
+    evaluator = Evaluator()
+    selection.prioritize({"verified": items}, words, evaluator)
+    assert evaluator.supplied == [dict(candidate_id=f"candidate-{i}", speech=f"Actual speech {i}")
+                                  for i in range(2)]
+
+
+def test_normal_twenty_candidate_pool_is_compared_together_once():
+    class Compare(Evaluator):
+        calls = 0
+
+        def call(self, *args, **kwargs):
+            self.calls += 1
+            return super().call(*args, **kwargs)
+
+    evaluator = Compare()
+    result = selection.prioritize({"verified": [candidate(i) for i in range(20)]}, [], evaluator)
+    assert evaluator.calls == result["review_summary"]["comparisons"] == 1
+    assert len(evaluator.supplied) == 20
+    assert result["review_summary"]["selected"] == 10
+
+
 def test_comparison_requires_a_complete_permutation():
     class Invalid(Evaluator):
         def call(self, system, prompt, schema, step, validate, reasoning_effort):
             for ids in [["candidate-0"], ["candidate-0", "candidate-0"], ["candidate-0", "invented"]]:
-                with pytest.raises(ValueError, match="exactly once"):
+                with pytest.raises(ValueError, match="too_short|exactly once|literal_error"):
                     validate(
                         schema(
                             candidates=[
@@ -213,3 +238,156 @@ def test_recovery_capacity_counts_existing_exports_without_deleting_them(
     for i in range(existing_count):
         assert store.clip(f"old-{i}")["body"] == old
         assert store.clip(f"old-{i}")["revision"] == 3
+
+
+@pytest.mark.parametrize("count,budget", [(83, 100000), (39, 1700)])
+def test_bounded_merging_ranks_the_entire_sparse_pool(count, budget):
+    class Bounded(Evaluator):
+        discovery_budget = budget
+        calls = 0
+
+        def request_size(self, system, prompt, schema):
+            return len(prompt.encode()) + 100
+
+        def call(self, system, prompt, schema, step, validate, reasoning_effort):
+            rows = json.loads(prompt)
+            assert len(rows) <= selection.COMPARISON_SIZE
+            assert self.request_size(system, prompt, schema) <= self.discovery_budget
+            assert [r["candidate_id"] for r in rows] == [f"candidate-{i}" for i in range(len(rows))]
+            self.calls += 1
+            result = schema(candidates=[dict(candidate_id=r["candidate_id"], recommendation="review", reason="rank")
+                                        for r in sorted(rows, key=lambda r: int(r["speech"]), reverse=True)])
+            validate(result)
+            return result
+
+    items = [candidate(i, reason=str((i * 17) % count)) for i in range(count)]
+    items.insert(2, candidate(count, outcome="reject"))
+    evaluator = Bounded()
+    words = [dict(text=item["candidate"]["reason"], start_us=item["start_us"], end_us=item["end_us"])
+             for item in items if item["candidate"]["outcome"] == "accept"]
+    result = selection.prioritize({"verified": items}, words, evaluator)
+    ranked = sorted((v for v in result["verified"] if v["review_rank"]), key=lambda v: v["review_rank"])
+    assert [int(v["candidate"]["reason"]) for v in ranked] == list(reversed(range(count)))
+    assert len(ranked) == count
+    assert sum(v["review_selected"] for v in ranked) == 10
+    assert result["review_summary"]["method"] == "comparison"
+    assert result["review_summary"]["comparisons"] == evaluator.calls > 1
+
+
+def test_all_suggestions_refresh_top_picks_without_replacing_reviewed_revisions(settings, store, monkeypatch):
+    import hashlib
+    from vaarattu_shorts.web import public_clip
+
+    run = store.admit({"video": "abc_def-ghI", "layout": {}}, "audit")
+    items = [candidate(i) for i in range(13)]
+    items[12]["candidate"]["outcome"] = "reject"
+    original = candidate(13)["candidate"]
+    words = [dict(id=f"{letter}{i}", text="speech", start_us=i*10000000+offset,
+                  end_us=i*10000000+offset+500000, probability=1)
+             for i in range(14) for letter, offset in [("a", 0), ("b", 3500000)]]
+    words[-1]["start_us"], words[-1]["end_us"] = 229500000, 230000000
+    supplied = dict(version="conversation-v10", review_first=True, review_policy="ranked-v1",
+                    chat={"status": "unavailable"}, verified=items, issues=[],
+                    proposals=[v["candidate"] for v in items]+[original])
+    ranked = selection.prioritize(supplied, words, Evaluator())
+    monkeypatch.setattr(Pipeline, "prioritize_selection", lambda self, s, t: copy.deepcopy(ranked))
+    old_ids = []
+    for i in range(10):
+        clip_id = hashlib.sha256(f"{run}:a{i}:b{i}".encode()).hexdigest()[:32]
+        old_ids.append(clip_id)
+        folder = settings.ready / clip_id
+        folder.mkdir()
+        (folder / "short.mp4").write_bytes(b"preview")
+        store.save_clip(clip_id, run, 3, dict(status="ready", title="Edited title", words=[],
+                                           start_us=i*10000000, end_us=i*10000000+5000000,
+                                           folder=str(folder)))
+        store.review_clip(clip_id, 3, "approved" if i % 2 else "not_approved", "Keep my note")
+    delivered = []
+    def deliver(self, clip, *args):
+        delivered.append(clip["id"])
+        store.save_clip(clip["id"], run, clip["revision"], {**clip["body"], "status": "ready"})
+    monkeypatch.setattr(Pipeline, "deliver", deliver)
+    pipeline = Pipeline(settings, store, run)
+    for _ in range(2):
+        result = pipeline.export_selection(supplied, {"words": words, "duration_us": 240000000},
+                  {"id": "abc_def-ghI", "title": "VOD", "upload_date": "20260705"}, None, audit=True)
+    assert len(store.clips(run)) == 14
+    assert len(delivered) == 4
+    assert result["review_summary"]["selected"] == 10
+    assert result["review_summary"]["audit_all"] is True
+    for clip_id in old_ids:
+        clip = store.clip(clip_id)
+        assert clip["revision"] == 3 and clip["body"]["title"] == "Edited title"
+        assert clip["review_status"] != "unreviewed" and clip["review_note"] == "Keep my note"
+    clips = sorted([public_clip(c) for c in store.clips(run)],
+                   key=lambda c: (c["review_selected"] is False, c["review_rank"] or float("inf")))
+    assert all(c["review_selected"] for c in clips[:10])
+    assert not store.clip(old_ids[0])["body"]["review_selected"]
+    assert sum(bool(c["body"].get("audit_original_bounds")) for c in store.clips(run)) == 1
+
+
+def test_review_all_refuses_fallback_before_creating_any_clips(settings, store, monkeypatch):
+    run = store.admit({"video": "abc_def-ghI", "layout": {}}, "no-fallback")
+    ranked = {"verified": [candidate(0), candidate(1)], "review_policy": "ranked-v1",
+              "review_summary": {"quality_passed": 2, "method": "scores"}}
+    monkeypatch.setattr(Pipeline, "prioritize_selection", lambda self, s, t: ranked)
+    with pytest.raises(ValueError, match="Ranking did not complete"):
+        Pipeline(settings, store, run).export_selection(ranked, {}, {}, None, audit=True)
+    assert store.clips(run) == []
+
+
+def test_review_all_request_survives_resume_and_worker_dispatch(settings, store, monkeypatch):
+    from vaarattu_shorts.worker import run_job
+    from vaarattu_shorts.processes import Interrupted
+
+    run = store.admit({}, "dispatch")
+    with pytest.raises(ValueError):
+        store.control(run, "review-all")
+    store.update(run, state="completed")
+    store.control(run, "review-all")
+    monkeypatch.setattr(Pipeline, "review_all", lambda self: (_ for _ in ()).throw(Interrupted()))
+    run_job(settings, store, run, lambda: False)
+    assert store.get(run)["state"] == "paused"
+    store.control(run, "resume")
+    assert store.get(run)["result"]["review_all_requested"] is True
+
+
+def test_duplicate_id_repair_receives_specific_feedback(settings, store):
+    import httpx
+    from vaarattu_shorts.llm import Evaluator as RealEvaluator
+
+    run = store.admit({"provider": "codex"}, "repair-ids")
+    requests = []
+    def handle(request):
+        body = json.loads(request.content)
+        requests.append(body)
+        ids = ["candidate-0", "candidate-0"] if len(requests) == 1 else ["candidate-1", "candidate-0"]
+        value = dict(candidates=[dict(candidate_id=i, recommendation="review", reason="rank") for i in ids])
+        return httpx.Response(200, json={"status": "completed", "output": [{"content": [
+            {"type": "output_text", "text": json.dumps(value)}]}],
+            "usage": {"input_tokens": 100, "output_tokens": 40}})
+    with httpx.Client(transport=httpx.MockTransport(handle)) as client:
+        evaluator = RealEvaluator("codex", store, run, settings.work, 0, lambda: None, client)
+        result = selection.prioritize({"verified": [candidate(0), candidate(1)]}, [], evaluator)
+    assert result["review_summary"]["method"] == "comparison"
+    assert len(requests) == 2
+    assert "Missing: ['candidate-1']" in requests[1]["input"]
+    assert "Repeated: ['candidate-0']" in requests[1]["input"]
+    assert "proposed idea inside the clip" not in requests[1]["input"]
+    schema = requests[0]["text"]["format"]["schema"]
+    assert schema["$defs"]["BatchPriorityItem"]["properties"]["candidate_id"]["enum"] == ["candidate-0", "candidate-1"]
+
+
+def test_audit_refinement_preserves_long_originals_without_widening_normal_limits():
+    from vaarattu_shorts.contracts import clip_duration_limit
+    from vaarattu_shorts.transcribe import apply_refinement
+
+    body = dict(start_us=1000000, end_us=110000000)
+    transcript = dict(start_us=0, end_us=120000000, timing_issues=[],
+                      words=[dict(id="w", text="speech", start_us=1000000, end_us=110000000)])
+    with pytest.raises(ValueError, match="crosses"):
+        apply_refinement(body, transcript)
+    audited = {**body, "audit_original_bounds": dict(body)}
+    assert apply_refinement(audited, transcript)["end_us"] == body["end_us"]
+    assert clip_duration_limit(body) == 90000000
+    assert clip_duration_limit(audited) == 110000000

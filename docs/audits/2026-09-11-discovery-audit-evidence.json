@@ -1,0 +1,2624 @@
+{
+  "audit_date": "2026-09-11",
+  "scope": "Four latest completed VOD runs, all conversation-v10. Current revision decisions, read-only database snapshot. No live inference/media review.",
+  "runs": [
+    {
+      "run_id": "32917ac59bd942488098eca116eaf7c4",
+      "video": "92L4duVhPGc",
+      "hours": 4.511128055555556,
+      "raw_suggestions": 83,
+      "saved_proposals": 83,
+      "verified": 80,
+      "section_count": 46,
+      "empty_sections": 3,
+      "summary": {
+        "limit": 10,
+        "candidates": 80,
+        "quality_passed": 68,
+        "selected": 10,
+        "method": "scores",
+        "warning": "Candidate comparison exceeded the input budget; used model scores for priority."
+      },
+      "reviews": {
+        "not_approved": 5,
+        "approved": 4,
+        "unreviewed": 1
+      },
+      "verdicts": {
+        "accept": 68,
+        "needs_context": 4,
+        "reject": 8
+      },
+      "ranking_failures": [],
+      "context_repairs": [
+        {
+          "file": "workdir\\runs\\32917ac59bd942488098eca116eaf7c4\\context-repair\\73280d1ea6aa4c57b6927a47ad49e9dd\\proposal.json",
+          "clip_id": "f83057ce815d6e8fcf79959ef03b4a3e",
+          "note": "anything to add to this in either direction? preferably before? the clip itself is good but it is a bit too short",
+          "proposal": {
+            "outcome": "unchanged",
+            "start_word_id": "",
+            "end_word_id": "",
+            "reason": "Lisäpuhe ei anna selkeää asetelmaa vitsille; sitä edeltävät ja seuraavat repliikit ovat irrallisia tai epäselviä."
+          },
+          "before_seconds": 4.18,
+          "after_seconds": null
+        },
+        {
+          "file": "workdir\\runs\\32917ac59bd942488098eca116eaf7c4\\context-repair\\bc361f67c2dc403fbcf81874509638db\\proposal.json",
+          "clip_id": "d1952a125b1e3a606e5aec99865b0882",
+          "note": "",
+          "proposal": {
+            "outcome": "expand",
+            "start_word_id": "w_0001146",
+            "end_word_id": "w_0001230",
+            "reason": "Alkuperäinen vitsi saa setupin: Nipa-nimen toistuva vääristyminen Nipe/Nipa selittää, miksi Np-käyttäjänimi ja alaviivat ovat hauskoja."
+          },
+          "before_seconds": 27.04,
+          "after_seconds": 63.05
+        }
+      ],
+      "clips": [
+        {
+          "id": "0b5c4c32c4564df34f490979dbd12f40",
+          "revision": 1,
+          "review": "not_approved",
+          "review_note": "",
+          "title": "Nightborne on Night Elfiin verrattuna downgrade",
+          "media_status": "ready",
+          "rank": 1,
+          "start_us": 10237090000,
+          "end_us": 10244340000,
+          "output_duration_us": 7250000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0009176",
+            "end_word_id": "w_0009192",
+            "idea_word_id": "w_0009176",
+            "category": "opinion",
+            "scores": {
+              "standalone": 3,
+              "opening": 4,
+              "substance": 3,
+              "payoff": 4,
+              "fidelity": 4
+            },
+            "flags": [
+              "Vaatii WoW-kontekstin tuntemusta"
+            ],
+            "reason": "Selkeä ja humoristinen WoW-mielipide: Night Elfin vaihtaminen Nightborneksi esitetään absurdina downgradena. Toistettu kysymys toimii punchlinena, eikä leikkaus tarvitse aiempaa olennaista kontekstia.",
+            "summary_fi": "Night Elfin vaihtaminen Nightborneksi on streamerille käsittämätön downgrade.",
+            "title_fi": "Nightborne on Night Elfiin verrattuna downgrade"
+          },
+          "context_request": null,
+          "speech": "Siis Night Elf on kaikin paljon paremmin kuin Nightborne ja sitten vaihdoin sen Nightborneen. Mikä downgrade? Mikä downgrade?"
+        },
+        {
+          "id": "fe3829a3852e349fb88706c73c387784",
+          "revision": 1,
+          "review": "approved",
+          "review_note": "",
+          "title": "Kuinka monta tuntia WoWissa tarvitaan, että oppii pelaamaan?",
+          "media_status": "ready",
+          "rank": 2,
+          "start_us": 12655790000,
+          "end_us": 12708450000,
+          "output_duration_us": 32950000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0011336",
+            "end_word_id": "w_0011443",
+            "idea_word_id": "w_0011336",
+            "category": "joke",
+            "scores": {
+              "standalone": 3,
+              "opening": 3,
+              "substance": 4,
+              "payoff": 4,
+              "fidelity": 4
+            },
+            "flags": [],
+            "reason": "Hauska ja tunnistettava WoW-vitsi: hyväksi tulemiseen tarvitaan 10 000 tuntia, mutta 16 000 tunnillakaan ei välttämättä onnistu. Loppu toimii selkeänä kärjistyksenä. Alun 'Tai' viittaa hieman aiempaan puheeseen, mutta ajatus on silti seurattavissa.",
+            "summary_fi": "WoW-pelaajalla on vielä 5 000 tuntia matkaa hyväksi – ja 16 000 tunnin jälkeenkin voi olla vaikeaa.",
+            "title_fi": "Kuinka monta tuntia WoWissa tarvitaan, että oppii pelaamaan?"
+          },
+          "context_request": null,
+          "speech": "Äijä on niinku aloitteleva WoWin pelaaja. Sulla on semmonen 5000 tuntia vielä, et sä alat olemaan niinku hyvä. Se on semmonen noin 10 000 tuntia, et sä alat olla WoWissa hyvä, niin sulla on vielä 5000 tuntia. Ei mikään ihme, et sä et ollu kovin hyvä pelaa WoWia, mutta tosiaan siis sä et oo täysin menetetty tapaus, kun on kuitenkin niitä, jotka on pelannu 15 000 tuntia ja ne ei oo vieläkään kovin hyviä pelaamaan, niin tullaan kuitenkin selkeesti toi, kun sä oot pelannu niin vähän aikaa, niin nii, sulla voisi olla tuommoinen nipa -case, et sä oot pelannu 16 000 tuntia ja vieläkään ei oikeen meinaa onnistu"
+        },
+        {
+          "id": "ea0e0e5d5a4c0dc7dacf673efe3389f0",
+          "revision": 1,
+          "review": "approved",
+          "review_note": "",
+          "title": "Ehkä ongelma onkin sinussa",
+          "media_status": "ready",
+          "rank": 3,
+          "start_us": 12944400000,
+          "end_us": 12985450000,
+          "output_duration_us": 25040000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0011736",
+            "end_word_id": "w_0011801",
+            "idea_word_id": "w_0011743",
+            "category": "joke",
+            "scores": {
+              "standalone": 3,
+              "opening": 3,
+              "substance": 4,
+              "payoff": 4,
+              "fidelity": 4
+            },
+            "flags": [],
+            "reason": "Hauska ja selkeä syytöksen kääntö: ensin muistellaan, kuinka pomo-terroristit pommittavat Juhaa, ja lopussa vihjataan ongelman olevan hänessä itsessään. Alun dejavu-setup on tarpeellinen vitsin rakentamiseksi, eikä merkitystä muuttavia puutteita näy.",
+            "summary_fi": "Streamer huomaa, että sama pelaaja joutuu jatkuvasti pommitetuksi eri raideissa, ja päättelee vian olevan ehkä hänessä itsessään.",
+            "title_fi": "Ehkä ongelma onkin sinussa"
+          },
+          "context_request": null,
+          "speech": "Mulla tuli vähän semmoinen deja vu, että niinku... Kun on useammassa eri raidissa, on useammalla eri bossilla, useampi eri terroristi on pommittanut justiin sua. Mä en tiedä miksi, mutta mulla tuli vähän semmoinen fiilis. Kukas sua silloin pommitti? Onks sä Juha ikinä miettinyt, että eihän se ongelma ole niissä pommitteissa, vai eihän se ongelma ole sussa, että sua aina pommitetaan? Ehkä se vika olikin sussa."
+        },
+        {
+          "id": "f83057ce815d6e8fcf79959ef03b4a3e",
+          "revision": 1,
+          "review": "approved",
+          "review_note": "",
+          "title": "Jos kuolen, älkää naurako",
+          "media_status": "ready",
+          "rank": 4,
+          "start_us": 14981930000,
+          "end_us": 14986110000,
+          "output_duration_us": 4180000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0013421",
+            "end_word_id": "w_0013431",
+            "idea_word_id": "w_0013421",
+            "category": "joke",
+            "scores": {
+              "standalone": 3,
+              "opening": 4,
+              "substance": 3,
+              "payoff": 4,
+              "fidelity": 4
+            },
+            "flags": [],
+            "reason": "Lyhyt ja selkeä pelikuolemaan liittyvä itseironinen vitsi: ensin kielletään nauraminen ja heti käännetään asetelma ympäri. Pelikontekstia tarvitaan vain vähän.",
+            "summary_fi": "Vaarattu kuittaa oman mahdollisen kuolemansa: muille ei saa nauraa, mutta hänen pitää itse nauraa.",
+            "title_fi": "Jos kuolen, älkää naurako"
+          },
+          "context_request": {
+            "expected_revision": 1,
+            "before": true,
+            "after": true,
+            "note": "anything to add to this in either direction? preferably before? the clip itself is good but it is a bit too short",
+            "id": "73280d1ea6aa4c57b6927a47ad49e9dd",
+            "status": "unchanged",
+            "reason": "Lisäpuhe ei anna selkeää asetelmaa vitsille; sitä edeltävät ja seuraavat repliikit ovat irrallisia tai epäselviä."
+          },
+          "speech": "Jos mä kuolen, niin en saa nauraa. Vaan pitää nauraa."
+        },
+        {
+          "id": "d1952a125b1e3a606e5aec99865b0882",
+          "revision": 2,
+          "review": "unreviewed",
+          "review_note": "",
+          "title": "Entä jos käyttäjänimi olisi Np_…",
+          "media_status": "ready",
+          "rank": 5,
+          "start_us": 1385620000,
+          "end_us": 1448820000,
+          "output_duration_us": 43090000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0001204",
+            "end_word_id": "w_0001230",
+            "idea_word_id": "w_0001204",
+            "category": "joke",
+            "scores": {
+              "standalone": 3,
+              "opening": 3,
+              "substance": 3,
+              "payoff": 4,
+              "fidelity": 4
+            },
+            "flags": [
+              "Pitkä tauko ennen punchlinea",
+              "Np-viittaus vaatii hieman kontekstia"
+            ],
+            "reason": "Lyhyt käyttäjänimivitsi rakentuu selkeästi ja saa absurdin punchlinen vastauksesta “600 alaviivaa”. Pitkä tauko kannattaa säilyttää vain leikkauksen rytmin takia; muu ympäröivä puhe ei ole välttämätöntä.",
+            "summary_fi": "Käyttäjänimeksi Np ja 600 alaviivaa.",
+            "title_fi": "Entä jos käyttäjänimi olisi Np_…"
+          },
+          "context_request": {
+            "expected_revision": 1,
+            "before": false,
+            "after": false,
+            "note": "",
+            "id": "bc361f67c2dc403fbcf81874509638db",
+            "status": "expanded",
+            "reason": "Alkuperäinen vitsi saa setupin: Nipa-nimen toistuva vääristyminen Nipe/Nipa selittää, miksi Np-käyttäjänimi ja alaviivat ovat hauskoja."
+          },
+          "speech": "Äijällä on nolla... Äijällä on nolla ukkoa, joiden nimi on Nipa. Äijällä on nolla paikkaa, missä on käyttäjänimi Nipa. Joka ikinen hahmo on niinku Nipe. Joka paikassa. Joka käyttäjänimi. Ja sitten ukot alkaa sanoa... Joka... Mitä vittu mä olisin sanonut? Joka paikassa on Nipe. Joku tääl alkaa sanoo nipa, koska mulla on joku autismi ja mä sanon että nipa Oh my god Niin, NP, NP oisko jo hyvä No, mitä jos Twitch sun nimi ois NP alaviiva Tai NP ja niin monta alaviivaa kun tarvii Montako alaviivaa tarvii, kuus alaviivaa"
+        },
+        {
+          "id": "fcc4e126a6a2fc6ad303b6ee3fb4dc6a",
+          "revision": 2,
+          "review": "approved",
+          "review_note": "",
+          "title": "“Back to login screen” – pelisuunnittelu pähkinänkuoressa",
+          "media_status": "ready",
+          "rank": 6,
+          "start_us": 4184570000,
+          "end_us": 4206070000,
+          "output_duration_us": 18680000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0003936",
+            "end_word_id": "w_0003995",
+            "idea_word_id": "w_0003937",
+            "category": "opinion",
+            "scores": {
+              "standalone": 3,
+              "opening": 3,
+              "substance": 4,
+              "payoff": 4,
+              "fidelity": 3
+            },
+            "flags": [
+              "Muutama pelitermi/transkripti on epävarma, erityisesti “jähtää” ja “miljonat prosenttia”."
+            ],
+            "reason": "Värikäs ja tunnistettava rantti pelin huonosta designista: maassa on jatkuvasti paskalätäköitä, taivaalta putoaa miekkoja ja vihut osuvat valtavalla vahingolla. “Back to login screen” toimii selkeänä lopetuksena. Alkuperäinen “Tai” kannattaa säilyttää luonnollisena jatkona.",
+            "summary_fi": "Streamer haukkuu pelin designia: kaikkialla on vaarallisia lätäköitä, taivaalta sataa miekkoja ja vihut tyhjentävät HP-palkin hetkessä — kunnes päädytään takaisin kirjautumisruutuun.",
+            "title_fi": "“Back to login screen” – pelisuunnittelu pähkinänkuoressa"
+          },
+          "context_request": null,
+          "speech": "Tää koko peli ei oo niinku mitään muuta ku sitä vaan, että koko aika on niinku vittu paskaläitäköitä maassa. Sippuu miekkuja taivaalta ja jokainen vihun räjähtää. Sitten on vittu poison poolia ja... Kaikki on tunnettu silleen, et ne hittaa joku vittu miljoona prosenttia sun HP -palkista vittu sekunnissa. Oho sidesteppas vahingossa siihen, no joo. Back to login screen."
+        },
+        {
+          "id": "ea3fc998b5ca9ffb0c814f509ecc3468",
+          "revision": 1,
+          "review": "not_approved",
+          "review_note": "",
+          "title": "Pakko olla Agilitya treenattu",
+          "media_status": "ready",
+          "rank": 7,
+          "start_us": 4263110000,
+          "end_us": 4277620000,
+          "output_duration_us": 10900000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0004031",
+            "end_word_id": "w_0004055",
+            "idea_word_id": "w_0004033",
+            "category": "joke",
+            "scores": {
+              "standalone": 3,
+              "opening": 3,
+              "substance": 3,
+              "payoff": 4,
+              "fidelity": 4
+            },
+            "flags": [],
+            "reason": "Lyhyt, ehjä pelihenkinen vitsi: ensin kysytään menivätkö yritykset pieleen, sitten kerrotaan bossin kaatuneen tokalla ja kuitataan poikkeuksellinen taito Agility-harjoittelulla. Pelin tarkka konteksti ei ole tarpeellinen, vaikka bossin nimi jää epäselväksi.",
+            "summary_fi": "Bossi kaatuu tokalla yrityksellä, joten pelaajan on pakko olla harjoitellut Agilitya.",
+            "title_fi": "Pakko olla Agilitya treenattu"
+          },
+          "context_request": null,
+          "speech": "Meniks ekalla? Sit nyt sitten hakkaan sitä maata bossiin. Tokalla! Mitä sä oot noin hyvä pelaa? Onku sä oot harjoitussa angelityö niin paljon? Pakko ollu."
+        },
+        {
+          "id": "f7a4d6508b17195ee7f4b588df542302",
+          "revision": 1,
+          "review": "not_approved",
+          "review_note": "",
+          "title": "“Joku vois jopa sanoa, että tää mies on addiktoitunut”",
+          "media_status": "ready",
+          "rank": 8,
+          "start_us": 5576450000,
+          "end_us": 5586210000,
+          "output_duration_us": 6060000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0005116",
+            "end_word_id": "w_0005133",
+            "idea_word_id": "w_0005116",
+            "category": "joke",
+            "scores": {
+              "standalone": 3,
+              "opening": 3,
+              "substance": 3,
+              "payoff": 4,
+              "fidelity": 4
+            },
+            "flags": [
+              "QST-game-viittaus jää hieman epäselväksi"
+            ],
+            "reason": "Lyhyt toimiva naljailu: ensin todetaan miehen olevan jatkuvasti QST-pelissä, ja seuraava lause viimeistelee havainnon addiktiovitsiksi. Aiempi konteksti ei ole välttämätön, vaikka henkilön ja pelin viittaus jäävät nimeämättä.",
+            "summary_fi": "Streamer naljailee, että eräs mies on jatkuvasti QST-pelissä — joku voisi jo sanoa häntä addiktoituneeksi.",
+            "title_fi": "“Joku vois jopa sanoa, että tää mies on addiktoitunut”"
+          },
+          "context_request": null,
+          "speech": "Tää mies on aina täällä vitun quest game. Joku voisi jopa sanoa, että tää mies on niinku addiktoitunut."
+        },
+        {
+          "id": "6b90d82c2f19970bfa1fd0b2f775dbf6",
+          "revision": 1,
+          "review": "not_approved",
+          "review_note": "",
+          "title": "“Suomen isoin mies” raidasi",
+          "media_status": "ready",
+          "rank": 9,
+          "start_us": 8573760000,
+          "end_us": 8590570000,
+          "output_duration_us": 15530000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0007173",
+            "end_word_id": "w_0007196",
+            "idea_word_id": "w_0007178",
+            "category": "joke",
+            "scores": {
+              "standalone": 3,
+              "opening": 4,
+              "substance": 3,
+              "payoff": 3,
+              "fidelity": 4
+            },
+            "flags": [],
+            "reason": "Lyhyt ja tunnistettava streamerihuumorin hetki: reaktio johtaa vihjailevaan toteamukseen Suomen isoimmasta striimaajasta ja miehestä, minkä hän jättää katsojan tulkittavaksi. Raidauksen kohde ei käy ilmi, mutta se ei estä vitsin ymmärtämistä.",
+            "summary_fi": "Streamer reagoi häkeltyneenä Suomen isoimman striimaajan raidiin ja jättää tulkinnan katsojalle.",
+            "title_fi": "“Suomen isoin mies” raidasi"
+          },
+          "context_request": null,
+          "speech": "Mitä vittua Mitä vittua, Suomen isoin Suomen isoin mies raidasi Suomen isoin striimaaja ja Suomen isoin mies Jokainen voi tulkita halomallaan tavallaan"
+        },
+        {
+          "id": "19f3e452e68b874f4276a94d77c208cc",
+          "revision": 1,
+          "review": "not_approved",
+          "review_note": "",
+          "title": "Race to World Last on parempaa kontenttia",
+          "media_status": "ready",
+          "rank": 10,
+          "start_us": 9252120000,
+          "end_us": 9282220000,
+          "output_duration_us": 24360000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0008203",
+            "end_word_id": "w_0008272",
+            "idea_word_id": "w_0008212",
+            "category": "opinion",
+            "scores": {
+              "standalone": 3,
+              "opening": 3,
+              "substance": 4,
+              "payoff": 4,
+              "fidelity": 3
+            },
+            "flags": [
+              "Palvelimen/solmun reititystä kuvaavat kohdat ovat osin epäselvästi litteroituja.",
+              "Tapahtuman nimet ja mahdollinen Hyten-viittaus kannattaa tarkistaa."
+            ],
+            "reason": "Selkeä ja hauska mielipide: Race to World Last tuottaa parempaa sisältöä kuin Race to World First, minkä jälkeen perustelu paisuu absurdiksi kuvaukseksi Singaporeen kiertävästä yhteydestä. Lopun 'kyllä ... kestää' toimii luonnollisena punchlinena. Alku sisältää hieman täytesanoja, mutta niitä ei kannata leikata enempää rikkomatta puheen luonnollisuutta.",
+            "summary_fi": "Vaarattu julistaa Race to World Lastin paremmaksi sisällöksi ja syyttää hidasta Singaporeen kiertävää yhteyttä.",
+            "title_fi": "Race to World Last on parempaa kontenttia"
+          },
+          "context_request": null,
+          "speech": "Niin, siis tää on tää Race to World Last. Race to World Last on parempaa kontenttia kuin Race to World First. Hyten sivut on hostattu jostakin hemmetin Singaporesta ja mies yhdistää sinne Suomesta, niin ei mikään vittu ihme. Mieti, kun sen pitää vittu matkustaa sitä vittu putkea pitkin sinne vittu Aasiaan, niin kyllä se ei nyt kestää. Kun jommonen solmun kautta pitää hypätä, niin kyllä se ei nyt ristus kestää."
+        }
+      ]
+    },
+    {
+      "run_id": "2ff31ffeab094ae3ad7f29f358a257dd",
+      "video": "CtfHPKQ1qU0",
+      "hours": 4.847239166666666,
+      "raw_suggestions": 98,
+      "saved_proposals": 97,
+      "verified": 94,
+      "section_count": 49,
+      "empty_sections": 1,
+      "summary": {
+        "limit": 10,
+        "candidates": 94,
+        "quality_passed": 83,
+        "selected": 10,
+        "method": "scores",
+        "warning": "Candidate comparison exceeded the input budget; used model scores for priority."
+      },
+      "reviews": {
+        "not_approved": 3,
+        "approved": 7
+      },
+      "verdicts": {
+        "accept": 84,
+        "needs_context": 4,
+        "reject": 6
+      },
+      "ranking_failures": [],
+      "context_repairs": [
+        {
+          "file": "workdir\\runs\\2ff31ffeab094ae3ad7f29f358a257dd\\context-repair\\47546aa3417f414492ae78c507017c3f\\proposal.json",
+          "clip_id": "f4bcff169da97203419b60459c7434d2",
+          "note": "",
+          "proposal": {
+            "outcome": "expand",
+            "start_word_id": "w_0002640",
+            "end_word_id": "w_0002668",
+            "reason": "Alkuun lisätty puhe kertoo, että kyseessä on Braindrot-setin marketplace-sivu, joten Roblox- ja 315 euron ihmettely saa tarvittavan kohteen."
+          },
+          "before_seconds": 11.48,
+          "after_seconds": 16.52
+        },
+        {
+          "file": "workdir\\runs\\2ff31ffeab094ae3ad7f29f358a257dd\\context-repair\\497e1ed34e0b43a3a81014053089b978\\proposal.json",
+          "clip_id": "f4bcff169da97203419b60459c7434d2",
+          "note": "",
+          "proposal": {
+            "outcome": "expand",
+            "start_word_id": "w_0002640",
+            "end_word_id": "w_0002678",
+            "reason": "Lisäys täsmentää, että kyse on Braindrot-pelin esineestä ja perustelee hinnan absurdiutta pelin 400 miljoonan sekuntituotolla."
+          },
+          "before_seconds": 16.83,
+          "after_seconds": 27.83
+        },
+        {
+          "file": "workdir\\runs\\2ff31ffeab094ae3ad7f29f358a257dd\\context-repair\\806079314da949b2a2c46e92da2d902c\\proposal.json",
+          "clip_id": "00e0266a328a2c5af675e57e7f279b47",
+          "note": "a good clip but I would like it to be longer.",
+          "proposal": {
+            "outcome": "expand",
+            "start_word_id": "w_0004643",
+            "end_word_id": "w_0004672",
+            "reason": "Alkuun lisätty puhe antaa havainnolle lyhyen aiemman tilanteen vertailun: jotain oli ennen, mutta ei enää. Se tekee pohje-kommentista hieman ymmärrettävämmän ilman aiheen vaihtumista."
+          },
+          "before_seconds": 6.96,
+          "after_seconds": 10.98
+        },
+        {
+          "file": "workdir\\runs\\2ff31ffeab094ae3ad7f29f358a257dd\\context-repair\\a0add7d1f0094dd4a6698a89d476fab6\\proposal.json",
+          "clip_id": "00e0266a328a2c5af675e57e7f279b47",
+          "note": "",
+          "proposal": {
+            "outcome": "unchanged",
+            "start_word_id": "",
+            "end_word_id": "",
+            "reason": "Itsenäinen havainto on ymmärrettävä jo sellaisenaan. Läheinen aiempi puhe on katkelmallista eikä tarjoa selkeää, tähän viittaavaa kontekstia."
+          },
+          "before_seconds": 6.96,
+          "after_seconds": null
+        }
+      ],
+      "clips": [
+        {
+          "id": "2440865ffea8b8165e451fda5999984a",
+          "revision": 1,
+          "review": "not_approved",
+          "review_note": "",
+          "title": "Tuo ei ole Final Fantasy ilman leffailtaa",
+          "media_status": "ready",
+          "rank": 1,
+          "start_us": 7221040000,
+          "end_us": 7238730000,
+          "output_duration_us": 13580000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0006522",
+            "end_word_id": "w_0006550",
+            "idea_word_id": "w_0006522",
+            "category": "joke",
+            "scores": {
+              "standalone": 3,
+              "opening": 4,
+              "substance": 3,
+              "payoff": 4,
+              "fidelity": 4
+            },
+            "flags": [],
+            "reason": "Hauska ja selkeä Final Fantasy -heitto: streamer määrittelee leikillisesti, ettei peli ole oikeaa Final Fantasya ilman elokuvailtaa ja kaveriporukan tunnelmaa, ja päättää ajatuksen pilalla olemiseen. Mukana on koko vitsi ja sen loppu ilman merkittävää kontekstivajetta.",
+            "summary_fi": "Final Fantasy ei ole oikeaa Final Fantasya ilman leffailtaa – pelkkä gameplay ei riitä.",
+            "title_fi": "Tuo ei ole Final Fantasy ilman leffailtaa"
+          },
+          "context_request": null,
+          "speech": "ei se oo Final Fantasy, ei se oo Final Fantasy, jos ei se Leffa -iltaa oo, ei mitään vitun gameplayitä mun vitun Final Fantasy, se on hyvä Final Fantasy pilolla."
+        },
+        {
+          "id": "6cf6c5a30bd29841549f145f97591259",
+          "revision": 1,
+          "review": "not_approved",
+          "review_note": "",
+          "title": "“How long is this going to take?” — sata tuntia",
+          "media_status": "ready",
+          "rank": 2,
+          "start_us": 13938020000,
+          "end_us": 13975770000,
+          "output_duration_us": 10300000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0011348",
+            "end_word_id": "w_0011374",
+            "idea_word_id": "w_0011348",
+            "category": "joke",
+            "scores": {
+              "standalone": 3,
+              "opening": 4,
+              "substance": 3,
+              "payoff": 4,
+              "fidelity": 4
+            },
+            "flags": [],
+            "reason": "Lyhyt, ymmärrettävä vitsi: ensin kysytään englanniksi, kauanko tämä kestää, ja vastaukseksi paljastuu sata tuntia, jolloin voisi tehdä jotain muuta. Pelin tarkka konteksti jää avoimeksi, mutta se ei estä punchlinen ymmärtämistä.",
+            "summary_fi": "Sadan tunnin urakkaan voisi käyttää ajan johonkin muuhun.",
+            "title_fi": "“How long is this going to take?” — sata tuntia"
+          },
+          "context_request": null,
+          "speech": "Kuinka pitkään tämä vaikuttaa? Ai jaa, sata tuntia. Voi olla, että teen tuolla lajalla jotain muuta."
+        },
+        {
+          "id": "51647b04c430f3877ecf2e1f5e717df3",
+          "revision": 1,
+          "review": "approved",
+          "review_note": "",
+          "title": "Kun joku varastaa teidän lockoutin",
+          "media_status": "ready",
+          "rank": 3,
+          "start_us": 14764240000,
+          "end_us": 14813090000,
+          "output_duration_us": 47430000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0012420",
+            "end_word_id": "w_0012527",
+            "idea_word_id": "w_0012430",
+            "category": "story",
+            "scores": {
+              "standalone": 3,
+              "opening": 3,
+              "substance": 4,
+              "payoff": 4,
+              "fidelity": 4
+            },
+            "flags": [],
+            "reason": "Hauska ja konkreettinen WoW-tarina lockoutin varastamisesta: toinen pelaaja hankkii lockoutin, kutsuu 20 kaveria farmaamaan ja estää alkuperäistä ryhmää pääsemästä raidiin. Pelin termit ovat pelaajayleisölle ymmärrettäviä, vaikka taustalla mainittu tarina jää hieman irralliseksi.",
+            "summary_fi": "Toinen pelaaja voi varastaa killan lockoutin ja täyttää raidin omilla kavereillaan.",
+            "title_fi": "Kun joku varastaa teidän lockoutin"
+          },
+          "context_request": null,
+          "speech": "Sunkum of Dominationis Shadowlandsis oli käynyt silleen, että tota noin World Boss Grobissa World Boss Grobissa siis sä oot vaan ihan niinku mytyraidaaja. Oot raidannut mytyä sillä viikolla. Mä mietin, että World Bossia tappaan Grobbihin. Se groop -liideri kattoo, että sä oot hakannu jonkun verran mytyä. Se heittää sulle liiderit siitä groopista ja sitten se menee sisään sinne raidiin ja se saa sen lokautin. Ja sitten se kutsuu sinne 20 kaveria sisään ja menee sinne teidän lokauttiin farmaan boe. Ja sitten kun te yritätte mennä illalla sinne farmaan... Yritätte illalla mennä progeemaan sinne, niin te ette pääse sinne raidiin sisälle, kun siellä on 20 ihmisiä teidän lokautissa pelaamassa. Farmaan boeita siellä."
+        },
+        {
+          "id": "0505a1d71b2b5bda8f43f471cc4965db",
+          "revision": 1,
+          "review": "approved",
+          "review_note": "",
+          "title": "Viraaliksi ja saman tien kadoksiin",
+          "media_status": "ready",
+          "rank": 5,
+          "start_us": 257580000,
+          "end_us": 301500000,
+          "output_duration_us": 41830000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0000109",
+            "end_word_id": "w_0000216",
+            "idea_word_id": "w_0000126",
+            "category": "joke",
+            "scores": {
+              "standalone": 3,
+              "opening": 3,
+              "substance": 4,
+              "payoff": 4,
+              "fidelity": 3
+            },
+            "flags": [
+              "Useita epäselviä automaattitranskription sanoja, mutta vitsin kokonaismerkitys säilyy."
+            ],
+            "reason": "Hauska ja tunnistettava skenaario: YouTube-ura alkaa viraalimenestyksellä, mutta tekijä katoaa täysin ja jää mystiseksi legendaksi. Alkuperäinen kysymys kannattaa säilyttää, jotta ehdotus ei ala keskeltä ajatusta. Loppu toimii luonnollisena punchlinena.",
+            "summary_fi": "Kuvitteellinen YouTube-ura räjähtää viraaliksi — ja tekijä katoaa heti mysteeriksi.",
+            "title_fi": "Viraaliksi ja saman tien kadoksiin"
+          },
+          "context_request": null,
+          "speech": "Pitäskö sun, hei, voitan vaikka kertoo, että pitäskö sun, pitäskö sun alottaa semmonen Youtube ura, missä tota noin, teet jonkun uniikin akkoon, te rupeet tekeen siitä videoita Youtubehen ja sit se sun ensimmäinen video minkä sä teet, niin se on ihan järkyttävää bangeriä, sä postaat sen tuohon noin reddittiin ja se menee ihan viraaliks ja sillä jokala videolla joku sata tuhatta vieviä ja sit sä teet pari jaksoa, jotka saa ihan ok määrä vieviä ja sit sä vaan niinku katot, sä vaan katot niinku johonkin ja susta ei enää ikinä kuulu mitään ja sitten kaikki vaan muistelee sitä, kun se yks mies kävi tekees pari jaksoa jotenkin hyvää tuota noin uniikkiakkonttisarjaa ja lähti vaan menemään. Katot vaan niinku legendana."
+        },
+        {
+          "id": "c820186388b342d0d1e86a800861c728",
+          "revision": 1,
+          "review": "approved",
+          "review_note": "",
+          "title": "Quest Cape ei ole enää nyyppäviitta",
+          "media_status": "ready",
+          "rank": 6,
+          "start_us": 461780000,
+          "end_us": 486850000,
+          "output_duration_us": 22680000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0000313",
+            "end_word_id": "w_0000375",
+            "idea_word_id": "w_0000328",
+            "category": "observation",
+            "scores": {
+              "standalone": 3,
+              "opening": 3,
+              "substance": 4,
+              "payoff": 4,
+              "fidelity": 3
+            },
+            "flags": [
+              "Vertailu 'sotakertaa' voi olla epäselvä transkriptio, mahdollisesti 'satakertaa'."
+            ],
+            "reason": "Selkeä OSRS-observaatio: questit ovat nykyään huomattavasti vaikeampia, ja Quest Cape on muuttunut nyyppäviitasta kovaksi saavutukseksi. Fire Capen ja Quest Capen vertailu toimii lopun payoffina. Alkuperäinen pitempi johdanto on tarpeeton; rajaus alkaa varsinaisesta väitteestä.",
+            "summary_fi": "OSRS:n questit ovat nykyään niin vaikeita, että Quest Cape ei enää ole mikään nyyppäsaavutus — Fire Cape on jopa moninkertaisesti helpompi hankkia.",
+            "title_fi": "Quest Cape ei ole enää nyyppäviitta"
+          },
+          "context_request": null,
+          "speech": "tosi vaikeeta questiä on niinku tosi paljon nykyään. Ihan pitää hakata niinku oikeesti vaikeeta bossia. Quest -keippi oli semmonen nyyppä keippi niinku sillon aikoinaan, mut onks se oikeesti semmonen... Kovien tekeyden keippi niinku nyky? Se oli sillon, että niinku... Firecape oli kova cape ja WScape oli ihan nyyppä cape ja nyt joku Firecape on sata kertaa helpompi hommata ku WScape."
+        },
+        {
+          "id": "37b53cce1cc1dc91f83cc410a54e76da",
+          "revision": 1,
+          "review": "not_approved",
+          "review_note": "",
+          "title": "Kärpäsen paska on ennen kaikkea kokemus",
+          "media_status": "ready",
+          "rank": 7,
+          "start_us": 2385250000,
+          "end_us": 2401120000,
+          "output_duration_us": 14670000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0002520",
+            "end_word_id": "w_0002570",
+            "idea_word_id": "w_0002526",
+            "category": "joke",
+            "scores": {
+              "standalone": 3,
+              "opening": 3,
+              "substance": 4,
+              "payoff": 4,
+              "fidelity": 3
+            },
+            "flags": [
+              "Transkriptiossa epäselvä sana: \"kärpäsen/kärpisen\"."
+            ],
+            "reason": "Absurdin hauska perustelu, jossa tuhannen euron maksamista kärpäsen paskasta kuvataan kokemuksena eikä ruokana. Ajatus ja punchline säilyvät kokonaisena; pieni transkriptioepävarmuus ei estä ymmärtämistä.",
+            "summary_fi": "Tuhat euroa kärpäsen paskasta – tärkeintä ei ole ruoka vaan kokemus.",
+            "title_fi": "Kärpäsen paska on ennen kaikkea kokemus"
+          },
+          "context_request": null,
+          "speech": "No mut se se kokemus. Se on se kokemus saada sen kärpäsen paskan. Siis sun pitää nyt ymmärtää se, että se pointti ei oo se ruoka vaan se kokemus. Kokemus minkä sä saat kun sä maksat sen tuhat euroa sen kärpäsen paskasta, se on se missä sä maksat."
+        },
+        {
+          "id": "f4bcff169da97203419b60459c7434d2",
+          "revision": 4,
+          "review": "approved",
+          "review_note": "",
+          "title": "315 euroa Braindrot-esineestä?",
+          "media_status": "ready",
+          "rank": 8,
+          "start_us": 2451850000,
+          "end_us": 2479680000,
+          "output_duration_us": 21930000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0002648",
+            "end_word_id": "w_0002668",
+            "idea_word_id": "w_0002650",
+            "category": "observation",
+            "scores": {
+              "standalone": 3,
+              "opening": 3,
+              "substance": 3,
+              "payoff": 4,
+              "fidelity": 4
+            },
+            "flags": [],
+            "reason": "Hauska ja konkreettinen hämmästely Roblox-tyyppisen Braindrot-markkinapaikan hinnoista: ensin tunnistus ja ihmettely, lopuksi 315 euron hintalappu. Pelin tarkempi konteksti jää hieman avoimeksi, mutta olennainen vitsi toimii.",
+            "summary_fi": "Streamer ihmettelee, miksi Roblox-tyyppisessä Braindrot-marketplacessa myydään esineitä 315 eurolla.",
+            "title_fi": "315 euroa Braindrot-esineestä?"
+          },
+          "context_request": {
+            "expected_revision": 2,
+            "before": false,
+            "after": true,
+            "note": "",
+            "id": "497e1ed34e0b43a3a81014053089b978",
+            "status": "expanded",
+            "reason": "Lisäys täsmentää, että kyse on Braindrot-pelin esineestä ja perustelee hinnan absurdiutta pelin 400 miljoonan sekuntituotolla."
+          },
+          "speech": "Complete your Braindrot set. Larke Stella Braindrot Marketplace. Eiks tää Stella Braindrot ollut joku vitun Roblox -peli? Kukot shoppailee niinku Robloxiin täältä vittu jotain? Mitä vittua? 315 euroa unit. Mitä? Mikä vittu Braindrot Griffin sekret? 400 miljoonaa sekunnissa. 400 miljoonaa."
+        },
+        {
+          "id": "a73b52cda08924e1fffca9ae5eac4c92",
+          "revision": 2,
+          "review": "approved",
+          "review_note": "",
+          "title": "Kun työkokemus on palkkaa arvokkaampaa",
+          "media_status": "ready",
+          "rank": 9,
+          "start_us": 2978740000,
+          "end_us": 3009610000,
+          "output_duration_us": 29010000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0003234",
+            "end_word_id": "w_0003299",
+            "idea_word_id": "w_0003252",
+            "category": "joke",
+            "scores": {
+              "standalone": 3,
+              "opening": 3,
+              "substance": 4,
+              "payoff": 4,
+              "fidelity": 3
+            },
+            "flags": [
+              "Muutama sana on epäselvästi litteroitu, erityisesti w_0003257 ja w_0003264."
+            ],
+            "reason": "Toimiva satiirinen vitsi palkattomasta startup-työstä: työkokemusta väitetään rahaa arvokkaammaksi, ja lopussa tarjotaan käytännössä harjoittelua. Alun kysymys antaa tarvittavan keskustelukontekstin.",
+            "summary_fi": "Startup tarjoaa töitä, mutta palkaksi luvataan rahaa arvokkaampaa työkokemusta — eli käytännössä harjoittelua.",
+            "title_fi": "Kun työkokemus on palkkaa arvokkaampaa"
+          },
+          "context_request": null,
+          "speech": "tarvitsisiko töitä? Kyllä se laittoi mulle viestiä, että oisko meidän firmassa sille töitä, mutta ei täällä oikein ollu. Kyllä meidän startuppiin saa tulla töihin ja tietenkään palkkaa ei makseta. Tai siis palkka maksetaan tietenkin siis rahaakin arvokkaampana, eli saa siis aitoa rehtiä työkokemusta ja työkokemus on niinku rahaakin arvokkaampaa. Tiedän sä ei vois sanoa ettei palkkaa saisin, mutta voit tulla harjoitteleeksi."
+        },
+        {
+          "id": "00e0266a328a2c5af675e57e7f279b47",
+          "revision": 2,
+          "review": "approved",
+          "review_note": "",
+          "title": "Entisillä lihavilla on kunnon pohkeet",
+          "media_status": "ready",
+          "rank": 10,
+          "start_us": 4499890000,
+          "end_us": 4511060000,
+          "output_duration_us": 8670000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0004649",
+            "end_word_id": "w_0004672",
+            "idea_word_id": "w_0004649",
+            "category": "joke",
+            "scores": {
+              "standalone": 3,
+              "opening": 3,
+              "substance": 3,
+              "payoff": 4,
+              "fidelity": 4
+            },
+            "flags": [],
+            "reason": "Lyhyt ja itsenäinen havaintovitsi: aiemmin lihavilla, nykyään laihemmilla ihmisillä väitetään olevan kunnon pohkeet. Kysymys rakentaa odotuksen ja viimeinen ilmaus toimii punchlinena.",
+            "summary_fi": "Streamer väittää, että entisillä lihavilla ihmisillä on nykyään hoikempina kaikilla kunnon pohkeet.",
+            "title_fi": "Entisillä lihavilla on kunnon pohkeet"
+          },
+          "context_request": {
+            "expected_revision": 1,
+            "before": false,
+            "after": false,
+            "note": "a good clip but I would like it to be longer.",
+            "id": "806079314da949b2a2c46e92da2d902c",
+            "status": "expanded",
+            "reason": "Alkuun lisätty puhe antaa havainnolle lyhyen aiemman tilanteen vertailun: jotain oli ennen, mutta ei enää. Se tekee pohje-kommentista hieman ymmärrettävämmän ilman aiheen vaihtumista."
+          },
+          "speech": "Ollu aikana mut ei oo enää Ootko huomannu sitä että kaikilla semmosilla ihmisillä jotka oli ennen lihavia ja nykyään vähän laihempia Niillä kaikilla on kunnon pohkeet"
+        },
+        {
+          "id": "86c998fa7dfc31c1b0bfb1e1e17a21ea",
+          "revision": 3,
+          "review": "approved",
+          "review_note": "",
+          "title": "“Odottakaa ensi seasoniin, että saatte niitä gamea”",
+          "media_status": "ready",
+          "rank": 11,
+          "start_us": 4731360000,
+          "end_us": 4777630000,
+          "output_duration_us": 37530000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0004844",
+            "end_word_id": "w_0004938",
+            "idea_word_id": "w_0004847",
+            "category": "opinion",
+            "scores": {
+              "standalone": 3,
+              "opening": 2,
+              "substance": 4,
+              "payoff": 4,
+              "fidelity": 4
+            },
+            "flags": [
+              "Pelin nimi ja gemien tarkka käyttötarkoitus jäävät epäselviksi.",
+              "Muutama kohta on transkriptiltaan epävarma, mutta pääajatus säilyy."
+            ],
+            "reason": "Perusteltu ja tunnistettava kritiikki: helppo arkkujen gemipalkintojen korjaus jätettiin koko seasonin ajaksi tekemättä, vaikka muita bugeja pätsättiin, ja pelaajia käsketään odottamaan ensi seasonia. Loppu antaa selkeän, ironisen payoffin.",
+            "summary_fi": "Vaarattu ihmettelee, miksi pelin arkkujen liian pienet gemipalkinnot korjattiin vasta seasonin jälkeen, vaikka muita bugeja pätsättiin jatkuvasti.",
+            "title_fi": "“Odottakaa ensi seasoniin, että saatte niitä gamea”"
+          },
+          "context_request": null,
+          "speech": "Mä halusin sanoa, että siis tää on kans yks mikä kertoo vähän niinku tän pelin kehitysprosessista, koska siis viime seasonissa oli siis semmonen ongelma, että nää arkut ei antanu paskan vertaa noita gemmejä. Ja luultavasti se on aika helppo niinku korjaus niinku vaan buffaa sitä jossain hotfixa tai patch, ne antaa enemmän gemmejä, mutta ne ei korjonnu sitä missään kohtaa viime koko seasonin aikana. Mutta nyt on korjannut se, että näistä tulee niinku paljon enemmän gameja. Mut se niinku periaatekysymys, sitä ei niinku korjata sen seasonin aikaa niinku missään nimessä, vaikka ne pätsää kaikkia muita buggeja kyllä. Mutta toi on niinku semmoinen, että odottakaa sitä ensi seasonin, että saatte niitä gameja."
+        }
+      ]
+    },
+    {
+      "run_id": "462b57889cab44658844bef2097aa24d",
+      "video": "wiBmelLhX7c",
+      "hours": 4.147239166666667,
+      "raw_suggestions": 50,
+      "saved_proposals": 49,
+      "verified": 48,
+      "section_count": 42,
+      "empty_sections": 7,
+      "summary": {
+        "limit": 10,
+        "candidates": 48,
+        "quality_passed": 39,
+        "selected": 10,
+        "method": "scores",
+        "warning": "Candidate comparison could not be read; used model scores for priority."
+      },
+      "reviews": {
+        "approved": 3,
+        "not_approved": 5,
+        "unreviewed": 2
+      },
+      "verdicts": {
+        "accept": 40,
+        "reject": 7,
+        "needs_context": 1
+      },
+      "ranking_failures": [
+        {
+          "file": "workdir\\runs\\462b57889cab44658844bef2097aa24d\\inference\\review-priority-36f6f353df3a4158\\review-priority-b291e6edbd33412ca2842d23a2585680.response.json",
+          "returned": 39,
+          "missing": [
+            "candidate-2"
+          ],
+          "extra": [
+            "candidate-22"
+          ],
+          "ranking": [
+            {
+              "candidate_id": "candidate-1",
+              "recommendation": "review",
+              "reason": "Itsenäinen WoW-vitsi ja selkeä itseironinen 16 000 pelitunnin punchline."
+            },
+            {
+              "candidate_id": "candidate-7",
+              "recommendation": "review",
+              "reason": "Hauska tarina hahmonimen vahinkopaljastuksesta, joka eskaloituu toimivaksi osoiteheitoksi."
+            },
+            {
+              "candidate_id": "candidate-32",
+              "recommendation": "review",
+              "reason": "Omaleimainen musta huumori ja selkeä loppukaneetti Tšernobyliin liittyvässä anekdootissa."
+            },
+            {
+              "candidate_id": "candidate-18",
+              "recommendation": "review",
+              "reason": "Dispel-termit ja kirkollinen siunaus yhdistyvät persoonalliseksi vitsiksi, joka päättyy amen-huipennukseen."
+            },
+            {
+              "candidate_id": "candidate-20",
+              "recommendation": "review",
+              "reason": "Selkeä itseironinen gamer-vitsi myöhästyneestä Ray of Frostista."
+            },
+            {
+              "candidate_id": "candidate-34",
+              "recommendation": "review",
+              "reason": "Konkreettinen raidikertomus ja hauska optimistinen käännös 700 pullin epäonnistumisesta."
+            },
+            {
+              "candidate_id": "candidate-0",
+              "recommendation": "review",
+              "reason": "Henkilökohtainen isovanhempipuhe rakentuu mustan huumorin kautta selkeään build different -lopetukseen."
+            },
+            {
+              "candidate_id": "candidate-3",
+              "recommendation": "review",
+              "reason": "Lyhyt ja itsenäinen absurdin dramaattinen sanaleikki, jossa elämä on over."
+            },
+            {
+              "candidate_id": "candidate-4",
+              "recommendation": "review",
+              "reason": "Tunnistettava vertaus pelistä, joka pelaa itseään AFK:na; pääpointti ja punchline toimivat."
+            },
+            {
+              "candidate_id": "candidate-13",
+              "recommendation": "review",
+              "reason": "Tunnistettava gamer-rantti huonosta lootista ja epäilevästä Reduce and Drop Rate -teoriasta."
+            },
+            {
+              "candidate_id": "candidate-23",
+              "recommendation": "review",
+              "reason": "Distinctiivi mielipide täysin skriptatusta fightista, jota voisi pelata PowerPointtia katsoen."
+            },
+            {
+              "candidate_id": "candidate-26",
+              "recommendation": "review",
+              "reason": "Selkeä ja samaistuttava havainto vastustajien poikkeuksellisen hyvästä trinket-lootista."
+            },
+            {
+              "candidate_id": "candidate-25",
+              "recommendation": "review",
+              "reason": "Ahtaasta pelitilanteesta tehty helposti ymmärrettävä hahmon vatsa sisään -vitsi."
+            },
+            {
+              "candidate_id": "candidate-6",
+              "recommendation": "review",
+              "reason": "Kysymys–vastaus-rakenne johtaa toimivaan Bovia ei tarvinnut avata -punchlineen."
+            },
+            {
+              "candidate_id": "candidate-8",
+              "recommendation": "review",
+              "reason": "Peliyhteisön kilpailu muuttuu leikilliseksi vedonlyönniksi, jossa algoritmi jakaa rahat Lakulle."
+            },
+            {
+              "candidate_id": "candidate-14",
+              "recommendation": "review",
+              "reason": "Lyhyt sääparadoksi on ymmärrettävä ja duality-nimitys toimii koomisesti."
+            },
+            {
+              "candidate_id": "candidate-15",
+              "recommendation": "review",
+              "reason": "Raidimekaniikan luentovertauksessa on persoonallinen kehystys ja hauska 50 DKP:n palkinto."
+            },
+            {
+              "candidate_id": "candidate-24",
+              "recommendation": "review",
+              "reason": "Pelimoka muuttuu kuivaksi iltarukousvitsiksi, vaikka pelitilanne jää hieman avoimeksi."
+            },
+            {
+              "candidate_id": "candidate-9",
+              "recommendation": "review",
+              "reason": "Omaleimainen fantasiapunchline menninkäisten kivenkolosta, mutta kohdesana vaatii tarkistuksen."
+            },
+            {
+              "candidate_id": "candidate-10",
+              "recommendation": "review",
+              "reason": "Absurdisti eskaloituva animepilkka on persoonallinen, vaikka lopun litterointi on epävarma."
+            },
+            {
+              "candidate_id": "candidate-21",
+              "recommendation": "review",
+              "reason": "Yhtenäinen ja hyödyllinen selitys healerien absorbien käsittelystä; teknisyys palvelee pointtia."
+            },
+            {
+              "candidate_id": "candidate-5",
+              "recommendation": "review",
+              "reason": "Konkreettinen raidistrategian selitys ja oman aiemman virheen myöntäminen tuovat sisältöä, vaikka termit ovat epäselviä."
+            },
+            {
+              "candidate_id": "candidate-43",
+              "recommendation": "defer",
+              "reason": "Tekninen mekaniikkaselitys on kiinnostava, mutta alku on katkelmallinen ja litterointi liian epävarma."
+            },
+            {
+              "candidate_id": "candidate-28",
+              "recommendation": "defer",
+              "reason": "Banterissa on persoonallinen oman elämän sankari -lopetus, mutta sanaleikki jää epäselväksi."
+            },
+            {
+              "candidate_id": "candidate-31",
+              "recommendation": "defer",
+              "reason": "Kolikoita generoiva esine ja rahaongelmavitsi ovat ymmärrettäviä, mutta melko tavanomaisia."
+            },
+            {
+              "candidate_id": "candidate-40",
+              "recommendation": "defer",
+              "reason": "Lyhyt burgeriheitto on pelitilanteesta riippuvainen eikä sen punchline erotu vahvasti."
+            },
+            {
+              "candidate_id": "candidate-11",
+              "recommendation": "defer",
+              "reason": "Pitkän viikonlopun huolimattomuus on tunnistettava havainto, mutta katkelma on hyvin ohut ja epäselvä."
+            },
+            {
+              "candidate_id": "candidate-30",
+              "recommendation": "defer",
+              "reason": "Kamerahavainto on ymmärrettävä, mutta aloitus hapuilee eikä lopussa ole vahvaa punchlinea."
+            },
+            {
+              "candidate_id": "candidate-46",
+              "recommendation": "defer",
+              "reason": "Lokien ja parsen ristiriita on samaistuttava, mutta loppu jää avoimeksi ja termit epäselviksi."
+            },
+            {
+              "candidate_id": "candidate-47",
+              "recommendation": "defer",
+              "reason": "Ristiriita on huvittava, mutta nimi tai pelitermi on epäselvä ja kokonaisuus vaatii aiempaa kontekstia."
+            },
+            {
+              "candidate_id": "candidate-16",
+              "recommendation": "defer",
+              "reason": "OSRS-pelaajia koskeva heitto alkaa toimia, mutta epäselvä loppu ei tuo varmaa lisäpunchlinea."
+            },
+            {
+              "candidate_id": "candidate-22",
+              "recommendation": "defer",
+              "reason": "Kandidaattia ei ole toimitetussa aineistossa."
+            },
+            {
+              "candidate_id": "candidate-17",
+              "recommendation": "defer",
+              "reason": "Warlock-POV-kehu on lähinnä kontekstisidonnaista banteria ilman erityisen vahvaa oivallusta."
+            },
+            {
+              "candidate_id": "candidate-19",
+              "recommendation": "defer",
+              "reason": "Luokka- ja spekkikeskustelussa on mielipide, mutta se on pitkästi tekninen ja lopetus jää epäselväksi."
+            },
+            {
+              "candidate_id": "candidate-35",
+              "recommendation": "defer",
+              "reason": "Healer-gameplayn havainto on tekninen, mutta termien epäselvyys heikentää itsenäistä ymmärrettävyyttä."
+            },
+            {
+              "candidate_id": "candidate-37",
+              "recommendation": "defer",
+              "reason": "Aito huomio vaikeasta vuodesta, mutta tausta ja punchline puuttuvat."
+            },
+            {
+              "candidate_id": "candidate-38",
+              "recommendation": "defer",
+              "reason": "Persoonallinen mutta yleinen huomio henkisesti vaikeasta vuodesta jää ilman olennaista kontekstia."
+            },
+            {
+              "candidate_id": "candidate-41",
+              "recommendation": "defer",
+              "reason": "Protin heikkoutta koskeva mielipide on hyödyllinen vain pelikeskustelun jatkona ja litterointi on epävarma."
+            },
+            {
+              "candidate_id": "candidate-42",
+              "recommendation": "defer",
+              "reason": "Blizzard-vaikutusta koskeva vitsi on potentiaalinen, mutta nimet ja lopetus ovat liian epäselviä."
+            }
+          ]
+        },
+        {
+          "file": "workdir\\runs\\462b57889cab44658844bef2097aa24d\\inference\\review-priority-36f6f353df3a4158\\review-priority-d33e190989d84b59ae2ff39a3e1634ef.response.json",
+          "returned": 47,
+          "missing": [],
+          "extra": [
+            "candidate-22",
+            "candidate-27",
+            "candidate-29",
+            "candidate-33",
+            "candidate-36",
+            "candidate-39",
+            "candidate-44",
+            "candidate-45"
+          ],
+          "ranking": [
+            {
+              "candidate_id": "candidate-1",
+              "recommendation": "review",
+              "reason": "Itsenäinen WoW-vitsi yhdistää elämän tarkoituksen ja 16 000 pelitunnin itseironiseen punchlineen."
+            },
+            {
+              "candidate_id": "candidate-7",
+              "recommendation": "review",
+              "reason": "Kahden vuoden hahmonimen salaaminen eskaloituu hauskaksi, tunnistettavaksi liioitteluksi."
+            },
+            {
+              "candidate_id": "candidate-32",
+              "recommendation": "review",
+              "reason": "Selkeä mustan huumorin anekdootti ja vahva lopetus mummon juhlimisesta."
+            },
+            {
+              "candidate_id": "candidate-18",
+              "recommendation": "review",
+              "reason": "Pelitermeihin yhdistyvä kirkollinen siunaus rakentuu erottuvaksi amen-huipennukseksi."
+            },
+            {
+              "candidate_id": "candidate-3",
+              "recommendation": "review",
+              "reason": "Lyhyt ja täysin ymmärrettävä absurdi sanaleikki, jossa “elämä” toimii napakkana punchlinena."
+            },
+            {
+              "candidate_id": "candidate-20",
+              "recommendation": "review",
+              "reason": "Toimiva itseironinen gamer-vitsi myöhästyneestä Ray of Frostista."
+            },
+            {
+              "candidate_id": "candidate-25",
+              "recommendation": "review",
+              "reason": "Ahtaan pelitilanteen vertaaminen vatsan sisään vetämiseen on selkeä ja persoonallinen."
+            },
+            {
+              "candidate_id": "candidate-26",
+              "recommendation": "review",
+              "reason": "Selkeä ja samaistuttava vertailu vihollisten ja oman tiimin trinkettisaaliista."
+            },
+            {
+              "candidate_id": "candidate-34",
+              "recommendation": "review",
+              "reason": "Konkreettinen epäonnistuneen raidin tarina saa hyvän käänteen ajatuksesta, että huonomminkin olisi voinut mennä."
+            },
+            {
+              "candidate_id": "candidate-4",
+              "recommendation": "review",
+              "reason": "Path of Exile -vertauksessa peli kuvataan hauskasti itseään pelaavaksi AFK:na."
+            },
+            {
+              "candidate_id": "candidate-6",
+              "recommendation": "review",
+              "reason": "Kysymys–vastaus-rakenne johtaa toimivaan kuivaan avaus- ja sulkemispunchlineen."
+            },
+            {
+              "candidate_id": "candidate-2",
+              "recommendation": "review",
+              "reason": "Raidiroolien tahallinen yksinkertaistaminen ja 100 pullin perustelu muodostavat tunnistettavan pelivitsin."
+            },
+            {
+              "candidate_id": "candidate-14",
+              "recommendation": "review",
+              "reason": "Kesän alun ja lumisateen ristiriita on lyhyt, helposti ymmärrettävä absurdihavainto."
+            },
+            {
+              "candidate_id": "candidate-8",
+              "recommendation": "review",
+              "reason": "Kilpailuasetelma muuttuu persoonalliseksi vedonlyöntivitsiksi tekoälyn rahaa jakavasta algoritmista."
+            },
+            {
+              "candidate_id": "candidate-13",
+              "recommendation": "review",
+              "reason": "Tunnistettava loot-rantti ja pelin kiroaminen välittyvät, vaikka yksi kohta on ristiriitainen."
+            },
+            {
+              "candidate_id": "candidate-23",
+              "recommendation": "review",
+              "reason": "Ajatus täysin skriptatusta PowerPoint-fightista on omaleimainen ja selkeästi päätelty."
+            },
+            {
+              "candidate_id": "candidate-0",
+              "recommendation": "review",
+              "reason": "Henkilökohtainen isovanhempipuhe rakentuu hauskaksi “vanha kansa on build different” -heitoksi."
+            },
+            {
+              "candidate_id": "candidate-10",
+              "recommendation": "review",
+              "reason": "Animehenkinen pilkka eskaloituu erottuvaksi streamer-vitsiksi, mutta lopun litterointi on epävarma."
+            },
+            {
+              "candidate_id": "candidate-5",
+              "recommendation": "review",
+              "reason": "Konkreettinen raidistrategian selitys ja oman virheen myöntäminen tarjoavat pelillistä substanssia."
+            },
+            {
+              "candidate_id": "candidate-15",
+              "recommendation": "review",
+              "reason": "Raidimekaniikan luentovertaus ja 50 DKP:n palkinto muodostavat kiinnostavan kehystyksen."
+            },
+            {
+              "candidate_id": "candidate-9",
+              "recommendation": "review",
+              "reason": "Omaleimainen fantasiavitsi menninkäisten kivenkolosta, vaikka kohdesana on epäselvä."
+            },
+            {
+              "candidate_id": "candidate-28",
+              "recommendation": "review",
+              "reason": "Banter rakentuu leikilliseen “oman elämän sankari” -kuvaukseen, vaikka sanaleikki jää hieman avoimeksi."
+            },
+            {
+              "candidate_id": "candidate-31",
+              "recommendation": "review",
+              "reason": "Selkeä reaktio kolikkoja generoivaan esineeseen ja rahaongelmien ratkaisemiseen."
+            },
+            {
+              "candidate_id": "candidate-24",
+              "recommendation": "review",
+              "reason": "Pelimoka kääntyy kuivaksi rukousvitsiksi, vaikka varsinainen pelitilanne jää avoimeksi."
+            },
+            {
+              "candidate_id": "candidate-40",
+              "recommendation": "review",
+              "reason": "Lyhyt burgeriksi julistautuva pelivitsi toimii, mutta tarvitsee hieman pelitilanteen kontekstia."
+            },
+            {
+              "candidate_id": "candidate-11",
+              "recommendation": "defer",
+              "reason": "Huomio pitkästä viikonlopusta ja huolimattomuusvirheistä on melko yleinen eikä huipennu vahvasti."
+            },
+            {
+              "candidate_id": "candidate-16",
+              "recommendation": "defer",
+              "reason": "OSRS-heiton alku on ymmärrettävä, mutta epäselvä loppu ei tuo varmaa punchlinea."
+            },
+            {
+              "candidate_id": "candidate-17",
+              "recommendation": "defer",
+              "reason": "Warlock-POV-kehu on lähinnä kontekstisidonnainen banter ilman selkeää tarinaa tai vitsiä."
+            },
+            {
+              "candidate_id": "candidate-21",
+              "recommendation": "defer",
+              "reason": "Yhtenäinen healer-mekaniikan selitys on hyödyllinen, mutta rutiininomainen eikä erityisen viihdyttävä."
+            },
+            {
+              "candidate_id": "candidate-30",
+              "recommendation": "defer",
+              "reason": "Kamerahavainto on kiinnostava, mutta hapuileva eikä pääty selkeään punchlineen."
+            },
+            {
+              "candidate_id": "candidate-35",
+              "recommendation": "defer",
+              "reason": "Healer-gameplayn kuvaus jää termien epäselvyyden vuoksi vaikeasti hahmotettavaksi."
+            },
+            {
+              "candidate_id": "candidate-37",
+              "recommendation": "defer",
+              "reason": "Aito huomio vaikeasta vuodesta on ymmärrettävä, mutta konteksti ja erityinen oivallus puuttuvat."
+            },
+            {
+              "candidate_id": "candidate-38",
+              "recommendation": "defer",
+              "reason": "Henkisesti vaikeasta vuodesta puhuminen on persoonallista, mutta irrallinen ja ilman selkeää päätöstä."
+            },
+            {
+              "candidate_id": "candidate-41",
+              "recommendation": "defer",
+              "reason": "Pelitasapainoa koskeva mielipide on hyödyllinen, mutta litterointi ja pelikonsepti jäävät epäselviksi."
+            },
+            {
+              "candidate_id": "candidate-42",
+              "recommendation": "defer",
+              "reason": "Blizzard-vitsi on mahdollinen, mutta nimet ja lopetus ovat liian epävarmoja vahvaan arvioon."
+            },
+            {
+              "candidate_id": "candidate-43",
+              "recommendation": "defer",
+              "reason": "Raidimekaniikan selitys sisältää substanssia, mutta pitkä keskustelukatkelma on vaikeasti seurattava ja litterointi epävarma."
+            },
+            {
+              "candidate_id": "candidate-46",
+              "recommendation": "defer",
+              "reason": "Lokien ja parsen ristiriita on samaistuttava, mutta katkelma jää avoimeksi ja punchline heikoksi."
+            },
+            {
+              "candidate_id": "candidate-47",
+              "recommendation": "defer",
+              "reason": "Absurdi pelitilanne voisi toimia, mutta nimi ja koko pointti ovat liian epäselviä."
+            },
+            {
+              "candidate_id": "candidate-19",
+              "recommendation": "defer",
+              "reason": "Luokka- ja meta-spekkien luettelo on rutiininomaista koordinointia ilman selkeää vitsiä."
+            },
+            {
+              "candidate_id": "candidate-22",
+              "recommendation": "defer",
+              "reason": "Ehdokkaan sisältöä ei ole toimitettu arvioitavaksi."
+            },
+            {
+              "candidate_id": "candidate-27",
+              "recommendation": "defer",
+              "reason": "Ehdokkaan sisältöä ei ole toimitettu arvioitavaksi."
+            },
+            {
+              "candidate_id": "candidate-29",
+              "recommendation": "defer",
+              "reason": "Ehdokkaan sisältöä ei ole toimitettu arvioitavaksi."
+            },
+            {
+              "candidate_id": "candidate-33",
+              "recommendation": "defer",
+              "reason": "Ehdokkaan sisältöä ei ole toimitettu arvioitavaksi."
+            },
+            {
+              "candidate_id": "candidate-36",
+              "recommendation": "defer",
+              "reason": "Ehdokkaan sisältöä ei ole toimitettu arvioitavaksi."
+            },
+            {
+              "candidate_id": "candidate-39",
+              "recommendation": "defer",
+              "reason": "Ehdokkaan sisältöä ei ole toimitettu arvioitavaksi."
+            },
+            {
+              "candidate_id": "candidate-44",
+              "recommendation": "defer",
+              "reason": "Ehdokkaan sisältöä ei ole toimitettu arvioitavaksi."
+            },
+            {
+              "candidate_id": "candidate-45",
+              "recommendation": "defer",
+              "reason": "Ehdokkaan sisältöä ei ole toimitettu arvioitavaksi."
+            }
+          ]
+        }
+      ],
+      "context_repairs": [
+        {
+          "file": "workdir\\runs\\462b57889cab44658844bef2097aa24d\\context-repair\\4be14fe4d4334a2a92181d27579891f0\\proposal.json",
+          "clip_id": "4194a6007c71bb94651f99156256310d",
+          "note": "",
+          "proposal": {
+            "outcome": "unchanged",
+            "start_word_id": "",
+            "end_word_id": "",
+            "reason": "Hetki sisältää jo kysymyksen \"Mikä on over?\" ja vastauksen \"Elämä... Life as we know it is over\", joten lisäkonteksti ei auta."
+          },
+          "before_seconds": 6.63,
+          "after_seconds": null
+        }
+      ],
+      "clips": [
+        {
+          "id": "73a095c3d4bd4d6f624f7b93e1d82afe",
+          "revision": 1,
+          "review": "approved",
+          "review_note": "",
+          "title": "16 000 tuntia WoWia – joko olen hyvä?",
+          "media_status": "ready",
+          "rank": 1,
+          "start_us": 7657670000,
+          "end_us": 7685080000,
+          "output_duration_us": 16630000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0009770",
+            "end_word_id": "w_0009816",
+            "idea_word_id": "w_0009770",
+            "category": "joke",
+            "scores": {
+              "standalone": 4,
+              "opening": 4,
+              "substance": 3,
+              "payoff": 4,
+              "fidelity": 3
+            },
+            "flags": [
+              "Transkriptiossa on epäselvä kohta alussa: “Siitä teet elämällä”."
+            ],
+            "reason": "Lyhyt ja itsenäinen WoW-aiheinen vitsi: elämän tarkoitus muka katoaa ilman peliä, mutta 16 000 pelitunnin jälkeen puhuja kysyy silti, missä vaiheessa hänestä tuli hyvä. Ajatus ja punchline säilyvät, vaikka alun sanamuoto on osin epäselvä.",
+            "summary_fi": "WoW vie elämän tarkoituksen – mutta 16 000 tunnin jälkeenkään ei vielä tiedä, onko hyvä pelaaja.",
+            "title_fi": "16 000 tuntia WoWia – joko olen hyvä?"
+          },
+          "context_request": null,
+          "speech": "Sitä lähtee etelämällä, jos et pelaa World of Warcraft video game. Koko elämän pelan World of Warcraft video game. Lähtee elämällä tarkoitus. Niin. Mä vieläkin opettelen pelaa tätä, ei oteta olla hyvää tässä pelissä. Iso dispel. Mä oon pelannut tätä 16 000 tuntia. Missä kohtaa mä oon hyvä?"
+        },
+        {
+          "id": "4194a6007c71bb94651f99156256310d",
+          "revision": 1,
+          "review": "not_approved",
+          "review_note": "",
+          "title": "Kun elämä on over",
+          "media_status": "ready",
+          "rank": 2,
+          "start_us": 10632920000,
+          "end_us": 10639550000,
+          "output_duration_us": 6630000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0013337",
+            "end_word_id": "w_0013351",
+            "idea_word_id": "w_0013337",
+            "category": "joke",
+            "scores": {
+              "standalone": 3,
+              "opening": 4,
+              "substance": 3,
+              "payoff": 4,
+              "fidelity": 4
+            },
+            "flags": [],
+            "reason": "Lyhyt ja selkeä absurdin dramaattinen sanaleikki: kysymys “mikä on over?” saa vastaukseksi “Elämä”, jonka englanninkielinen jatko toimii punchlinena. Pelimekaniikan tarkka viittaus ei ole välttämätön vitsin ymmärtämiseen.",
+            "summary_fi": "“Mikä on over?” — Elämä. Life as we know it is over.",
+            "title_fi": "Kun elämä on over"
+          },
+          "context_request": {
+            "expected_revision": 1,
+            "before": false,
+            "after": false,
+            "note": "",
+            "id": "4be14fe4d4334a2a92181d27579891f0",
+            "status": "unchanged",
+            "reason": "Hetki sisältää jo kysymyksen \"Mikä on over?\" ja vastauksen \"Elämä... Life as we know it is over\", joten lisäkonteksti ei auta."
+          },
+          "speech": "X on over, Vika on over Elämä Life as we know it is over"
+        },
+        {
+          "id": "d7fc77740e572f37c32562f7c199e3c9",
+          "revision": 1,
+          "review": "approved",
+          "review_note": "",
+          "title": "Ei tarvinnut avata, kun ei ollut suljettu",
+          "media_status": "ready",
+          "rank": 3,
+          "start_us": 1768710000,
+          "end_us": 1787310000,
+          "output_duration_us": 13370000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0001864",
+            "end_word_id": "w_0001896",
+            "idea_word_id": "w_0001879",
+            "category": "joke",
+            "scores": {
+              "standalone": 3,
+              "opening": 3,
+              "substance": 3,
+              "payoff": 4,
+              "fidelity": 4
+            },
+            "flags": [],
+            "reason": "Lyhyt kysymys–vastaus-vitsi: Bovia ei tarvinnut avata tänään, koska sitä ei ollut koskaan suljettu. Pelkistetty peliviittaus jää hieman epäselväksi, mutta punchline toimii ilman olennaista lisäkontekstia. Lopun toisto on rajattu pois.",
+            "summary_fi": "Kysymys saa loogisen mutta huvittavan vastauksen: Bovia ei tarvinnut avata, koska sitä ei ollut koskaan suljettu.",
+            "title_fi": "Ei tarvinnut avata, kun ei ollut suljettu"
+          },
+          "context_request": null,
+          "speech": "Lakulle kysymys, laitatko eilen kiinni? Mitä laku on laittanut kiinni eilen? Niin, kyllä kyllä. Totta. Ei oo tarvinnut ovia avata tänään, kun ei oo ikinä sulkenut sitä. Toi on kyllä hyvä pointti."
+        },
+        {
+          "id": "d678d475343ead332a9b1f9a0bf38075",
+          "revision": 1,
+          "review": "not_approved",
+          "review_note": "",
+          "title": "Dispel Isän, Pojan ja Pyhän Hengen nimeen",
+          "media_status": "ready",
+          "rank": 4,
+          "start_us": 5920710000,
+          "end_us": 5966920000,
+          "output_duration_us": 28410000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0007660",
+            "end_word_id": "w_0007709",
+            "idea_word_id": "w_0007660",
+            "category": "joke",
+            "scores": {
+              "standalone": 3,
+              "opening": 4,
+              "substance": 3,
+              "payoff": 4,
+              "fidelity": 3
+            },
+            "flags": [
+              "Transkriptiossa useita epäselviä englannin- ja pelitermejä"
+            ],
+            "reason": "Hauska peliterminologian ja kirkollisen siunauksen yhdistelmä: dispel muuttuu leikilliseksi sisaruksen, veljen ja lopulta koko kolminaisuuden siunaukseksi. Kokonaisuus päättyy selkeään “amen”-huipennukseen. Muutamat välihuudahdukset ovat epäselviä, mutta vitsi säilyy.",
+            "summary_fi": "Streamer siunaa pelaajaa dispelillä kuin pappi, yhdistäen pelitermit kirkolliseen kaavaan.",
+            "title_fi": "Dispel Isän, Pojan ja Pyhän Hengen nimeen"
+          },
+          "context_request": null,
+          "speech": "Blessed by Mr. Ai Tulee last dispelli, eli iso dispellit Mä blessan sut Mä blessan sut sisko Mä blessan sut veli Isän ja pojan ja pyhän hengen nimeä amen Jaa hiilishouk Defuut Single dispellit kans Huuh Nurrus juoksee päälle Lightning laitte Single dispellit ja... Äiti Äiti ja tyttäre Ja pyhän hengen nimeä amen"
+        },
+        {
+          "id": "e7c20aefea65cd56c6edb72dc1823d76",
+          "revision": 1,
+          "review": "not_approved",
+          "review_note": "",
+          "title": "Kun pelipaikka on vähän liian squished",
+          "media_status": "ready",
+          "rank": 5,
+          "start_us": 8809800000,
+          "end_us": 8818350000,
+          "output_duration_us": 6550000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0011219",
+            "end_word_id": "w_0011236",
+            "idea_word_id": "w_0011221",
+            "category": "joke",
+            "scores": {
+              "standalone": 3,
+              "opening": 3,
+              "substance": 3,
+              "payoff": 4,
+              "fidelity": 4
+            },
+            "flags": [],
+            "reason": "Lyhyt, selkeä pelitilanteesta syntyvä vitsi: ahtaasta positiosta puhutaan kuin hahmon pitäisi vetää vatsa sisään. Toisto toimii punchlinena, eikä olennaista kontekstia puutu.",
+            "summary_fi": "Ahtaassa positiossa pitää oikein vetää vatsa sisään.",
+            "title_fi": "Kun pelipaikka on vähän liian squished"
+          },
+          "context_request": null,
+          "speech": "Ehkä vähän squished, mutta kuitenkin silleen, että... Että eihän joutu vetää vattaa sisään. Mm. Joutuu vetää vattaa sisään."
+        },
+        {
+          "id": "27d521dc21d16fe65bcaf98e069ccf28",
+          "revision": 2,
+          "review": "not_approved",
+          "review_note": "",
+          "title": "Peli pelaa itseään AFK:na",
+          "media_status": "ready",
+          "rank": 6,
+          "start_us": 14281690000,
+          "end_us": 14296780000,
+          "output_duration_us": 13720000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0016320",
+            "end_word_id": "w_0016354",
+            "idea_word_id": "w_0016337",
+            "category": "joke",
+            "scores": {
+              "standalone": 3,
+              "opening": 3,
+              "substance": 3,
+              "payoff": 4,
+              "fidelity": 4
+            },
+            "flags": [
+              "Lyhyt englanninkielinen pelikuvaus jää osin kontekstisidonnaiseksi."
+            ],
+            "reason": "Hauska ja tunnistettava vertaus Path of Exilen talenttipuuhun: peli kuulemma pelaa itseään AFK:na ja kerää skillit pelaajan puolesta. Keskellä on hieman epämääräinen meemiviittaus, mutta pääpointti ja punchline välittyvät.",
+            "summary_fi": "Vaarattu vertaa peliä Path of Exilen talenttipuuhun: AFK:na peli pelaa ja kerää skillit puolestasi.",
+            "title_fi": "Peli pelaa itseään AFK:na"
+          },
+          "context_request": null,
+          "speech": "Mä näin sen ku Path of Exile -talenttipuu johonkin kombattiin. Ja mä näin jonku memeen siitä tai jotain. Siis sä pelaat tää peli ku sä oot Afk. Afka on sulle montako skilliä, sun ei tarvi pelata."
+        },
+        {
+          "id": "cd16c7dbd42b388d124eab445bf5b660",
+          "revision": 1,
+          "review": "unreviewed",
+          "review_note": "",
+          "title": "Vaarattu myöntää raidistrategiassa tehdyn virheen",
+          "media_status": "held",
+          "rank": 7,
+          "start_us": 881040000,
+          "end_us": 925660000,
+          "output_duration_us": null,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0000850",
+            "end_word_id": "w_0000950",
+            "idea_word_id": "w_0000853",
+            "category": "explanation",
+            "scores": {
+              "standalone": 3,
+              "opening": 3,
+              "substance": 4,
+              "payoff": 3,
+              "fidelity": 3
+            },
+            "flags": [
+              "Pelimekaniikan nimet ja termit ovat osin epäselviä transkriptiossa",
+              "Vaatii raidikontekstin ymmärtämistä"
+            ],
+            "reason": "Vaarattu myöntää oman aiemman virheensä ja selittää konkreettisesti, miksi low-prosenttitilanteessa vaihdetaan full S-Rackiin N-Rackin sijaan. Lopussa oleva tankkien kestävyys täydentää perustelun. Termien transkriptio kannattaa tarkistaa.",
+            "summary_fi": "Vaarattu korjaa aiemman ohjeensa: jos pelaajia on kuolleena ja intermission lähestyy, molemmat postit vaihdetaan full S-Rackiin, vaikka toinen olisi jo 10 prosentissa, koska N-Rack ei auta mytikkitasolla.",
+            "title_fi": "Vaarattu myöntää raidistrategiassa tehdyn virheen"
+          },
+          "context_request": null,
+          "speech": "tämä on mun virhe, eli viimeksi kun meillä oli se low -prosenttivipe, niin jos on samanlainen tilanne, että meillä on porukkaa kuolleena, niin... Me switchataan silloin full S -Rackiin ja tapetaan S -Racki, vaikka sillä toisella olisi joku 10 % HPta. Se N -Racki ei kuule mytikilläkään tee mitään. Ja se sitten intermissionia ei tule. Eli jos näyttää siltä, että meillä on paljon porukkaa kuolleena, intermissioni on lähellä, molemmat postit on vaikka 10%, niin se vapataan vaan full S -Rackia tapetaansa. Mä en ollut tietoinen siitä, että se mytikki N -Racki on niin lastenleikkiä, että... Tankit elää sitä vaikka kuinka pitkään."
+        },
+        {
+          "id": "527e42d9f2cc547a31f9f80c7f45b0f7",
+          "revision": 1,
+          "review": "unreviewed",
+          "review_note": "",
+          "title": "Kaksi vuotta salattu hahmo paljastuu",
+          "media_status": "held",
+          "rank": 8,
+          "start_us": 1865570000,
+          "end_us": 1901690000,
+          "output_duration_us": null,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0002062",
+            "end_word_id": "w_0002127",
+            "idea_word_id": "w_0002062",
+            "category": "joke",
+            "scores": {
+              "standalone": 3,
+              "opening": 3,
+              "substance": 3,
+              "payoff": 4,
+              "fidelity": 3
+            },
+            "flags": [
+              "Erisnimet ja osa pelitermistöstä ovat epäselviä transkriptiossa."
+            ],
+            "reason": "Hauska pieni tarina siitä, kuinka kaksi vuotta hahmonsa nimeä salannut pelaaja paljastaa sen vahingossa. Vitsi eskaloituu streamerimäiseen liioitteluun: ensin kilta ja achievementit, lopuksi osoite. Loppuun jätetty osoiteheitto toimii selkeänä punchlinena; myöhempi epäselvä täsmennys kannattaa rajata pois.",
+            "summary_fi": "Kaksi vuotta hahmonsa nimeä salannut pelaaja paljastaa henkilöllisyytensä, ja tutkinta eskaloituu kiltaan, achievementeihin ja kotiosoitteeseen.",
+            "title_fi": "Kaksi vuotta salattu hahmo paljastuu"
+          },
+          "context_request": null,
+          "speech": "Ruspari laitti mulle joku DM vaan, joku Kamelinvarvas laitti sieltä terveisiä sieltä dungionista, joku Hunter. Mulle oli vaan että mitä helvetti. Äijä kyllä paljasti justiin hahmonsa. Äijä on suojellut hahmon nimeänsä viimeiset kaksi vuotta ja nyt se paljasti. Niin mä käyn kattoos kaikki, mitä mä saan susta irti. Tiedän missä oot. Tiedän missä killassa oot. Tiedän mitä akkeementtejä sulla on. Pretti heti. Mä tiedän missä asut."
+        },
+        {
+          "id": "1742ba1567f4876e33270e21594f6df8",
+          "revision": 1,
+          "review": "approved",
+          "review_note": "",
+          "title": "Oman elämän sankari",
+          "media_status": "ready",
+          "rank": 9,
+          "start_us": 2723100000,
+          "end_us": 2750580000,
+          "output_duration_us": 17100000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0002954",
+            "end_word_id": "w_0002996",
+            "idea_word_id": "w_0002954",
+            "category": "joke",
+            "scores": {
+              "standalone": 3,
+              "opening": 3,
+              "substance": 3,
+              "payoff": 3,
+              "fidelity": 4
+            },
+            "flags": [
+              "Sanaleikin tarkka tarkoitus jää hieman epäselväksi"
+            ],
+            "reason": "Lyhyt banter-kohtaus rakentaa kuvailua toiselle henkilölle ja päätyy leikilliseen punchlineen: ”oman elämän sankari”. Alun reaktio on expendable, ja toistuva viimeinen lause voidaan jättää pois ilman merkityksen menetystä.",
+            "summary_fi": "Streamer kuvailee toista ensin yhdellä sanalla, sitten kolmella — lopputulos on ”oman elämän sankari”.",
+            "title_fi": "Oman elämän sankari"
+          },
+          "context_request": null,
+          "speech": "Siis sun kaltaiselle miehille on vaan niinku yks sana, mikä kuvailee sua. Tai ehkä siinä on tota noin kolme sanaa. Siinä on vaan kolme sanaa, mitä sun kaltaisissa miehissä sanotaan. Pari puuttuu vielä. Sä oot tommonen sankari. Sä oot oman elämän sankari."
+        },
+        {
+          "id": "8b3f77a89facd5e60588c2e084d53c44",
+          "revision": 1,
+          "review": "not_approved",
+          "review_note": "",
+          "title": "Ketkä healerit kannattaa valita absorbeihin?",
+          "media_status": "ready",
+          "rank": 10,
+          "start_us": 2808110000,
+          "end_us": 2842770000,
+          "output_duration_us": 32720000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0003044",
+            "end_word_id": "w_0003119",
+            "idea_word_id": "w_0003044",
+            "category": "explanation",
+            "scores": {
+              "standalone": 3,
+              "opening": 3,
+              "substance": 3,
+              "payoff": 3,
+              "fidelity": 4
+            },
+            "flags": [
+              "Pelimekaniikan tarkka konteksti jää osin oletetuksi"
+            ],
+            "reason": "Selkeä ja yhtenäinen selitys siitä, mitkä healerit ovat parhaita absorbeihin ja miten niitä kannattaa hyödyntää fightin aikana. Ei sisällä harhaanjohtavia kiellon tai attribuution ongelmia; loppu jää hieman kesken seuraavaan lauseeseen, mutta ajatus päättyy luonnollisesti tähän.",
+            "summary_fi": "Vaarattu selittää healerien absorb-prioriteetin ja miten absorbien avulla saa itsensä kestämään paremmin koko fightin ajan.",
+            "title_fi": "Ketkä healerit kannattaa valita absorbeihin?"
+          },
+          "context_request": null,
+          "speech": "Absorbeissa ei sinällään ole muuttunut mikään, että se on edelleen healerit, mutta healereistä on semmoinen brio -kruuppi. Healereistä MV ja Resto on parhaita ottamaan niitä absorbeja itseensä. MV saa itseensä hiilatessa just lisää healingiä, Resto on hyvä hiilaamaan kanssa niitä absorbeja. Ja sitten Devourer, DK, ne on kanssa hyviä, että jos ei koko aikaa itlaa siinä, niin kannattaa käydä hakemassa absorveja ainakin yhteensä, niin saataisiin hyvin liitsattua itseestään pois ja kestää. Ja Slappy koko fightin aina niin kuin"
+        }
+      ]
+    },
+    {
+      "run_id": "24fb2eeb510545df997d6f013e04ba5a",
+      "video": "TnXttFVIrKQ",
+      "hours": 6.1305725,
+      "raw_suggestions": 68,
+      "saved_proposals": 68,
+      "verified": 67,
+      "section_count": 62,
+      "empty_sections": 17,
+      "summary": {
+        "limit": 10,
+        "candidates": 67,
+        "quality_passed": 47,
+        "selected": 10,
+        "method": "scores",
+        "warning": "Candidate comparison could not be read; used model scores for priority."
+      },
+      "reviews": {
+        "approved": 2,
+        "not_approved": 8
+      },
+      "verdicts": {
+        "needs_context": 3,
+        "accept": 48,
+        "reject": 16
+      },
+      "ranking_failures": [
+        {
+          "file": "workdir\\runs\\24fb2eeb510545df997d6f013e04ba5a\\inference\\review-priority-6f228bb6e13dcf33\\review-priority-2e3f2056a4bf44ecbda4cf04e7249dd9.response.json",
+          "returned": 49,
+          "missing": [],
+          "extra": [
+            "candidate-30",
+            "candidate-42"
+          ],
+          "ranking": [
+            {
+              "candidate_id": "candidate-12",
+              "recommendation": "review",
+              "reason": "Selkeä ja kiinnostava pelisuunnittelun kritiikki: teemaväri ajaa mekaniikkoja kontrastin kustannuksella."
+            },
+            {
+              "candidate_id": "candidate-1",
+              "recommendation": "review",
+              "reason": "Erittäin omaleimainen ja absurdi synkän huumorin kokonaisuus, jonka tanssipunchline erottuu."
+            },
+            {
+              "candidate_id": "candidate-2",
+              "recommendation": "review",
+              "reason": "Persoonallinen työpaikkavertaus muutoksen pelosta; ajatus päättyy luontevasti."
+            },
+            {
+              "candidate_id": "candidate-17",
+              "recommendation": "review",
+              "reason": "Engaging festarimuistelu ja perusteltu mielipide Tuskan poikkeuksellisen hyvästä kattauksesta."
+            },
+            {
+              "candidate_id": "candidate-38",
+              "recommendation": "review",
+              "reason": "Toimiva mainos- ja volyymialennusten satiiri, joka eskaloituu kokonaisen lavan palkinnoksi."
+            },
+            {
+              "candidate_id": "candidate-16",
+              "recommendation": "review",
+              "reason": "Samaistuttava tarina päivän huomaamattomasta kulumisesta ja pelisuunnitelmien kariutumisesta."
+            },
+            {
+              "candidate_id": "candidate-13",
+              "recommendation": "review",
+              "reason": "Hauska ja tunnistettava kritiikki pelialueiden mielivaltaisista nimistä, erityisesti Winter-spring-sanaleikki."
+            },
+            {
+              "candidate_id": "candidate-26",
+              "recommendation": "review",
+              "reason": "Tiiviimpi ja toimiva versio samasta alueennimivitsistä, joka päättyy hot spring -heittoon."
+            },
+            {
+              "candidate_id": "candidate-40",
+              "recommendation": "review",
+              "reason": "Nostalginen ja persoonallinen muistelu yhteisistä mökkireissuista, vaikka alku on kontekstisidonnainen."
+            },
+            {
+              "candidate_id": "candidate-37",
+              "recommendation": "review",
+              "reason": "Absurdilta kuulostava pelimuisto karhusta, jolla on selkeä tarinallinen asetelma."
+            },
+            {
+              "candidate_id": "candidate-14",
+              "recommendation": "review",
+              "reason": "Kanta-asiakasetujen lista eskaloituu hauskasti poppareista ilmaiseen energiajuomalavaan."
+            },
+            {
+              "candidate_id": "candidate-9",
+              "recommendation": "review",
+              "reason": "Peliporukan roolijako muuttuu persoonalliseksi ikävitsiksi videopelin ja tosielämän välillä."
+            },
+            {
+              "candidate_id": "candidate-7",
+              "recommendation": "review",
+              "reason": "Lyhyt absurdi kysymys ja loukkaantunut reaktio muodostavat valmiin vitsin."
+            },
+            {
+              "candidate_id": "candidate-5",
+              "recommendation": "review",
+              "reason": "Selkeä ristiriita bossin pelaamisen ja tappamisen halun välillä toimii gamer-vitsinä."
+            },
+            {
+              "candidate_id": "candidate-15",
+              "recommendation": "review",
+              "reason": "Tiivis ja persoonallinen mage-rantti, jonka historiallinen kärjistys on napakka."
+            },
+            {
+              "candidate_id": "candidate-3",
+              "recommendation": "review",
+              "reason": "Toiston varaan rakennettu selkeä uppoavan laivan punchline."
+            },
+            {
+              "candidate_id": "candidate-4",
+              "recommendation": "review",
+              "reason": "Ymmärrettävä itseironinen gamer-vitsi Lilithin odotetusta voitosta."
+            },
+            {
+              "candidate_id": "candidate-10",
+              "recommendation": "review",
+              "reason": "Napakka pelibanteri, jossa “melkein” kuitataan hauskasti riittämättömäksi."
+            },
+            {
+              "candidate_id": "candidate-21",
+              "recommendation": "review",
+              "reason": "Itsevarma pelaajapersoona ja track record -kärjistys tekevät heitosta erottuvan."
+            },
+            {
+              "candidate_id": "candidate-18",
+              "recommendation": "review",
+              "reason": "Lyhyt itseironinen myöntö ja välitön asian välttely toimivat yhdessä."
+            },
+            {
+              "candidate_id": "candidate-31",
+              "recommendation": "review",
+              "reason": "Selkeä ihmettely oudosta buildistä ja sen rajoittuneesta liikkumisesta."
+            },
+            {
+              "candidate_id": "candidate-34",
+              "recommendation": "review",
+              "reason": "Tunnistettava bossiturhautuminen ja lyhyt koominen vastareaktio."
+            },
+            {
+              "candidate_id": "candidate-33",
+              "recommendation": "review",
+              "reason": "Kyyninen ja tunnistettava vitsi huonojen suoritusten piilottamisesta."
+            },
+            {
+              "candidate_id": "candidate-23",
+              "recommendation": "review",
+              "reason": "Selkeä mielipide käyttöliittymämuutoksesta ja sen päivittäisestä ärsyttävyydestä."
+            },
+            {
+              "candidate_id": "candidate-19",
+              "recommendation": "review",
+              "reason": "Tunnistettava kritiikki vanhan sisällön uudelleenmyynnistä ja palaavista bugeista."
+            },
+            {
+              "candidate_id": "candidate-22",
+              "recommendation": "review",
+              "reason": "Persoonallinen havainto affiksien odottamisesta ja seuraavan push-mahdollisuuden viivästymisestä."
+            },
+            {
+              "candidate_id": "candidate-25",
+              "recommendation": "review",
+              "reason": "Harvinaisen titlen esittely ja vertailu yleiseen vaihtoehtoon tarjoavat gamer-arvoa."
+            },
+            {
+              "candidate_id": "candidate-28",
+              "recommendation": "review",
+              "reason": "Kokonainen ja helposti ymmärrettävä havainto operaattorien toimivuudesta metsässä."
+            },
+            {
+              "candidate_id": "candidate-36",
+              "recommendation": "review",
+              "reason": "Omaleimainen armeijan ja VOD-palvelun absurdi sanaleikki."
+            },
+            {
+              "candidate_id": "candidate-39",
+              "recommendation": "review",
+              "reason": "Lyhyt koominen purkaus, jonka lasten opettamiseen liittyvä lopetus erottuu."
+            },
+            {
+              "candidate_id": "candidate-45",
+              "recommendation": "review",
+              "reason": "Ruisrockin kuravelliin päätyvä säävertailu sisältää selkeän koomisen kärjistyksen, vaikka litterointi horjuu."
+            },
+            {
+              "candidate_id": "candidate-50",
+              "recommendation": "review",
+              "reason": "Konkreettinen pelimekaniikan pohdinta AOE-rajoituksesta, vaikka johtopäätös jää epävarmaksi."
+            },
+            {
+              "candidate_id": "candidate-51",
+              "recommendation": "review",
+              "reason": "Hauska vertailu WoW-bossiin käytetyn ajan ja PoE2-liigan hyväksyttävän grindaamisen välillä."
+            },
+            {
+              "candidate_id": "candidate-35",
+              "recommendation": "review",
+              "reason": "Konkreettinen pelisuunnittelukritiikki dungeon-esineiden poistamisen seurauksista."
+            },
+            {
+              "candidate_id": "candidate-43",
+              "recommendation": "review",
+              "reason": "Hyödyllinen gamer-havainto toistettavan reitin optimoimisesta, vaikka terminologia on epäselvää."
+            },
+            {
+              "candidate_id": "candidate-29",
+              "recommendation": "defer",
+              "reason": "Tunnistettava pelitilannekritiikki, mutta eventin konteksti ja litterointi jäävät epävarmoiksi."
+            },
+            {
+              "candidate_id": "candidate-32",
+              "recommendation": "defer",
+              "reason": "Pelibanterissa on healer-vitsi, mutta useat sanat ja varsinainen punchline ovat epäselviä."
+            },
+            {
+              "candidate_id": "candidate-41",
+              "recommendation": "defer",
+              "reason": "Pelihavainto on mahdollinen, mutta nimet ja keskeiset termit ovat liian epäselviä."
+            },
+            {
+              "candidate_id": "candidate-53",
+              "recommendation": "defer",
+              "reason": "Kritiikin perusajatus välittyy, mutta loppu jää avoimeksi ja pelitermit ovat epäselviä."
+            },
+            {
+              "candidate_id": "candidate-6",
+              "recommendation": "defer",
+              "reason": "Vitsi nojaa ruudulla näkyvään esineeseen, ja lopun epäselvä litterointi heikentää kokonaisuutta."
+            },
+            {
+              "candidate_id": "candidate-8",
+              "recommendation": "defer",
+              "reason": "Screenshot-havainto on samaistuttava, mutta alku on katkonainen ja keskeisiä sanoja puuttuu."
+            },
+            {
+              "candidate_id": "candidate-11",
+              "recommendation": "defer",
+              "reason": "Sarkastinen tilastokritiikki on kiinnostava, mutta alku on rutiininomaista ja epäselvää."
+            },
+            {
+              "candidate_id": "candidate-30",
+              "recommendation": "defer",
+              "reason": "Ehdokasta ei ole toimitetussa aineistossa; sisältöä ei voi arvioida."
+            },
+            {
+              "candidate_id": "candidate-47",
+              "recommendation": "defer",
+              "reason": "Elden Ring -kysymys jää pelkäksi epävarmaksi “ehkä”-pohdinnaksi ilman päätelmää."
+            },
+            {
+              "candidate_id": "candidate-48",
+              "recommendation": "defer",
+              "reason": "Pelihavainto on mahdollinen, mutta loppu on epäselvä eikä vertailu muodosta selvää punchlinea."
+            },
+            {
+              "candidate_id": "candidate-52",
+              "recommendation": "defer",
+              "reason": "Nerffauskommentti on lyhyt, mutta kohde ja väite jäävät epäselviksi."
+            },
+            {
+              "candidate_id": "candidate-58",
+              "recommendation": "defer",
+              "reason": "Lyhyt banter-vitsi nojaa epäselvään laulun kontekstiin ja epävarmaan litterointiin."
+            },
+            {
+              "candidate_id": "candidate-62",
+              "recommendation": "defer",
+              "reason": "Rutiininomainen pelikommentti, jonka terminologia ja lopetus ovat epäselviä."
+            },
+            {
+              "candidate_id": "candidate-42",
+              "recommendation": "defer",
+              "reason": "Ehdokasta ei ole toimitetussa aineistossa; sisältöä ei voi arvioida."
+            }
+          ]
+        },
+        {
+          "file": "workdir\\runs\\24fb2eeb510545df997d6f013e04ba5a\\inference\\review-priority-6f228bb6e13dcf33\\review-priority-6529ca84203944ee8fec0623b62bc509.response.json",
+          "returned": 45,
+          "missing": [
+            "candidate-40",
+            "candidate-41"
+          ],
+          "extra": [],
+          "ranking": [
+            {
+              "candidate_id": "candidate-12",
+              "recommendation": "review",
+              "reason": "Selkeä ja kiinnostava selitys Blizzardin teemavärivetoisesta bossisuunnittelusta sekä kontrastin unohtamisesta."
+            },
+            {
+              "candidate_id": "candidate-2",
+              "recommendation": "review",
+              "reason": "Samaistuttava mielipide muutoksen pelosta, työpaikka-analogia ja napakka päätös."
+            },
+            {
+              "candidate_id": "candidate-17",
+              "recommendation": "review",
+              "reason": "Persoonallinen festarivertailu ja perusteltu katumus Tuskan vahvasta kattauksesta."
+            },
+            {
+              "candidate_id": "candidate-1",
+              "recommendation": "review",
+              "reason": "Erittäin omaleimainen ja absurdi synkkä huumori; lopun tanssi- ja poistovitsi jää mieleen."
+            },
+            {
+              "candidate_id": "candidate-14",
+              "recommendation": "review",
+              "reason": "Kanta-asiakasetujen absurdi eskalaatio muodostaa toimivan satiirisen listan."
+            },
+            {
+              "candidate_id": "candidate-38",
+              "recommendation": "review",
+              "reason": "Hauska volyymialennosten ja ilmaisen energiajuoman satiiri, vaikka litterointi on epäselvä."
+            },
+            {
+              "candidate_id": "candidate-16",
+              "recommendation": "review",
+              "reason": "Samaistuttava tarina päivän katoamisesta ja selkeä lopetus siitä, ettei saanut mitään tehtyä."
+            },
+            {
+              "candidate_id": "candidate-26",
+              "recommendation": "review",
+              "reason": "Persoonallinen ja helposti ymmärrettävä vitsi pelialueiden nimien järjettömyydestä."
+            },
+            {
+              "candidate_id": "candidate-13",
+              "recommendation": "review",
+              "reason": "Hauska game design -kritiikki Winterspring-nimen ristiriidasta ja hot spring -vertailusta."
+            },
+            {
+              "candidate_id": "candidate-19",
+              "recommendation": "review",
+              "reason": "Tunnistettava kritiikki vanhan sisällön uudelleenmyynnistä ja palaavista bugeista."
+            },
+            {
+              "candidate_id": "candidate-23",
+              "recommendation": "review",
+              "reason": "Selkeä ja vahva mielipide päivittäin ärsyttävästä käyttöliittymämuutoksesta."
+            },
+            {
+              "candidate_id": "candidate-21",
+              "recommendation": "review",
+              "reason": "Itsevarma pelaajapersoona ja koominen perustelu track recordin suojelemisesta."
+            },
+            {
+              "candidate_id": "candidate-9",
+              "recommendation": "review",
+              "reason": "Peliporukan ikä- ja unkkivitsi on persoonallinen ja sisältää toimivan vertailun."
+            },
+            {
+              "candidate_id": "candidate-10",
+              "recommendation": "review",
+              "reason": "Napakka gamer-banteri, jossa “melkein” kuitataan tehokkaasti."
+            },
+            {
+              "candidate_id": "candidate-15",
+              "recommendation": "review",
+              "reason": "Tiivis ja muistettava mage-rantti, jonka kärjistys toimii punchlinena."
+            },
+            {
+              "candidate_id": "candidate-5",
+              "recommendation": "review",
+              "reason": "Lyhyt absurdi ristiriita bossin pelaamisen ja tappamisen välillä toimii itsenäisesti."
+            },
+            {
+              "candidate_id": "candidate-7",
+              "recommendation": "review",
+              "reason": "Selkeä absurdi vitsi, jossa kysymys johtaa välittömään loukkaantuneeseen reaktioon."
+            },
+            {
+              "candidate_id": "candidate-3",
+              "recommendation": "review",
+              "reason": "Toisto ja uppoavan laivan yksinkertainen päätelmä muodostavat toimivan vitsin."
+            },
+            {
+              "candidate_id": "candidate-4",
+              "recommendation": "review",
+              "reason": "Ymmärrettävä gamer-vitsi odotetusta tappiosta ja elämän realiteeteista."
+            },
+            {
+              "candidate_id": "candidate-18",
+              "recommendation": "review",
+              "reason": "Itseironinen ja napakka vastakkainasetteluvitsi, vaikka nimet jäävät hieman epäselviksi."
+            },
+            {
+              "candidate_id": "candidate-31",
+              "recommendation": "review",
+              "reason": "Selkeä ihmettely oudosta buildistä ja sen rajoittavasta liikkumistavasta."
+            },
+            {
+              "candidate_id": "candidate-34",
+              "recommendation": "review",
+              "reason": "Tunnistettava bossiturhautuminen ja ymmärrettävä koominen epätoivo."
+            },
+            {
+              "candidate_id": "candidate-33",
+              "recommendation": "review",
+              "reason": "Kyyninen havainto siitä, ettei huonoja suorituksia enää haluta näyttää."
+            },
+            {
+              "candidate_id": "candidate-22",
+              "recommendation": "review",
+              "reason": "Persoonallinen pelihavainto affiksien odottamisesta ja seuraavan pushin viivästymisestä."
+            },
+            {
+              "candidate_id": "candidate-28",
+              "recommendation": "review",
+              "reason": "Kokonainen ja tunnistettava nettiyhteysvertailu Elisan ja Telian välillä."
+            },
+            {
+              "candidate_id": "candidate-32",
+              "recommendation": "review",
+              "reason": "Pelisisällön vaikeuden ja healer-vitsin yhdistelmä tarjoaa selkeän banter-hetken."
+            },
+            {
+              "candidate_id": "candidate-36",
+              "recommendation": "review",
+              "reason": "Omaleimainen armeijan ja VOD-palvelun absurdi sanaleikki."
+            },
+            {
+              "candidate_id": "candidate-37",
+              "recommendation": "review",
+              "reason": "Absurdi pelimuisto karhusta toimii, mutta loppupuheen epäselvyys heikentää kokonaisuutta."
+            },
+            {
+              "candidate_id": "candidate-29",
+              "recommendation": "review",
+              "reason": "Selkeä kritiikki siitä, että vihollisten keskellä pitää seistä rinkuloissa; tapahtuman konteksti puuttuu."
+            },
+            {
+              "candidate_id": "candidate-53",
+              "recommendation": "defer",
+              "reason": "Pelimekaniikan kritiikki on ymmärrettävä, mutta loppu jää avoimeksi eikä tarjoa vahvaa päätöstä."
+            },
+            {
+              "candidate_id": "candidate-35",
+              "recommendation": "defer",
+              "reason": "Kiinnostava pelisuunnittelupointti, mutta muutos ja poistettu sisältö jäävät liian epäselviksi."
+            },
+            {
+              "candidate_id": "candidate-50",
+              "recommendation": "defer",
+              "reason": "Mekaniikkapohdinta on mahdollisesti kiinnostava, mutta epävarma ja litteroinniltaan vaikeasti seurattava."
+            },
+            {
+              "candidate_id": "candidate-51",
+              "recommendation": "defer",
+              "reason": "Vertailussa on idea, mutta pelinimet ja varsinainen pointti ovat epäselviä."
+            },
+            {
+              "candidate_id": "candidate-25",
+              "recommendation": "defer",
+              "reason": "Harvinaisen titlen esittely on ymmärrettävä, mutta jää lähinnä terminologiseksi vertailuksi."
+            },
+            {
+              "candidate_id": "candidate-11",
+              "recommendation": "defer",
+              "reason": "Sarkastinen tilastovitsi toimii, mutta alku on sekava ja pelikohtainen konteksti puuttuu."
+            },
+            {
+              "candidate_id": "candidate-39",
+              "recommendation": "defer",
+              "reason": "Lyhyt purkaus on tunnistettava, mutta elokuvaviittauksen varsinainen kohde jää auki."
+            },
+            {
+              "candidate_id": "candidate-45",
+              "recommendation": "defer",
+              "reason": "Kuravellipaska-punchline toimii, mutta suuri osa säävertailusta on epäselvästi litteroitu."
+            },
+            {
+              "candidate_id": "candidate-8",
+              "recommendation": "defer",
+              "reason": "Samaistuttava screenshot-havainto, mutta alku ja keskiosa ovat liian epäselviä."
+            },
+            {
+              "candidate_id": "candidate-6",
+              "recommendation": "defer",
+              "reason": "Vitsi nojaa ruudulla näkyvään esineeseen ja viimeinen ilmaus on epäselvä."
+            },
+            {
+              "candidate_id": "candidate-43",
+              "recommendation": "defer",
+              "reason": "Optimointiajatus on pelityypillinen, mutta termit ja varsinainen sisältö jäävät hämäriksi."
+            },
+            {
+              "candidate_id": "candidate-52",
+              "recommendation": "defer",
+              "reason": "Nerffauskommentti on lyhyt, mutta kohde ja väitteiden merkitys jäävät epäselviksi."
+            },
+            {
+              "candidate_id": "candidate-58",
+              "recommendation": "defer",
+              "reason": "Leffailtavitsi on kevyt, mutta perustuu puuttuvaan laulun ja aiemman keskustelun kontekstiin."
+            },
+            {
+              "candidate_id": "candidate-48",
+              "recommendation": "defer",
+              "reason": "Pelihavainto jää litteroinnin ja epäselvän vertailun vuoksi vaikeasti seurattavaksi."
+            },
+            {
+              "candidate_id": "candidate-62",
+              "recommendation": "defer",
+              "reason": "Yleinen pelikommentti ärsyttävästä alueesta; termi ja lopetus ovat epäselviä."
+            },
+            {
+              "candidate_id": "candidate-47",
+              "recommendation": "defer",
+              "reason": "Kiinnostava kysymys Elden Ringistä, mutta vastaus jää pelkäksi epävarmaksi “ehkä”-tasoksi."
+            }
+          ]
+        }
+      ],
+      "context_repairs": [],
+      "clips": [
+        {
+          "id": "05d5dcd9c85d2391e17d314da5dedada",
+          "revision": 1,
+          "review": "approved",
+          "review_note": "",
+          "title": "Kun koko bossi on yhtä violettia",
+          "media_status": "ready",
+          "rank": 1,
+          "start_us": 10330670000,
+          "end_us": 10374630000,
+          "output_duration_us": 30020000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0008389",
+            "end_word_id": "w_0008489",
+            "idea_word_id": "w_0008397",
+            "category": "observation",
+            "scores": {
+              "standalone": 3,
+              "opening": 3,
+              "substance": 4,
+              "payoff": 4,
+              "fidelity": 4
+            },
+            "flags": [],
+            "reason": "Hauska ja tunnistettava havainto Blizzardin bossisuunnittelusta: teemaväri ohjaa kaikkia mekaniikkoja, vaikka kontrastia ei olisi tarpeeksi niiden näkemiseen. Ajatus rakentuu selkeästi ja violetin esimerkki toimii lopetuksena.",
+            "summary_fi": "Vaarattu kertoo, miten Blizzardin bossin teemaväri voi päätyä kaikkien mekaniikkojen väriksi — kontrastista viis.",
+            "title_fi": "Kun koko bossi on yhtä violettia"
+          },
+          "context_request": null,
+          "speech": "En mä tiedä, onks et Sipiä nähnyt sitä Lizardin haastattelua, kun ne kertoo, että miten ne suunnittelee bosse. Lizard Encounter Designer kertoo siinä. Se on varmaan aika vanha video tässä kohtaa, mutta... Siis se vaan kertoo siihen, että ne valitsee jonkun värin. Ne vaan sanoo siihen, että ne valitsee jonkun värin, joka on se niiden teemaväri, jonka perusteella ne sitten tekee sitä. Kaikki mekaniikat sen väriseksi. Ettei ne mieti siellä mitään, et onko kontrastia tai jotain, et sä näet niitä. Et siis ne valitsee väriä, että tää on vaikka siis, tän bossin väri on vaikka violetti. Niistä kaikki on"
+        },
+        {
+          "id": "9408872d252c01512fc29c63c13dc1bb",
+          "revision": 1,
+          "review": "not_approved",
+          "review_note": "",
+          "title": "Liian hyvä jäämään mekaniikkoihin",
+          "media_status": "ready",
+          "rank": 2,
+          "start_us": 1271860000,
+          "end_us": 1279040000,
+          "output_duration_us": 7180000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0001081",
+            "end_word_id": "w_0001105",
+            "idea_word_id": "w_0001084",
+            "category": "joke",
+            "scores": {
+              "standalone": 3,
+              "opening": 4,
+              "substance": 3,
+              "payoff": 3,
+              "fidelity": 4
+            },
+            "flags": [],
+            "reason": "Hauska, itsevarma pelaajapersoonaa näyttävä heitto: hän väittää olevansa niin hyvä, ettei jää mekaniikkoihin, ja siksi track record kärsisi jos jäisi. Pelin tarkka mekaniikka jää hieman epäselväksi, mutta pointti ja punchline välittyvät ilman olennaista puuttuvaa kontekstia.",
+            "summary_fi": "Streamer perustelee track recordiaan sillä, ettei hän muka koskaan jää mekaniikkoihin.",
+            "title_fi": "Liian hyvä jäämään mekaniikkoihin"
+          },
+          "context_request": null,
+          "speech": "Mä oon niin hyvä pelaaja, et mä en ikinä jää mihinkään mekaniikkaan. Niin sen takia mulla menee mun track record, jos mä jäisin tohon mekaniikkaan. ...mobi"
+        },
+        {
+          "id": "9f0a18e9b812e8980a9fbe76b7982977",
+          "revision": 1,
+          "review": "not_approved",
+          "review_note": "",
+          "title": "Unkit pushaa nelikymppisenä",
+          "media_status": "ready",
+          "rank": 3,
+          "start_us": 7150350000,
+          "end_us": 7181370000,
+          "output_duration_us": 20250000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0005999",
+            "end_word_id": "w_0006047",
+            "idea_word_id": "w_0005999",
+            "category": "joke",
+            "scores": {
+              "standalone": 3,
+              "opening": 3,
+              "substance": 3,
+              "payoff": 4,
+              "fidelity": 4
+            },
+            "flags": [],
+            "reason": "Hauska peliporukan jako piraatteihin ja unkeihin kääntyy ikävit­siksi: videopelissä pushataan 20-vuotiaana, IRL 40-vuotiaana. Lyhyt sivupolku Morinion nuoresta sielusta tukee vitsiä, eikä olennaista kontekstia puutu.",
+            "summary_fi": "Pelissä pushataan parikymppisenä, IRL nelikymppisenä.",
+            "title_fi": "Unkit pushaa nelikymppisenä"
+          },
+          "context_request": null,
+          "speech": "onhan niin totta kun Zeta ja Leon on piratit. Aivan kyllä kyllä. Minä ja Esa ollaan unkit. No ehkä Morinikin on unki. Oliks Morini jo 30? Morini on niin nuori sielu. Kerrottuna muhun ja Esaan. Minä ja Esa ollaan niin vanhoja sielu. Unkit pushing. Pushing. Videopeleissä pushing 20, IRL pushing 40."
+        },
+        {
+          "id": "a6df903933d818ddf109c070accf4ad5",
+          "revision": 1,
+          "review": "not_approved",
+          "review_note": "",
+          "title": "Poistettu Minions-kohtaus olisi ollut viiden tähden materiaalia",
+          "media_status": "ready",
+          "rank": 4,
+          "start_us": 12117600000,
+          "end_us": 12155150000,
+          "output_duration_us": 37550000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0010033",
+            "end_word_id": "w_0010131",
+            "idea_word_id": "w_0010033",
+            "category": "joke",
+            "scores": {
+              "standalone": 3,
+              "opening": 3,
+              "substance": 4,
+              "payoff": 4,
+              "fidelity": 3
+            },
+            "flags": [
+              "Englanninkielinen lainaus ja elokuvaviittaus voivat vaatia katsojalta hieman kontekstia."
+            ],
+            "reason": "Synkkä ja absurdi huumori muodostaa selkeän kokonaisuuden: Minionit toteuttavat natsiaiheisen joukkotuhon slapstickinä, minkä jälkeen Mengele ja Bob tanssivat. Lopun “Five years ago. Deleted. Cancelled.” toimii hyvänä punchlinena. Teksti vaikuttaa lainatulta kuvaukselta, joten attribuutio ei ole täysin varma, mutta streamer kommentoi sitä itse innostuneesti.",
+            "summary_fi": "Streamer lukee kuvauksen poistuneesta Minions-kohtauksesta, jossa natsiminionit tanssivat joukkotuhon jälkeen — ja toteaa, että se olisi tehnyt elokuvasta viiden tähden teoksen.",
+            "title_fi": "Poistettu Minions-kohtaus olisi ollut viiden tähden materiaalia"
+          },
+          "context_request": null,
+          "speech": "Minä tein Minionin elokuvan, 5 -starrin elokuvan. Mengele ja Bob the Minion tekevät hieman tanssia. Viisi vuotta sitten. Kansallinen."
+        },
+        {
+          "id": "f808ff172c978fb475ddbc1fdc965193",
+          "revision": 1,
+          "review": "not_approved",
+          "review_note": "",
+          "title": "Näin se vaan menee elämässä",
+          "media_status": "ready",
+          "rank": 5,
+          "start_us": 13887070000,
+          "end_us": 13892370000,
+          "output_duration_us": 5300000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0011105",
+            "end_word_id": "w_0011114",
+            "idea_word_id": "w_0011105",
+            "category": "joke",
+            "scores": {
+              "standalone": 3,
+              "opening": 3,
+              "substance": 3,
+              "payoff": 4,
+              "fidelity": 4
+            },
+            "flags": [],
+            "reason": "Lyhyt ja ymmärrettävä gamer-vitsi: Lilithin odotetaan hakkaavan striimaajan, ja epäonnistuminen kuitataan elämän realiteettina. Ajatus ja punchline ovat kokonaan mukana.",
+            "summary_fi": "Striimaaja lähtee hakkaamaan Lilithiä, mutta tietää jo lopputuloksen: Lilith hakkaa hänet, kuten elämässä yleensä käy.",
+            "title_fi": "Näin se vaan menee elämässä"
+          },
+          "context_request": null,
+          "speech": "Onnäköis Lilitti hakkaa mut, mutta... Näin se vaan menee elämässä."
+        },
+        {
+          "id": "f1ca5380fb9c98cc95c3b9a9c7988b5f",
+          "revision": 1,
+          "review": "not_approved",
+          "review_note": "",
+          "title": "Onko immuuni bossi hyvää designia?",
+          "media_status": "ready",
+          "rank": 6,
+          "start_us": 14210330000,
+          "end_us": 14216930000,
+          "output_duration_us": 5400000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0011237",
+            "end_word_id": "w_0011253",
+            "idea_word_id": "w_0011237",
+            "category": "opinion",
+            "scores": {
+              "standalone": 3,
+              "opening": 4,
+              "substance": 3,
+              "payoff": 3,
+              "fidelity": 4
+            },
+            "flags": [],
+            "reason": "Selkeä ja tunnistettava pelaajaturhautuminen: bossi on immuuni, joten katsoja ymmärtää kritiikin ja sitä seuraavan koomisen epätoivon. Lyhyt leikkaus sisältää kokonaisen ajatuksen; aiempi pelitilanne ei ole välttämätön.",
+            "summary_fi": "Streamer kyseenalaistaa, onko täysin immuuni bossi hyvää bossisuunnittelua — ja toteaa heti perään, ettei itse voi kuolla.",
+            "title_fi": "Onko immuuni bossi hyvää designia?"
+          },
+          "context_request": null,
+          "speech": "Onks tää nyt hyvää bossi designaa, ku se on vaan nii vittu immuuneen saatanu? Voi ei ne voi kuolla."
+        },
+        {
+          "id": "47354d189795746e38eac4525f25b761",
+          "revision": 1,
+          "review": "not_approved",
+          "review_note": "",
+          "title": "En halua pelata tätä bossia… paitsi haluan",
+          "media_status": "ready",
+          "rank": 7,
+          "start_us": 14235320000,
+          "end_us": 14243200000,
+          "output_duration_us": 7880000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0011263",
+            "end_word_id": "w_0011283",
+            "idea_word_id": "w_0011267",
+            "category": "joke",
+            "scores": {
+              "standalone": 3,
+              "opening": 3,
+              "substance": 3,
+              "payoff": 4,
+              "fidelity": 4
+            },
+            "flags": [],
+            "reason": "Hauska ristiriita: ensin hän sanoo, ettei halua pelata bossia, mutta haluaa tappaa sen ja silti pelata sen. Lyhyt kokonaisuus toimii ilman olennaista lisäkontekstia.",
+            "summary_fi": "Streamer ei halua pelata bossia — paitsi että haluaa tappaa sen ja pelata sitä.",
+            "title_fi": "En halua pelata tätä bossia… paitsi haluan"
+          },
+          "context_request": null,
+          "speech": "Mä en haluu pelaa. Mä en haluu pelaa tää bossi. Mä haluun tappaa tän bossi, mutta mä haluun pelaa tää bossi."
+        },
+        {
+          "id": "dbdb5debb0e68ea17af8a13988e3416c",
+          "revision": 1,
+          "review": "approved",
+          "review_note": "",
+          "title": "Miksi buildia on yhtä vaikea vaihtaa kuin työpaikkaa",
+          "media_status": "ready",
+          "rank": 8,
+          "start_us": 15594580000,
+          "end_us": 15646680000,
+          "output_duration_us": 19960000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0012219",
+            "end_word_id": "w_0012269",
+            "idea_word_id": "w_0012225",
+            "category": "observation",
+            "scores": {
+              "standalone": 3,
+              "opening": 3,
+              "substance": 4,
+              "payoff": 3,
+              "fidelity": 4
+            },
+            "flags": [
+              "Transkriptiossa kohta \"ja uskalla vaihtaa\" vaikuttaa kieliopillisesti epäselvältä; sitä ei ole korjattu."
+            ],
+            "reason": "Pelibuildin vaihtamisen pelko muuttuu osuvaksi työpaikka-analogiaksi: tuttuun tyytyy ja samalla jämähtää, vaikka ruoho voisi olla vihreämpää. Lopun huomio siitä, että muutosta pitää joskus tehdä, antaa ajatukselle luontevan päätöksen.",
+            "summary_fi": "Buildin vaihtamisen vaikeus on kuin työpaikan vaihtaminen: tuttuun jää helposti tyytymään ja jämähtämään.",
+            "title_fi": "Miksi buildia on yhtä vaikea vaihtaa kuin työpaikkaa"
+          },
+          "context_request": null,
+          "speech": "Tää on vähän niinku se, et sul on mukava jossain työpaikassa ja uskalla vaihtaa toiseen työpaikkaan. Vaikka vois olla ruohonvihreämpää. Vaan tyydyt ja hyydyt. Me ihmiset ollaan semmosia. Me ihmiset ollaan semmosia, että me vaan tyydytään ja hyydytään. Me ei tykätä tosta muutoksesta. Ja joskus pitää tehdä siitäkin."
+        },
+        {
+          "id": "36c70fe728dd791dc59ae77fa410e357",
+          "revision": 1,
+          "review": "not_approved",
+          "review_note": "",
+          "title": "Historian huonoin mage",
+          "media_status": "ready",
+          "rank": 9,
+          "start_us": 15972520000,
+          "end_us": 15983410000,
+          "output_duration_us": 6030000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0012552",
+            "end_word_id": "w_0012563",
+            "idea_word_id": "w_0012554",
+            "category": "joke",
+            "scores": {
+              "standalone": 3,
+              "opening": 3,
+              "substance": 3,
+              "payoff": 4,
+              "fidelity": 4
+            },
+            "flags": [],
+            "reason": "Tiivis ja selkeä mage-rantti: ensin voimakas arvio ja lopussa toimiva sanaleikkimäinen kärjistys “historiallisen paska”. Pelin tarkempi konteksti puuttuu, mutta vitsi toimii gamer-yleisölle eikä rajaus muuta merkitystä.",
+            "summary_fi": "Vaarattu julistaa tämän kaikkien aikojen huonoimmaksi mageksi ja toteaa, että historiaa todellakin tehtiin — historiallisesti paskaa.",
+            "title_fi": "Historian huonoin mage"
+          },
+          "context_request": null,
+          "speech": "Tää on huonoin magesison ikinä pelihistoriassa. Historiaa tehtiin. Historiallisen paska."
+        },
+        {
+          "id": "6f27e69b3235ebc8011b4e437cef57f7",
+          "revision": 1,
+          "review": "not_approved",
+          "review_note": "",
+          "title": "Rakastaisitko mua, jos olisin siittiö?",
+          "media_status": "ready",
+          "rank": 10,
+          "start_us": 20445880000,
+          "end_us": 20461300000,
+          "output_duration_us": 7600000,
+          "selection": {
+            "outcome": "accept",
+            "start_word_id": "w_0015254",
+            "end_word_id": "w_0015276",
+            "idea_word_id": "w_0015257",
+            "category": "joke",
+            "scores": {
+              "standalone": 3,
+              "opening": 3,
+              "substance": 3,
+              "payoff": 4,
+              "fidelity": 4
+            },
+            "flags": [],
+            "reason": "Lyhyt absurdi vitsi toimii sellaisenaan: englanninkielinen kysymys johtaa välittömään loukkaantuneeseen vastaukseen ja toistoon. Mukana ei ole olennaista puuttuvaa kontekstia.",
+            "summary_fi": "Vaarattu kysyy, rakastaisiko toinen häntä vielä siittiönä — vastaus on tylysti ei.",
+            "title_fi": "Rakastaisitko mua, jos olisin siittiö?"
+          },
+          "context_request": null,
+          "speech": "Tää tää Would you still love me if I was sperm Ai sä et rakastais? No ei vittu sitte Eipä vittu sitte"
+        }
+      ]
+    }
+  ],
+  "totals": {
+    "raw_suggestions": 299,
+    "verified": 289,
+    "quality_passed": 237,
+    "reviewed": 37,
+    "approved": 16,
+    "rejected": 21
+  },
+  "score_associations": {
+    "substance": {
+      "0": {},
+      "1": {},
+      "2": {},
+      "3": {
+        "not_approved": 18,
+        "approved": 6
+      },
+      "4": {
+        "approved": 10,
+        "not_approved": 3
+      }
+    },
+    "opening": {
+      "0": {},
+      "1": {},
+      "2": {
+        "approved": 1
+      },
+      "3": {
+        "approved": 13,
+        "not_approved": 13
+      },
+      "4": {
+        "not_approved": 8,
+        "approved": 2
+      }
+    },
+    "fidelity": {
+      "0": {},
+      "1": {},
+      "2": {},
+      "3": {
+        "approved": 5,
+        "not_approved": 4
+      },
+      "4": {
+        "not_approved": 17,
+        "approved": 11
+      }
+    }
+  },
+  "older_explicit_notes": [
+    {
+      "title": "Kun goldia onkin liikaa",
+      "review": "not_approved",
+      "note": "maybe with more context"
+    },
+    {
+      "title": "“Käytä kesäloma siihen”",
+      "review": "not_approved",
+      "note": "maybe with more earlier context"
+    },
+    {
+      "title": "Kielimalli juttuseuraksi?",
+      "review": "not_approved",
+      "note": "nothing clip worthy"
+    },
+    {
+      "title": "\"Painan niin paljon kun tästä koneesta lähtee\"",
+      "review": "not_approved",
+      "note": "nothing clip worthy"
+    },
+    {
+      "title": "Mage’s Season ja Arcane palaavat",
+      "review": "not_approved",
+      "note": "nothing clip worthy"
+    },
+    {
+      "title": "Hahmo tuntuu heikommalta kuin viimeksi",
+      "review": "not_approved",
+      "note": "nothing clip worthy"
+    }
+  ]
+}

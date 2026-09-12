@@ -538,18 +538,18 @@ test("Codex selection disables dollar cap and renders unknown costs", async()=>{
   nodes.get("provider").onchange();
   assert.equal(nodes.get("budget").disabled,false);
   assert.equal(nodes.get("budget-field").hidden,false);
-  run.clips=Array.from({length:6},(_,i)=>({id:`clip-${i}`,title:`Moment ${i}`,status:"pending",
+  run.clips=Array.from({length:12},(_,i)=>({id:`clip-${i}`,title:`Moment ${i}`,status:"pending",
     start_us:0,end_us:15000000,revision:1,has_preview:false,source_url:"https://www.youtube.com/watch?v=abc_def-ghI"}));
   await vm.runInContext('detail()',context);
-  assert.equal(nodes.get("clips").children.length,4);
-  assert.equal(nodes.get("clip-page").textContent,"1–4 of 6 clips");
+  assert.equal(nodes.get("clips").children.length,10);
+  assert.equal(nodes.get("clip-page").textContent,"1–10 of 12 clips");
   const firstClip=nodes.get("clips").children[0];
   run.message="Updated run status";
   await vm.runInContext('detail()',context);
   assert.equal(nodes.get("clips").children[0],firstClip,"Progress updates must preserve existing previews and focus");
   nodes.get("next-clips").onclick();
   assert.equal(nodes.get("clips").children.length,2);
-  assert.ok(find(nodes.get("clips"),"Moment 4"));
+  assert.ok(find(nodes.get("clips"),"Moment 10"));
   assert.equal(nodes.get("next-clips").hidden,true);
   nodes.get("previous-clips").onclick();
   assert.ok(find(nodes.get("clips"),"Moment 0"));

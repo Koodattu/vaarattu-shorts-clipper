@@ -11,6 +11,16 @@ MIN_CLIP_US = 3000000
 MAX_CLIP_US = 90000000  # Retain support for saved clips and manual edits.
 
 
+def clip_duration_limit(body):
+    if body.get("context_expanded"):
+        return float("inf")
+    # Explicit audit previews preserve an original suggestion, including long ones.
+    original = body.get("audit_original_bounds")
+    if original:
+        return max(MAX_CLIP_US, original["end_us"] - original["start_us"] + 1000000)
+    return MAX_CLIP_US
+
+
 class Contract(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
@@ -91,7 +101,7 @@ class RunRequest(Contract):
     context_size: Literal[16384, 32768] = 16384
     budget_usd: float = Field(default=0, ge=0, le=100)
     layout_id: str = Field(pattern=r"^[a-f0-9]{32}$")
-    stream_id: int | None = Field(default=None, gt=0)
+    stream_id: int | None = Field(default=None, gt=0, le=2147483647)
     stream_offset_seconds: float | None = None
     alignment_confirmed: bool = False
     discovery_reasoning: Literal["low", "medium"] = "low"
@@ -135,6 +145,9 @@ class Scores(Contract):
 
     def total(self) -> int:
         return sum(self.model_dump().values())
+
+    def priority(self) -> tuple[int, ...]:
+        return self.substance, self.payoff, self.standalone, self.fidelity, self.opening
 
 
 class DiscoveryCandidate(Contract):

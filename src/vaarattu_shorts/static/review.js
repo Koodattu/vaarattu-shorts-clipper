@@ -28,7 +28,7 @@ async function loadReviewQueue(){
     reviewQueue=clips.filter(c=>c.status==="ready"&&c.has_preview&&c.context_request?.status!=="pending"&&(c.review_status||"unreviewed")==="unreviewed");
     const groups=new Map();
     for(const clip of reviewQueue){if(!groups.has(clip.run_id))groups.set(clip.run_id,[]);groups.get(clip.run_id).push(clip);}
-    reviewQueue=[...groups.values()].flatMap(group=>group.sort((a,b)=>(a.review_rank??Infinity)-(b.review_rank??Infinity)));
+    reviewQueue=[...groups.values()].flatMap(group=>group.sort((a,b)=>Number(a.review_selected===false)-Number(b.review_selected===false)||(a.review_rank??Infinity)-(b.review_rank??Infinity)));
     reviewLoaded=true;reviewSkipped=0;reviewLast=null;reviewVideoKey="";
     reviewMessage("");paintReviewQueue();
   }catch(e){reviewMessage(e.message,true);}

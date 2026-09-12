@@ -8,7 +8,7 @@ import wave
 import numpy as np
 
 from . import pacing
-from .contracts import MAX_CLIP_US, MIN_CLIP_US, Layout
+from .contracts import MIN_CLIP_US, Layout, clip_duration_limit
 from .processes import run_tool
 from .storage import atomic_json, digest
 from .youtube import pcm, probe
@@ -43,7 +43,7 @@ def correlate(reference, query, rate=2000):
     return index / rate, best
 
 
-def align(settings, source_audio, section, requested_start, folder, check):
+def align(settings, source_audio, section, requested_start, folder, check, clip_duration=None):
     info = probe(settings, section, folder, check)
     duration = float(info["format"]["duration"])
     if duration < 14:
@@ -54,8 +54,16 @@ def align(settings, source_audio, section, requested_start, folder, check):
     waveform = read_wave(decoded)
     decoded.unlink()
     duration = len(waveform) / 2000
+    if clip_duration is not None and not 0 < clip_duration <= duration:
+        raise ValueError("The clip duration falls outside the downloaded section.")
+    # Padding is acquisition context, not the excerpt whose clock we need to verify.
+    # Six seconds keeps the two query windows independent, even for a very short clip.
+    required_separation = max(6, (duration if clip_duration is None else clip_duration) * 0.35)
     origins, samples, failures = [], [], []
     positions = [2.0, duration - 8.0, duration * 0.25, duration * 0.5, duration * 0.75]
+    # Quiet padding can hide usable, well-separated speech between the coarse samples.
+    # Try these only if the usual samples have not already established alignment.
+    positions.extend(range(0, int(duration - 6) + 1))
     for i, position in enumerate(dict.fromkeys(positions)):
         check()
         if not 0 <= position <= duration - 6:
@@ -79,16 +87,23 @@ def align(settings, source_audio, section, requested_start, folder, check):
         )
         if max(origins) - min(origins) > 0.08:
             break
-        if max(s["section_seconds"] for s in samples) - min(s["section_seconds"] for s in samples) >= max(
-            6, duration * 0.35
-        ):
+        if max(s["section_seconds"] for s in samples) - min(
+            s["section_seconds"] for s in samples
+        ) >= required_separation:
             break
-    atomic_json(folder / "alignment.json", {"anchors": samples, "unusable_samples": failures})
+    matched_span = (
+        max(s["section_seconds"] for s in samples) - min(s["section_seconds"] for s in samples)
+        if samples else 0
+    )
+    atomic_json(folder / "alignment.json", {
+        "anchors": samples, "unusable_samples": failures,
+        "clip_duration_seconds": clip_duration, "section_duration_seconds": duration,
+        "required_separation_seconds": required_separation, "matched_span_seconds": matched_span,
+        "offset_spread_seconds": max(origins) - min(origins) if origins else None,
+    })
     if len(origins) >= 2 and max(origins) - min(origins) > 0.08:
         raise ValueError("The section and full audio drift apart. This clip needs alignment review.")
-    if len(origins) < 2 or max(s["section_seconds"] for s in samples) - min(
-        s["section_seconds"] for s in samples
-    ) < max(6, duration * 0.35):
+    if len(origins) < 2 or matched_span < required_separation:
         raise ValueError(
             "Could not find two clear, separated audio matches. Retry or review this clip's timing."
         )
@@ -247,11 +262,12 @@ def render_clip(settings, section, mapping, body, layout, words, folder, check):
     duration = (end - start) / 1e6
     if (
         local_start < 0
-        or end - start < MIN_CLIP_US
-        or end - start > MAX_CLIP_US
+        or end - start <= 0
+        or (not body.get("audit_original_bounds") and end - start < MIN_CLIP_US)
+        or end - start > clip_duration_limit(body)
         or local_start + duration > mapping["section_duration"] + 0.05
     ):
-        raise ValueError("The chosen boundaries fall outside the verified section or 3–90 second range.")
+        raise ValueError("The chosen boundaries fall outside the verified section or this clip's duration limits.")
     layout = Layout.model_validate(layout)
     info = probe(settings, section, folder, check)
     video = next(s for s in info["streams"] if s["codec_type"] == "video")
