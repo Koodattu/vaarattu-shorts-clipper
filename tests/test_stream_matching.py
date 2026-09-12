@@ -69,7 +69,7 @@ def test_local_lookup_validates_inputs_and_returns_suggestions(settings, monkeyp
     seen = []
     monkeypatch.setattr(stream_data, "search", lambda metadata: seen.append(metadata) or {"matches": [], "status": "ready"})
     monkeypatch.setattr(stream_data, "stream_detail", lambda stream_id: {"id": stream_id})
-    client = TestClient(create_app(settings))
+    client = TestClient(create_app(settings), base_url="http://127.0.0.1:8765")
     assert client.get("/api/streams/search", params={"video": "https://youtu.be/aaaaaaaaaaa", "q": "A title"}).status_code == 200
     assert seen == [{"id": "aaaaaaaaaaa", "title": "A title"}]
     assert client.get("/api/streams/search", params={"video": "file:///private"}).status_code == 400
