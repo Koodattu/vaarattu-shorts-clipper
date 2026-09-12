@@ -480,6 +480,44 @@ test("channel selection, local filters and explicit page fetching", async()=>{
   assert.equal(nodes.get("video").value,videos[1].url,"Navigation must preserve the selected source");
 });
 
+test("stream matching fills clear suggestions, preserves manual input and discards stale responses", async()=>{
+  const staticPath=path.join(__dirname,"../src/vaarattu_shorts/static");
+  const nodes=new Map([...fs.readFileSync(path.join(staticPath,"index.html"),"utf8").matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],new Element()]));
+  const pending=[];
+  const context=vm.createContext({
+    document:{getElementById:id=>nodes.get(id),createElement:tag=>new Element(tag)},
+    fetch:async(url)=>{
+      if(url.startsWith("/api/streams/search?"))return new Promise(resolve=>pending.push(value=>resolve({ok:true,json:async()=>value})));
+      const responses={"/api/status":{token:"fixture",models:{turbo:true},providers:{}},"/api/layouts":[],"/api/runs":[],"/api/videos":{videos:[]},"/api/streams/99":{id:99,startTime:"2026-07-09T12:00:00Z",segments:[{title:"Manual stream"}],youtubeVideos:[]}};
+      assert.ok(url in responses,url);return {ok:true,json:async()=>responses[url]};
+    },
+  });
+  vm.runInContext(fs.readFileSync(path.join(staticPath,"app.js"),"utf8"),context);await new Promise(setImmediate);
+  const match={id:254,startTime:"2026-07-09T12:00:00Z",titles:["Title"],reason:"Saved YouTube association",streamOffsetSeconds:12000};
+  const result={status:"ready",matches:[match],suggestedStreamId:254};
+  nodes.get("video").value="aaaaaaaaaaa";nodes.get("video").oninput();
+  const first=nodes.get("find-stream").onclick();pending.shift()(result);await first;
+  assert.equal(nodes.get("stream-id").value,"254");assert.equal(nodes.get("stream-offset").value,"12000");
+  assert.equal(nodes.get("alignment").checked,false,"Identity and saved offsets are not timing confirmation");
+  nodes.get("alignment").checked=true;
+  nodes.get("video").value="bbbbbbbbbbb";nodes.get("video").oninput();
+  assert.equal(nodes.get("stream-id").value,"");assert.equal(nodes.get("stream-offset").value,"");assert.equal(nodes.get("alignment").checked,false);
+  const second=nodes.get("find-stream").onclick();
+  nodes.get("stream-id").value="99";nodes.get("stream-id").oninput();
+  pending.shift()(result);await second;
+  assert.equal(nodes.get("stream-id").value,"99","Delayed search cannot overwrite a manual ID");
+  assert.equal(nodes.get("find-stream").disabled,false);
+  await nodes.get("check-stream").onclick();assert.match(nodes.get("stream-match-status").textContent,/Manual stream/);
+  nodes.get("stream-query").value="Other title";nodes.get("stream-query").oninput();
+  const third=nodes.get("find-stream").onclick();pending.shift()({...result,suggestedStreamId:null});await third;
+  assert.equal(nodes.get("stream-id").value,"","Ambiguous matches require a choice");
+  await find(nodes.get("stream-matches"),"Use this stream").onclick();assert.equal(nodes.get("stream-id").value,"254");
+  nodes.get("alignment").checked=true;nodes.get("stream-offset").oninput();assert.equal(nodes.get("alignment").checked,false);
+  const fourth=nodes.get("find-stream").onclick();
+  nodes.get("video").value="ccccccccccc";nodes.get("video").oninput();pending.shift()(result);await fourth;
+  assert.equal(nodes.get("stream-id").value,"","A previous video's result must not populate the new video");
+});
+
 test("Codex selection disables dollar cap and renders unknown costs", async()=>{
   const staticPath=path.join(__dirname,"../src/vaarattu_shorts/static");
   const html=fs.readFileSync(path.join(staticPath,"index.html"),"utf8");
