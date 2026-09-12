@@ -480,6 +480,44 @@ test("channel selection, local filters and explicit page fetching", async()=>{
   assert.equal(nodes.get("video").value,videos[1].url,"Navigation must preserve the selected source");
 });
 
+test("opening the process page waits for the saved title and automatically matches once", async()=>{
+  const staticPath=path.join(__dirname,"../src/vaarattu_shorts/static");
+  const nodes=new Map([...fs.readFileSync(path.join(staticPath,"index.html"),"utf8").matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],new Element()]));
+  nodes.get("video").value="aaaaaaaaaaa";
+  let loadLibrary,finishSearch;
+  const searches=[];
+  const context=vm.createContext({
+    document:{getElementById:id=>nodes.get(id),createElement:tag=>new Element(tag)},
+    fetch:async(url)=>{
+      if(url==="/api/videos")return new Promise(resolve=>{loadLibrary=data=>resolve({ok:true,json:async()=>data});});
+      if(url.startsWith("/api/streams/search?")){
+        searches.push(url);return new Promise(resolve=>{finishSearch=data=>resolve({ok:true,json:async()=>data});});
+      }
+      const responses={"/api/status":{token:"fixture",models:{turbo:true},providers:{}},"/api/layouts":[],"/api/runs":[]};
+      assert.ok(url in responses,url);return {ok:true,json:async()=>responses[url]};
+    },
+  });
+  vm.runInContext(fs.readFileSync(path.join(staticPath,"app.js"),"utf8"),context);
+  vm.runInContext('goView("process")',context);await new Promise(setImmediate);
+  assert.equal(searches.length,0,"Wait for saved metadata before attempting the automatic lookup");
+  loadLibrary({videos:[{id:"aaaaaaaaaaa",url:"https://www.youtube.com/watch?v=aaaaaaaaaaa",title:"9.7.2026 - Saved title"}]});await new Promise(setImmediate);
+  assert.equal(searches.length,1);
+  assert.equal(new URL(searches[0],"http://localhost").searchParams.get("q"),"9.7.2026 - Saved title");
+  assert.equal(nodes.get("stream-query").value,"9.7.2026 - Saved title");
+  vm.runInContext('goView("library");goView("process")',context);
+  assert.equal(searches.length,1,"Opening during lookup must not duplicate it");
+  finishSearch({status:"ready",matches:[{id:254,startTime:"2026-07-09T12:00:00Z",titles:["Saved title"],reason:"Similar title",streamOffsetSeconds:null}],suggestedStreamId:254});await new Promise(setImmediate);
+  assert.equal(nodes.get("stream-id").value,"254");
+  nodes.get("stream-id").value="99";nodes.get("stream-id").oninput();
+  vm.runInContext('goView("library");goView("process")',context);
+  assert.equal(searches.length,1);assert.equal(nodes.get("stream-id").value,"99","Returning preserves a manual mapping");
+  nodes.get("video").value="bbbbbbbbbbb";
+  vm.runInContext('goView("library");goView("process")',context);
+  assert.equal(searches.length,2,"Opening with a different video must automatically look it up");
+  assert.equal(nodes.get("stream-query").value,"");
+  finishSearch({status:"ready",matches:[],suggestedStreamId:null});await new Promise(setImmediate);
+});
+
 test("stream matching fills clear suggestions, preserves manual input and discards stale responses", async()=>{
   const staticPath=path.join(__dirname,"../src/vaarattu_shorts/static");
   const nodes=new Map([...fs.readFileSync(path.join(staticPath,"index.html"),"utf8").matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],new Element()]));
