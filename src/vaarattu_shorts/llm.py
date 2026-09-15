@@ -9,8 +9,10 @@ import socket
 import time
 import queue
 import threading
+import math
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit
 
 import httpx
@@ -33,6 +35,8 @@ PROVIDERS = {
     },
 }
 MAX_OUTPUT = 4096
+SERVICE_RETRY_DELAYS = (30, 60, 120, 240)
+RETRYABLE_HTTP_STATUS = {408, 429, 500, 502, 503, 504}
 
 
 class ModelOutputError(ValueError):
@@ -293,6 +297,25 @@ class Evaluator:
     def report(self, message):
         self.store.update(self.run_id, message=message)
 
+    def wait_for_retry(self, reason, delay, retry):
+        previous = self.store.get(self.run_id)["message"]
+        deadline = time.monotonic() + delay
+        next_update = 0
+        while True:
+            self.check()
+            now = time.monotonic()
+            remaining = deadline - now
+            if remaining <= 0:
+                break
+            if now >= next_update:
+                self.report(
+                    f"{reason} Retrying in {math.ceil(remaining)} seconds "
+                    f"(retry {retry} of {len(SERVICE_RETRY_DELAYS)})."
+                )
+                next_update = now + 5
+            time.sleep(min(0.2, remaining))
+        self.report(previous)
+
     def _request(self, system, prompt, schema, reasoning_effort="none"):
         p = self.provider
         model = self.model
@@ -430,7 +453,9 @@ class Evaluator:
                 except ValueError as exc:
                     raise ModelOutputError("The model's suggestion could not be verified.") from exc
             return parsed
-        for attempt in range(2):
+        attempt = 0
+        service_retries = 0
+        while attempt < 2:
             self.check()
             size = self.request_size(system, prompt, response_type)
             limit = self.context_size - MAX_OUTPUT - 256 if self.provider == "local" else 60000
@@ -457,6 +482,7 @@ class Evaluator:
                     "model": model,
                     "step": key,
                     "attempt": attempt + 1,
+                    "service_retries": service_retries,
                     "input_usd_per_million": None if self.codex else input_rate,
                     "output_usd_per_million": None if self.codex else output_rate,
                     "pricing_checked": "2026-09-06",
@@ -485,10 +511,7 @@ class Evaluator:
                     ) as client:
                         response = self.post(client, url, headers, body)
                 if response.status_code >= 400:
-                    # Keep reservation when billed status is uncertain. No hidden retry or provider switch.
-                    raise ValueError(
-                        f"The model service returned HTTP {response.status_code}. Retry after checking access or quota."
-                    )
+                    response.raise_for_status()
                 try:
                     raw = response.json()
                 except ValueError as exc:
@@ -529,9 +552,49 @@ class Evaluator:
                 atomic_json(cache, parsed.model_dump())
                 return parsed
             except (httpx.TransportError, httpx.HTTPStatusError) as exc:
-                raise ValueError(
-                    "The model service could not complete the request. Completed work is saved."
-                ) from exc
+                status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+                reason = (
+                    f"The model service returned HTTP {status}." if status is not None
+                    else "The model service could not complete the request."
+                )
+                # A failed response may still have been billed. Preserve its reservation
+                # and reserve each retry separately, under the same spending limit.
+                self.store.settle(request_id, None, {
+                    "http_status": status,
+                    "transport_error": type(exc).__name__ if status is None else None,
+                    "elapsed_seconds": round(time.monotonic() - started, 3),
+                })
+                retryable = status in RETRYABLE_HTTP_STATUS if status is not None else isinstance(
+                    exc, (httpx.NetworkError, httpx.TimeoutException, httpx.RemoteProtocolError)
+                )
+                if not retryable:
+                    raise ValueError(
+                        f"{reason} Check the model service settings and access. Completed work is saved."
+                    ) from exc
+                if service_retries >= len(SERVICE_RETRY_DELAYS):
+                    raise ValueError(
+                        f"{reason} Automatic retries exhausted. Completed work is saved; try again later."
+                    ) from exc
+                delay = SERVICE_RETRY_DELAYS[service_retries]
+                if status is not None:
+                    retry_after = exc.response.headers.get("Retry-After", "")
+                    try:
+                        seconds = float(retry_after)
+                    except ValueError:
+                        try:
+                            seconds = parsedate_to_datetime(retry_after).timestamp() - time.time()
+                        except (ValueError, TypeError, OverflowError):
+                            seconds = 0
+                    if math.isfinite(seconds):
+                        delay = max(delay, seconds)
+                if delay > 900:
+                    raise ValueError(
+                        f"{reason} The service requested a wait longer than 15 minutes. "
+                        "Completed work is saved; try again later."
+                    ) from exc
+                service_retries += 1
+                self.store.settle(request_id, None, {"retry_delay_seconds": delay})
+                self.wait_for_retry(reason, delay, service_retries)
             except ModelOutputError as exc:
                 if attempt or response is None or response.status_code >= 400:
                     raise
@@ -541,4 +604,5 @@ class Evaluator:
                        if isinstance(exc.__cause__, ModelRankingError)
                        else "Use only supplied anchors in their original order and keep the proposed idea inside the clip.")
                 )
+                attempt += 1
         raise AssertionError("Unreachable")

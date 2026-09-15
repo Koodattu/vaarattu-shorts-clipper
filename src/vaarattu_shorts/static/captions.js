@@ -13,7 +13,7 @@ function paintCaptionCheck(){
     $("caption-changes").append(text("p","Previously applied corrections:"));
     for(const c of last.changes)$("caption-changes").append(text("p",`${c.original} → ${c.replacement} — ${c.reason}`));
   }
-  $("caption-check-again").disabled=captionBusy||pending;
+  $("caption-check-again").disabled=captionBusy||pending;$("caption-guidance").disabled=captionBusy||pending;
   $("caption-apply").disabled=captionBusy||pending||check?.status!=="complete"||!check.changes.length;
   $("caption-undo").disabled=captionBusy||pending||!last||last.undone||!last.changes.length;
   $("caption-message").textContent=pending?"Checking captions. The current preview is unchanged.":check?.status==="complete"?(check.changes.length?"Select the corrections you want to apply.":"No clear word errors found."):captionClip?.caption_correction_warning||"Check the saved captions for individual word errors.";
@@ -22,17 +22,17 @@ async function openCaptionCheck(id,fromEditor=false){
   if(!id||captionBusy)return;
   if(fromEditor&&editing.captionFormState!==captionEditorState()){error("Save your current editor changes before checking the saved captions.");return;}
   captionFromEditor=fromEditor;captionBusy=true;
-  try{captionClip=await api(`/api/clips/${id}`);$("caption-dialog").showModal();}
+  try{captionClip=await api(`/api/clips/${id}`);$("caption-guidance").value=captionClip.caption_check?.note||"";$("caption-dialog").showModal();}
   catch(e){error(e.message);return;}
   finally{captionBusy=false;}
   paintCaptionCheck();
   if(captionClip.caption_check?.status==="pending")pollCaptionCheck();
-  else if(!captionClip.caption_check&&!captionClip.caption_corrections?.length)await requestCaptionCheck();
+
 }
 async function requestCaptionCheck(){
   if(captionBusy||!captionClip)return;captionBusy=true;paintCaptionCheck();
   try{
-    const request=await api(`/api/clips/${captionClip.id}/caption-check`,{method:"POST",body:JSON.stringify({expected_revision:captionClip.revision})});
+    const request=await api(`/api/clips/${captionClip.id}/caption-check`,{method:"POST",body:JSON.stringify({expected_revision:captionClip.revision,note:$("caption-guidance").value})});
     captionClip.caption_check={id:request.request_id,status:"pending"};
   }catch(e){captionBusy=false;paintCaptionCheck();$("caption-message").textContent=e.message;return;}
   captionBusy=false;paintCaptionCheck();await pollCaptionCheck();

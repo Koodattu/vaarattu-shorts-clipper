@@ -10,7 +10,7 @@ let clipPage = 0, displayedRun = null;
 let runList = [], detailSignature = "", clipsSignature = "", runListSignature = "", currentView = "library";
 const labels = {local:"Local · Gemma 4",gemini:"Gemini 3.8 Flash",openai:"GPT-5.6 Luna",codex:"Codex",zai:"GLM-5.3-Flash",deepseek:"DeepSeek V4 Flash",meta:"Meta Muse Spark 1.3"};
 function showView(view){
-  const names={library:"Video library",gallery:"Clip gallery",review:"Review queue",process:"New run",results:"Runs & clips",layouts:"Layout presets",editor:"Edit clip"};
+  const names={library:"Video library",gallery:"Clip gallery",review:"Review queue",process:"New run",results:"Runs & clips",layouts:"Layout presets",editor:"Edit clip",delivery:"Posting & cleanup",publishing:"Publishing"};
   if(!names[view])return;
   if(currentView!==view){
     $("notice").hidden=true;
@@ -25,7 +25,7 @@ function showView(view){
     }
   }
   currentView=view;
-  for(const key of ["library","gallery","review","process","results","layouts"]){
+  for(const key of ["library","gallery","review","process","results","layouts","delivery","publishing"]){
     $("view-"+key).hidden=key!==view;
     $("nav-"+key).setAttribute("aria-current",key===(view==="editor"?"results":view)?"page":"false");
   }
@@ -37,6 +37,8 @@ function showView(view){
   if(view==="gallery"&&typeof loadGallery==="function")loadGallery().catch(e=>error(e.message));
   if(view==="review"&&typeof loadReviewQueue==="function")loadReviewQueue();
   if(view==="process")matchSelectedStream();
+  if(view==="delivery")loadDelivery().catch(e=>error(e.message));
+  if(view==="publishing")loadPublishing().catch(e=>error(e.message));
 }
 function goView(view){
   showView(view);
@@ -176,7 +178,7 @@ async function detail(){
   if(run.id!==activeRun)return;
   const signature=JSON.stringify(run);if(signature===detailSignature)return;detailSignature=signature;
   const box=$("run-detail"),usageOpen=$("run-usage")?.open;
-  const stages={metadata:"Reading recording details",audio:"Preparing audio",transcript:"Transcribing speech","final-transcript":"Refining clip captions",selection:"Finding moments","review-priority":"Ranking review candidates","context-repair":"Finding missing context","caption-check":"Checking caption errors",chat:"Reviewing chat peaks",render:"Rendering clips"};
+  const stages={metadata:"Reading recording details",audio:"Preparing audio",transcript:"Transcribing speech","final-transcript":"Refining clip captions",selection:"Finding moments","review-priority":"Ranking review candidates","context-repair":"Finding missing context","caption-check":"Checking caption errors",tighten:"Suggesting a tighter edit",chat:"Reviewing chat peaks",render:"Rendering clips"};
   const states={completed:"Run completed",queued:"Waiting to start",paused:"Run paused",failed:"Run needs attention",cancelled:"Run cancelled"};
   box.replaceChildren(text("h2",states[run.state]||(run.stage.startsWith("recovery-")?"Rechecking moments":stages[run.stage]||"Processing recording")));
   $("run-announcement").textContent=`${run.state} · ${Math.round(run.progress*100)}%. ${run.message||""}`;
@@ -260,7 +262,7 @@ function sameLayout(a,b){
   const normalize=value=>{const v={...defaults,...value};return Object.keys(v).sort().map(key=>[key,key==="camera"||key==="gameplay"?[v[key].x,v[key].y,v[key].width,v[key].height]:v[key]]);};
   return JSON.stringify(normalize(a))===JSON.stringify(normalize(b));
 }
-async function openEditor(id){$("editor-back").href="#results";$("editor-back").textContent="← Back to clips";editing=await api(`/api/clips/${id}`);$("edit-duration-help").textContent=editing.context_expanded?"This context-expanded clip has no fixed duration cap. Keep at least 3 seconds within the recording.":"Choose a 3–90 second interval. The original recording keeps its full pacing.";const preset=savedLayouts.find(l=>sameLayout(l.body,editing.layout));if(preset)$("edit-layout").value=preset.id;else $("edit-layout").value="";$("use-source-frame").disabled=!editing.has_source;$("editor").hidden=false;$("editor-title").textContent=editing.title;$("edit-caption-coverage").hidden=!editing.caption_coverage;if(editing.caption_coverage)$("edit-caption-coverage").textContent=`Large-v3 captions: edits can use ${(editing.caption_coverage.start_us/1e6).toFixed(2)}–${(editing.caption_coverage.end_us/1e6).toFixed(2)} seconds of the original recording.`;$("edit-start").value=editing.start_us/1e6;$("edit-end").value=editing.end_us/1e6;$("edit-title").value=editing.title;$("edit-trim-silence").checked=Boolean(editing.trim_silence);$("edit-encoder").value=editing.video_encoder||"libx264";$("reviewed").checked=false;$("edit-words").value=editing.words.map(w=>`${w.id} | ${w.text}`).join("\n");$("source-player").hidden=!editing.has_source;if(editing.has_source){$("source-player").src=`/api/artifacts/${id}/source`;$("source-player").onloadedmetadata=()=>{$("source-player").currentTime=Math.max(0,(editing.start_us-editing.section_origin_us)/1e6-3);};}$("source-unavailable").hidden=editing.has_source;if(typeof captionEditorState==="function")editing.captionFormState=captionEditorState();goView("editor");}
+async function openEditor(id){$("editor-back").href="#results";$("editor-back").textContent="← Back to clips";editing=await api(`/api/clips/${id}`);$("edit-duration-help").textContent=editing.context_expanded?"This context-expanded clip has no fixed duration cap. Keep at least 3 seconds within the recording.":"Choose a 3–90 second interval. The original recording keeps its full pacing.";const preset=savedLayouts.find(l=>sameLayout(l.body,editing.layout));if(preset)$("edit-layout").value=preset.id;else $("edit-layout").value="";$("use-source-frame").disabled=!editing.has_source;$("editor").hidden=false;$("editor-title").textContent=editing.title;$("edit-caption-coverage").hidden=!editing.caption_coverage;if(editing.caption_coverage)$("edit-caption-coverage").textContent=`Large-v3 captions: edits can use ${(editing.caption_coverage.start_us/1e6).toFixed(2)}–${(editing.caption_coverage.end_us/1e6).toFixed(2)} seconds of the original recording.`;$("edit-start").value=editing.start_us/1e6;$("edit-end").value=editing.end_us/1e6;$("edit-title").value=editing.title;$("edit-trim-silence").checked=Boolean(editing.trim_silence);$("edit-encoder").value=editing.video_encoder||"libx264";$("reviewed").checked=false;$("edit-speech-cuts").hidden=!editing.speech_cuts?.length;$("edit-speech-cuts").textContent=`This revision omits ${editing.speech_cuts?.length||0} speech passages. Caption and layout edits retain them. Undo speech cuts before changing the excerpt boundaries.`;$("edit-words").value=editing.words.map(w=>`${w.id} | ${w.text}`).join("\n");$("source-player").hidden=!editing.has_source;if(editing.has_source){$("source-player").src=`/api/artifacts/${id}/source`;$("source-player").onloadedmetadata=()=>{$("source-player").currentTime=Math.max(0,(editing.start_us-editing.section_origin_us)/1e6-3);};}$("source-unavailable").hidden=editing.has_source;if(typeof captionEditorState==="function")editing.captionFormState=captionEditorState();goView("editor");}
 $("edit-form").onsubmit=async event=>{event.preventDefault();error("");$("save-edit").disabled=true;$("save-edit").textContent="Saving revision…";try{const words=$("edit-words").value.split("\n").filter(Boolean).map(line=>{const split=line.indexOf("|");const id=line.slice(0,split).trim();const original=editing.words.find(w=>w.id===id);if(split<0||!original)throw new Error("Keep each original caption word ID before the |.");return {...original,text:line.slice(split+1).trim()};});const result=await api(`/api/clips/${editing.id}/edit`,{method:"POST",body:JSON.stringify({expected_revision:editing.revision,start_us:Math.round(Number($("edit-start").value)*1e6),end_us:Math.round(Number($("edit-end").value)*1e6),title:$("edit-title").value,words,layout_id:$("edit-layout").value,reviewed:$("reviewed").checked,trim_silence:$("edit-trim-silence").checked,video_encoder:$("edit-encoder").value})});activeRun=result.run_id;$("editor").hidden=true;detailSignature="";await refresh();goView("results");$("notice").textContent="Revision saved. Follow its render in Runs & clips.";$("notice").hidden=false;}catch(e){error(e.message);}finally{$("save-edit").disabled=false;$("save-edit").textContent="Save and render revision";}};
 let frame=null,frameSize=null,frameName="",frameVersion=0,frameLoading=false,drawMode="camera",gesture=null,redraw=false,rectangles={};
 let composition={camera_height:608,camera_fit:"cover",gameplay_fit:"cover",camera_ratio:"panel",gameplay_ratio:"panel"};

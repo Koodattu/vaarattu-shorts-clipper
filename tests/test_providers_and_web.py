@@ -75,6 +75,7 @@ def test_api_parse_repair_and_budget_are_real_orchestration(settings, store, mon
 
 def test_api_timeout_keeps_reservation(settings, store, monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-secret")
+    monkeypatch.setattr(Evaluator, "wait_for_retry", lambda *args: None)
     run = store.admit({}, "timeout")
 
     def handle(request):

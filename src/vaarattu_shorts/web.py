@@ -14,7 +14,7 @@ from fastapi import Body, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import caption_correction, catalog, discover, stream_data
+from . import buffer, caption_correction, catalog, delivery, discover, r2, stream_data, tighten
 from .context_repair import ContextRequest
 from .contracts import MIN_CLIP_US, EditRequest, LayoutSave, RunRequest, Word, clip_duration_limit, video_id
 from .llm import PROVIDERS, codex_settings
@@ -47,6 +47,9 @@ def public_clip(clip):
                 "caption_correction_warning",
                 "caption_check",
                 "caption_corrections",
+                "tighten_check",
+                "speech_cuts",
+                "speech_cut_history",
                 "words",
                 "source_url",
                 "selection",
@@ -290,11 +293,129 @@ def create_app(settings):
                 clips.append({k: v for k, v in item.items() if k not in {"words", "layout", "selection"}})
         return clips
 
+    @app.get("/api/delivery")
+    def get_delivery():
+        return {"recordings": delivery.recordings(store), "plan": delivery.posting_plan(store)}
+
+    @app.get("/api/publishing/storage")
+    def publishing_storage():
+        return r2.status(settings)
+
+    def publishing_action(function, *args):
+        from .processes import LockBusyError, lock
+
+        try:
+            with lock(settings.work / "buffer-publishing.lock"):
+                return function(*args)
+        except LockBusyError:
+            raise ValueError("Another publishing action is in progress. Wait for it to finish.") from None
+
+    @app.get("/api/publishing/buffer")
+    def get_buffer():
+        return buffer.status(settings, store)
+
+    @app.post("/api/publishing/buffer/connect")
+    async def connect_buffer(request: Request):
+        from starlette.concurrency import run_in_threadpool
+
+        try:
+            body = await request.json()
+        except (ValueError, UnicodeError):
+            raise ValueError("Paste your personal Buffer API key.") from None
+        if not isinstance(body, dict):
+            raise ValueError("Paste your personal Buffer API key.")
+        return await run_in_threadpool(publishing_action, buffer.connect, settings, body.get("api_key"))
+
+    @app.post("/api/publishing/buffer/channels")
+    def configure_buffer(organization_id: str = Body(max_length=100), mapping: dict[str, str] = Body()):
+        return publishing_action(buffer.configure, settings, organization_id, mapping)
+
+    @app.post("/api/publishing/buffer/refresh")
+    def refresh_buffer():
+        return publishing_action(buffer.refresh, settings, store)
+
+    @app.post("/api/publishing/buffer/preview")
+    def preview_buffer(request: buffer.PreviewRequest):
+        return publishing_action(buffer.preview, settings, store,
+                                 [i.model_dump(exclude_none=True) for i in request.items], request.mode,
+                                 request.timezone, request.local_time)
+
+    @app.post("/api/publishing/buffer/send/{preview_id}/{clip_id}")
+    def send_buffer(preview_id: str, clip_id: str):
+        return publishing_action(buffer.send, settings, store, preview_id, clip_id)
+
+    @app.post("/api/publishing/buffer/resolve/{clip_id}/{platform}")
+    def resolve_buffer(clip_id: str, platform: str, post_id: str = Body(default="", max_length=200),
+                       absent_confirmed: bool = Body(default=False)):
+        return publishing_action(buffer.resolve, settings, store, clip_id, platform, post_id, absent_confirmed)
+
+    @app.delete("/api/publishing/buffer/requests/{clip_id}")
+    def discard_buffer_request(clip_id: str):
+        publishing_action(buffer.discard_unsubmitted, store, clip_id)
+        return {"discarded": True}
+
+    @app.delete("/api/publishing/buffer/media/{clip_id}")
+    def remove_buffer_media(clip_id: str):
+        from .processes import lock
+
+        def remove():
+            with lock(settings.work / "r2-upload.lock"):
+                return buffer.remove_published_media(settings, store, clip_id)
+
+        return publishing_action(remove)
+
+    @app.post("/api/publishing/storage/connect")
+    async def connect_publishing_storage(request: Request):
+        # Parse secrets here so validation responses cannot echo submitted credentials.
+        try:
+            body = await request.json()
+        except (ValueError, UnicodeError):
+            raise ValueError("Enter the Cloudflare S3 credentials.") from None
+        if not isinstance(body, dict):
+            raise ValueError("Enter the Cloudflare S3 credentials.")
+        from starlette.concurrency import run_in_threadpool
+
+        return await run_in_threadpool(r2.connect, settings, body.get("access_key"), body.get("secret_key"))
+
+    @app.post("/api/publishing/storage/clips/{clip_id}")
+    def upload_publishing_clip(clip_id: str, revision: int = Body(embed=True, ge=1)):
+        from .processes import LockBusyError
+
+        try:
+            return r2.upload(settings, store, clip_id, revision)
+        except LockBusyError:
+            raise ValueError("Another video is uploading. Wait for it to finish first.") from None
+
+    @app.get("/api/delivery/cleanup/{run_id}")
+    def preview_cleanup(run_id: str):
+        with store.connect() as db:
+            plan = delivery.cleanup_plan(settings, store, db, run_id)
+        return {k: v for k, v in plan.items() if k != "clips"}
+
+    @app.post("/api/delivery/cleanup/{run_id}")
+    def clean_media(run_id: str, fingerprint: str = Body(embed=True, min_length=64, max_length=64)):
+        return delivery.cleanup(settings, store, run_id, fingerprint)
+
+    @app.post("/api/delivery/schedule")
+    def schedule_posts(run_ids: list[str] = Body(max_length=1000), start_date: str = Body(max_length=10),
+                       local_time: str = Body(max_length=5), timezone: str = Body(max_length=100)):
+        return delivery.schedule(store, run_ids, start_date, local_time, timezone)
+
+    @app.post("/api/delivery/posts/{post_id}/{platform}")
+    def record_post(post_id: str, platform: str, url: str = Body(embed=True, max_length=2000)):
+        delivery.record_post(store, post_id, platform, url)
+        return {"ok": True}
+
+    @app.delete("/api/delivery/posts/{post_id}")
+    def unschedule_post(post_id: str):
+        delivery.unschedule(store, post_id)
+        return {"ok": True}
+
     @app.post("/api/clips/{clip_id}/review")
     def review_clip(
         clip_id: str,
         expected_revision: int = Body(ge=1),
-        status: Literal["unreviewed", "approved", "not_approved"] = Body(),
+        status: Literal["unreviewed", "approved", "not_approved", "ready_to_post"] = Body(),
         note: str | None = Body(default=None, max_length=2000),
     ):
         store.review_clip(clip_id, expected_revision, status, note)
@@ -327,6 +448,8 @@ def create_app(settings):
     @app.post("/api/clips/{clip_id}/context", status_code=202)
     def request_context(clip_id: str, request: ContextRequest):
         clip = store.clip(clip_id)
+        if clip["body"].get("speech_cuts"):
+            raise ValueError("Undo the speech cuts before requesting a longer excerpt, so their original word timing is preserved.")
         if not (settings.work / "runs" / clip["run_id"] / "asr" / "transcript.json").is_file():
             raise ValueError("The saved recording transcript is missing; restore it before requesting context.")
         return store.queue_context(clip_id, request.model_dump())
@@ -341,12 +464,48 @@ def create_app(settings):
     ):
         return queue_render(clip_id, expected_revision, layout_id, trim_silence, video_encoder)
 
+    @app.post("/api/clips/{clip_id}/tighten", status_code=202)
+    def request_tighter_edit(clip_id: str, expected_revision: int = Body(ge=1),
+                             note: str = Body(default="", max_length=2000)):
+        return store.queue_clip_analysis(clip_id, {"expected_revision": expected_revision, "note": note},
+                                         "tighten_check", "tighten_requested", "tighten")
+
+    @app.post("/api/clips/{clip_id}/instructed-edit", status_code=202)
+    def request_instructed_edit(clip_id: str, expected_revision: int = Body(ge=1),
+                                note: str = Body(min_length=1, max_length=2000)):
+        if not note.strip():
+            raise ValueError("Describe how you want this clip edited.")
+        return store.queue_clip_analysis(
+            clip_id, {"expected_revision": expected_revision, "note": note, "mode": "instructed"},
+            "tighten_check", "tighten_requested", "tighten",
+        )
+
+    @app.post("/api/clips/{clip_id}/speech-cuts", status_code=202)
+    def apply_speech_cuts(clip_id: str, expected_revision: int = Body(ge=1),
+                          check_id: str = Body(min_length=1, max_length=100),
+                          indices: list[int] = Body(max_length=6)):
+        clip = store.clip(clip_id)
+        if (clip["body"].get("tighten_check") or {}).get("id") != check_id:
+            raise ValueError("This edit proposal changed. Reload it before applying cuts.")
+        body = tighten.apply(clip["body"], indices)
+        body.update(status="pending", folder=None, flags=[], previous_revision=clip["revision"])
+        revision = store.queue_edit(clip_id, expected_revision, body)
+        return {"revision": revision, "run_id": clip["run_id"]}
+
+    @app.post("/api/clips/{clip_id}/speech-cuts-undo", status_code=202)
+    def undo_speech_cuts(clip_id: str, expected_revision: int = Body(embed=True, ge=1)):
+        clip = store.clip(clip_id)
+        body = tighten.undo(clip["body"])
+        body.update(status="pending", folder=None, flags=[], previous_revision=clip["revision"])
+        revision = store.queue_edit(clip_id, expected_revision, body)
+        return {"revision": revision, "run_id": clip["run_id"]}
+
     @app.post("/api/clips/{clip_id}/caption-check", status_code=202)
-    def check_captions(clip_id: str, expected_revision: int = Body(embed=True, ge=1)):
+    def check_captions(clip_id: str, expected_revision: int = Body(ge=1), note: str = Body(default="", max_length=2000)):
         clip = store.clip(clip_id)
         if not (settings.work / "runs" / clip["run_id"] / "asr" / "transcript.json").is_file():
             raise ValueError("Restore the saved transcript before checking captions.")
-        return store.queue_clip_analysis(clip_id, {"expected_revision": expected_revision},
+        return store.queue_clip_analysis(clip_id, {"expected_revision": expected_revision, "note": note},
                                          "caption_check", "caption_check_requested", "caption-check")
 
     @app.post("/api/clips/{clip_id}/caption-corrections", status_code=202)
@@ -379,6 +538,8 @@ def create_app(settings):
     def edit(clip_id: str, edit: EditRequest):
         clip = store.clip(clip_id)
         original = clip["body"]
+        if original.get("speech_cuts") and (edit.start_us != original["start_us"] or edit.end_us != original["end_us"]):
+            raise ValueError("Undo speech cuts before changing the excerpt boundaries. Caption and layout edits can keep the cuts.")
         transcript_path = settings.work / "runs" / clip["run_id"] / "asr" / "transcript.json"
         transcript = json.loads(transcript_path.read_text("utf-8"))
         if (
@@ -430,6 +591,7 @@ def create_app(settings):
                 if w["text"].strip() != original_text.get(w["id"], known[w["id"]].text.strip())
             }),
             "caption_check": None,
+            "tighten_check": None,
             "caption_correction_pass": original.get("caption_correction_pass") or "manual-edit",
             "layout": store.layout(edit.layout_id),
             "reviewed": edit.reviewed,

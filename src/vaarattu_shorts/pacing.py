@@ -5,7 +5,7 @@ from __future__ import annotations
 from .contracts import MIN_CLIP_US
 
 
-def plan(start, end, words, timing_issues=(), *, enabled=True):
+def plan(start, end, words, timing_issues=(), *, enabled=True, speech_cuts=()):
     # Merge occupied word spans, including nested ASR overlaps, before finding gaps.
     occupied = []
     for word in sorted(words, key=lambda w: w.start_us):
@@ -27,7 +27,16 @@ def plan(start, end, words, timing_issues=(), *, enabled=True):
             continue
         # Keep 300 ms of breathing room before and after every transcript gap.
         removed.append([gap_start + 300000, gap_end - 300000])
-    removed.sort()
+    silence_removed = list(removed)
+    for a, b in speech_cuts:
+        if not start < a < b < end or any(w.start_us < a < w.end_us or w.start_us < b < w.end_us for w in words):
+            raise ValueError("A speech cut crosses retained speech or the clip boundary.")
+    removed = []
+    for a, b in sorted([*silence_removed, *speech_cuts]):
+        if removed and a <= removed[-1][1]:
+            removed[-1][1] = max(removed[-1][1], b)
+        else:
+            removed.append([a, b])
     retained, cursor = [], start
     for a, b in removed:
         if a < cursor or b <= a:
@@ -37,6 +46,8 @@ def plan(start, end, words, timing_issues=(), *, enabled=True):
     retained.append([cursor, end])
     duration = sum(b - a for a, b in retained)
     if duration < MIN_CLIP_US:
+        if speech_cuts:
+            raise ValueError("The combined speech and silence cuts leave less than three seconds.")
         retained, removed, duration = [[start, end]], [], end - start
     offset, spans = 0, []
     for a, b in retained:
@@ -50,12 +61,16 @@ def plan(start, end, words, timing_issues=(), *, enabled=True):
         "retained": spans,
         "removed": removed,
         "output_duration_us": duration,
+        **({"version": 3, "method": "speech_cuts_and_transcript_gaps",
+            "speech_removed": list(speech_cuts), "silence_removed": silence_removed} if speech_cuts else {}),
     }
 
 
 def retime(words, edit_plan):
     result = []
     for word in words:
+        if any(a <= word.start_us and word.end_us <= b for a, b in edit_plan.get("speech_removed", [])):
+            continue
         for span in edit_plan["retained"]:
             if span["source_start_us"] <= word.start_us and word.end_us <= span["source_end_us"]:
                 shift = span["output_start_us"] - span["source_start_us"]

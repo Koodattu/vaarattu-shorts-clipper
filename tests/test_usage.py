@@ -142,6 +142,7 @@ def test_truncated_response_and_repair_are_counted_and_cached(settings, store, m
 @pytest.mark.parametrize("timeout", [False, True])
 def test_unknown_usage_keeps_budget_reserved(settings, store, monkeypatch, timeout):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-secret")
+    monkeypatch.setattr(Evaluator, "wait_for_retry", lambda *args: None)
     run = store.admit({}, "unknown")
 
     def handle(request):
@@ -169,7 +170,7 @@ def test_unknown_usage_keeps_budget_reserved(settings, store, monkeypatch, timeo
         else:
             evaluator.call("system", "prompt", Proposals, "one")
     report = store.usage(run)
-    assert report["unreported_requests"] == 1
+    assert report["unreported_requests"] == (5 if timeout else 1)
     assert report["reserved_usd"] > 0
     assert report["estimated_cost_usd"] == 0
     assert report["requests"][0]["estimated_cost_usd"] is None

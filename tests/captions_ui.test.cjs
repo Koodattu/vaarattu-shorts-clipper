@@ -28,6 +28,10 @@ test("caption checks keep the preview, allow individual edits and queue only the
   });
   vm.runInContext(fs.readFileSync(path.join(directory,"captions.js"),"utf8"),context);
   await nodes.get("review-caption-check").onclick();
+  assert.equal(writes.length,0,"Opening must allow guidance before the model request");
+  nodes.get("caption-guidance").value="Check names; preserve colloquial Finnish";
+  await nodes.get("caption-check-again").onclick();
+  assert.deepEqual(writes[0].body,{expected_revision:1,note:"Check names; preserve colloquial Finnish"});
   assert.equal(writes.length,1);assert.equal(renders,0);assert.equal(nodes.get("caption-dialog").open,true);
   nodes.get("caption-close").onclick();assert.equal(nodes.get("caption-dialog").open,false);
   clip={...clip,caption_check:{id:"check",status:"complete",changes:[

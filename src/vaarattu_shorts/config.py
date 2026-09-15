@@ -2,11 +2,40 @@ from __future__ import annotations
 
 import os
 import re
+import tempfile
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
 from .contracts import CHANNEL_ID
+from .processes import lock
+
+
+def save_env(path: Path, values: dict[str, str]) -> None:
+    """Replace named settings without exposing or rewriting unrelated credentials."""
+    if any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key) or not isinstance(value, str)
+           or any(c in value for c in "\r\n'") for key, value in values.items()):
+        raise ValueError("These settings cannot be saved in .env.")
+    with lock(path.with_name(path.name + ".lock")):
+        lines = path.read_text("utf-8-sig").splitlines() if path.exists() else []
+        kept = []
+        for line in lines:
+            match = re.match(r"\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=", line)
+            if not match or match.group(1) not in values:
+                kept.append(line)
+        kept.extend(f"{key}='{value}'" for key, value in values.items())
+        temp = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                                             prefix=".env.", delete=False) as handle:
+                temp = Path(handle.name)
+                handle.write("\n".join(kept) + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp, path)
+        finally:
+            if temp is not None:
+                temp.unlink(missing_ok=True)
 
 
 def load_env(path: Path) -> None:

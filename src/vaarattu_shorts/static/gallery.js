@@ -2,7 +2,7 @@
 let galleryClips=[], galleryPage=0, galleryLoading=false;
 let reviewNotesClip=null, reviewNoteSaving=false;
 const galleryPageSize=12, galleryCards=new Map();
-const reviewLabels={unreviewed:"Unreviewed",approved:"Approved",not_approved:"Not approved"};
+const reviewLabels={unreviewed:"Unreviewed",approved:"Approved",not_approved:"Not approved",ready_to_post:"Ready for posting"};
 async function loadGallery(){
   if(galleryLoading)return;
   galleryLoading=true;$("refresh-gallery").disabled=true;
@@ -97,9 +97,9 @@ function updateGalleryReview(entry){
 }
 function paintGallery(){
   $("gallery-count").textContent=galleryClips.length;
-  const counts={unreviewed:0,approved:0,not_approved:0};
+  const counts={unreviewed:0,approved:0,not_approved:0,ready_to_post:0};
   for(const clip of galleryClips)counts[clip.review_status||"unreviewed"]++;
-  $("gallery-summary").textContent=`${galleryClips.length} rendered clips · ${counts.unreviewed} unreviewed · ${counts.approved} approved · ${counts.not_approved} not approved`;
+  $("gallery-summary").textContent=`${galleryClips.length} rendered clips · ${counts.unreviewed} unreviewed · ${counts.ready_to_post} ready for posting · ${counts.approved} approved · ${counts.not_approved} not approved`;
   const query=$("gallery-search").value.trim().toLocaleLowerCase(),filter=$("gallery-filter").value;
   const items=galleryClips.filter(c=>(filter==="all"||(c.review_status||"unreviewed")===filter)&&`${c.title} ${gallerySource(c)}`.toLocaleLowerCase().includes(query));
   galleryPage=Math.min(galleryPage,Math.max(0,Math.ceil(items.length/galleryPageSize)-1));

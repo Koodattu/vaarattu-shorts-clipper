@@ -79,8 +79,9 @@ def test_originals_timing_order_and_undo_are_preserved(caption_clip):
         captions.apply(body, [change(), change()])
 
 
-def test_prompt_contains_speech_only_and_empty_changes_are_valid(caption_clip):
+def test_prompt_contains_speech_and_guidance_and_empty_changes_are_valid(caption_clip):
     _, body = caption_clip
+    body = {**body, "caption_check": {"note": "Check names; retain slang"}}
 
     class Evaluator:
         verification_budget = 48000
@@ -94,6 +95,8 @@ def test_prompt_contains_speech_only_and_empty_changes_are_valid(caption_clip):
             assert "pelihausta" not in system and "pelihousut" not in system
             assert "start_us" not in prompt
             assert json.loads(prompt)["change_limit"] == 1
+            assert json.loads(prompt)["guidance"] == "Check names; retain slang"
+            assert "never permits invented speech" in system
             result = schema(changes=[])
             kwargs["validate"](result)
             return result
@@ -105,11 +108,11 @@ def test_prompt_contains_speech_only_and_empty_changes_are_valid(caption_clip):
 def test_manual_check_worker_apply_and_undo(settings, store, caption_clip, monkeypatch):
     run, original = caption_clip
     monkeypatch.setattr(
-        pipeline.Pipeline, "caption_proposal", lambda *_: captions.Corrections(changes=[change()])
+        pipeline.Pipeline, "clip_proposal", lambda *_: captions.Corrections(changes=[change()])
     )
     client = TestClient(create_app(settings), base_url="http://127.0.0.1:8765")
     headers = {"x-local-token": client.get("/api/status").json()["token"]}
-    response = client.post("/api/clips/clip/caption-check", headers=headers, json={"expected_revision": 1})
+    response = client.post("/api/clips/clip/caption-check", headers=headers, json={"expected_revision": 1, "note": "Check names"})
     assert response.status_code == 202
     assert (
         client.post(
@@ -122,6 +125,7 @@ def test_manual_check_worker_apply_and_undo(settings, store, caption_clip, monke
     checked = store.clip("clip")
     assert checked["revision"] == 1 and checked["body"]["words"] == original["words"]
     assert store.get(run)["state"] == "completed"
+    assert checked["body"]["caption_check"]["note"] == "Check names"
     check_id = checked["body"]["caption_check"]["id"]
     for data in [
         dict(expected_revision=2, check_id=check_id, word_ids=["w3"]),
@@ -155,7 +159,7 @@ def test_automatic_pass_is_opt_in_resumable_and_fails_closed(settings, store, ca
         calls.append(1)
         return captions.Corrections(changes=[change()])
 
-    monkeypatch.setattr(pipeline.Pipeline, "caption_proposal", propose)
+    monkeypatch.setattr(pipeline.Pipeline, "clip_proposal", propose)
     process = pipeline.Pipeline(settings, store, run)
     process.correct_captions({"words": body["words"]})
     assert not calls
@@ -170,7 +174,7 @@ def test_automatic_pass_is_opt_in_resumable_and_fails_closed(settings, store, ca
     def invalid(*_):
         raise ModelAnchorError("invalid edit")
 
-    monkeypatch.setattr(pipeline.Pipeline, "caption_proposal", invalid)
+    monkeypatch.setattr(pipeline.Pipeline, "clip_proposal", invalid)
     process.correct_captions({"words": body["words"]})
     assert store.clip("clip")["body"]["words"] == body["words"]
     assert store.clip("clip")["body"]["caption_correction_warning"]

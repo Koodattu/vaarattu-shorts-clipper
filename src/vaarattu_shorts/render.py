@@ -7,7 +7,7 @@ import wave
 
 import numpy as np
 
-from . import pacing
+from . import pacing, tighten
 from .contracts import MIN_CLIP_US, Layout, clip_duration_limit
 from .processes import run_tool
 from .storage import atomic_json, digest
@@ -282,13 +282,16 @@ def render_clip(settings, section, mapping, body, layout, words, folder, check):
         selected_words,
         body.get("transcript_timing_issues", []),
         enabled=body.get("trim_silence", False),
+        speech_cuts=tighten.intervals(body),
     )
     output_words = pacing.retime(selected_words, edit_plan)
     duration = edit_plan["output_duration_us"] / 1e6
     flags = captions(folder, output_words, 0, edit_plan["output_duration_us"])
     atomic_json(folder / "captions.source.words.json", [w.model_dump() for w in selected_words])
     atomic_json(folder / "pacing.json", edit_plan)
-    if edit_plan["removed"]:
+    if edit_plan.get("speech_removed"):
+        flags.append(f"Removed {len(edit_plan['speech_removed'])} approved speech passages; check the joins.")
+    elif edit_plan["removed"]:
         flags.append(
             f"Shortened {(end - start) / 1e6 - duration:.1f}s of pauses between transcript words; check the pacing."
         )

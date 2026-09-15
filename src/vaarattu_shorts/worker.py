@@ -4,8 +4,8 @@ import signal
 import time
 import traceback
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
-from threading import Event
+from concurrent.futures import Future, ThreadPoolExecutor
+from threading import Event, Thread
 
 from .pipeline import Pipeline
 from .processes import Interrupted, ToolError, lock
@@ -15,7 +15,9 @@ from .storage import Store, atomic_json
 def run_job(settings, store, run_id, stopping):
     try:
         pipeline = Pipeline(settings, store, run_id, stopping)
-        if store.get(run_id)["result"].get("caption_check_requested"):
+        if store.get(run_id)["result"].get("tighten_requested"):
+            pipeline.suggest_tighter_edit()
+        elif store.get(run_id)["result"].get("caption_check_requested"):
             pipeline.check_captions()
         elif store.get(run_id)["result"].get("review_all_requested"):
             pipeline.review_all()
@@ -80,14 +82,39 @@ def work(settings, once=False):
         store.recover()
         with ThreadPoolExecutor(max_workers=4, thread_name_prefix="clip-job") as pool:
             active = set()
+            reviews = {}
+
+            def review_job(future, run_id):
+                try:
+                    future.set_result(run_job(settings, store, run_id, stopping.is_set))
+                except BaseException as exc:
+                    future.set_exception(exc)
+
             try:
                 while not stopping.is_set():
+                    for future, thread in tuple(reviews.items()):
+                        if future.done():
+                            thread.join()
+                            future.result()
+                            del reviews[future]
                     for future in tuple(active):
                         if future.done():
                             future.result()
                             active.remove(future)
+                    # Interactive work must not wait behind the VOD pool or its limit.
+                    while not stopping.is_set():
+                        run_id = store.claim(review=True)
+                        if run_id is None:
+                            break
+                        future = Future()
+                        thread = Thread(target=review_job, args=(future, run_id), name=f"clip-review-{run_id}")
+                        reviews[future] = thread
+                        thread.start()
+                        if once:
+                            future.result()
+                            return
                     while len(active) < 4 and not stopping.is_set():
-                        run_id = store.claim()
+                        run_id = store.claim(review=False)
                         if run_id is None:
                             break
                         future = pool.submit(run_job, settings, store, run_id, stopping.is_set)
@@ -100,3 +127,5 @@ def work(settings, once=False):
                     time.sleep(0.2)
             finally:
                 stopping.set()
+                for thread in reviews.values():
+                    thread.join()

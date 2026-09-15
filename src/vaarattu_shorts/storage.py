@@ -10,6 +10,16 @@ from contextlib import contextmanager
 from pathlib import Path
 
 
+REVIEW_STATUS_SQL = (
+    "CASE WHEN clip_reviews.revision=clips.revision THEN clip_reviews.status "
+    "WHEN clip_reviews.status IN ('approved','ready_to_post') THEN 'approved' ELSE 'unreviewed' END"
+)
+REVIEW_WORK_SQL = "(" + " OR ".join(
+    f"COALESCE(json_extract(result, '$.{key}'), 0) != 0"
+    for key in ("caption_check_requested", "tighten_requested", "context_repair_requested", "rerender_requested")
+) + " OR stage='rerender')"
+
+
 def atomic_json(path: Path, value) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")
@@ -63,6 +73,18 @@ class Store:
                 CREATE TABLE IF NOT EXISTS requests(
                     id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id),
                     amount REAL NOT NULL, actual REAL, status TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS posting_plan(
+                    id TEXT PRIMARY KEY, clip_id TEXT UNIQUE NOT NULL REFERENCES clips(id),
+                    revision INTEGER NOT NULL, scheduled_at TEXT NOT NULL,
+                    local_date TEXT UNIQUE NOT NULL, timezone TEXT NOT NULL,
+                    deliveries TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS buffer_publications(
+                    clip_id TEXT PRIMARY KEY REFERENCES clips(id), body TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS buffer_previews(
+                    id TEXT PRIMARY KEY, expires REAL NOT NULL, body TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS request_usage(
                     request_id TEXT PRIMARY KEY REFERENCES requests(id), body TEXT NOT NULL
@@ -214,6 +236,8 @@ class Store:
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             run = self.unpack(db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone())
+            if self.media_cleaned(run):
+                raise ValueError("Source media was cleaned up. Start a new run to process this recording again.")
             state, intent = run["state"], run["intent"]
             stage, result = run["stage"], run["result"]
             if action == "review-all" and state == "completed":
@@ -254,14 +278,24 @@ class Store:
         with self.connect() as db:
             db.execute("UPDATE preferences SET value=? WHERE key='max_concurrent_jobs'", (value,))
 
-    def claim(self):
+    def claim(self, *, review=None):
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             limit = db.execute("SELECT value FROM preferences WHERE key='max_concurrent_jobs'").fetchone()[0]
-            running = db.execute("SELECT COUNT(*) FROM runs WHERE state='running'").fetchone()[0]
-            if running >= limit:
-                return None
-            row = db.execute("SELECT id FROM runs WHERE state='queued' ORDER BY created LIMIT 1").fetchone()
+            running = db.execute(
+                f"SELECT COUNT(*) FROM runs WHERE state='running' AND NOT {REVIEW_WORK_SQL}"
+            ).fetchone()[0]
+            if review is True or running >= limit:
+                if review is False:
+                    return None
+                eligible = REVIEW_WORK_SQL
+            elif review is False:
+                eligible = f"NOT {REVIEW_WORK_SQL}"
+            else:
+                eligible = "1"
+            row = db.execute(
+                f"SELECT id FROM runs WHERE state='queued' AND {eligible} ORDER BY created LIMIT 1"
+            ).fetchone()
             if row:
                 db.execute("UPDATE runs SET state='running',updated=? WHERE id=?", (time.time(), row["id"]))
                 return row["id"]
@@ -400,28 +434,32 @@ class Store:
     def clips(self, run_id=None):
         with self.connect() as db:
             return [self.unpack(r) for r in db.execute(
-                "SELECT clips.*, COALESCE(clip_reviews.status, 'unreviewed') AS review_status, "
-                "COALESCE(clip_reviews.note, '') AS review_note "
+                f"SELECT clips.*, {REVIEW_STATUS_SQL} AS review_status, "
+                "COALESCE(CASE WHEN clip_reviews.revision=clips.revision THEN clip_reviews.note END, '') AS review_note "
                 "FROM clips JOIN runs ON runs.id=clips.run_id "
                 "LEFT JOIN clip_reviews ON clip_reviews.clip_id=clips.id "
-                "AND clip_reviews.revision=clips.revision "
                 + ("WHERE clips.run_id=? ORDER BY clips.rowid" if run_id is not None
                    else "ORDER BY runs.created DESC, clips.rowid DESC"),
                 (run_id,) if run_id is not None else (),
             )]
 
+    def media_cleaned(self, run):
+        return run["result"].get("media_cleaned") or (
+            self.path.parent / "runs" / run["id"] / "media-cleanup.json"
+        ).is_file()
+
     def clip(self, clip_id):
         with self.connect() as db:
             return self.unpack(db.execute(
-                "SELECT clips.*, COALESCE(clip_reviews.status, 'unreviewed') AS review_status, "
-                "COALESCE(clip_reviews.note, '') AS review_note "
+                f"SELECT clips.*, {REVIEW_STATUS_SQL} AS review_status, "
+                "COALESCE(CASE WHEN clip_reviews.revision=clips.revision THEN clip_reviews.note END, '') AS review_note "
                 "FROM clips LEFT JOIN clip_reviews ON clip_reviews.clip_id=clips.id "
-                "AND clip_reviews.revision=clips.revision WHERE clips.id=?", (clip_id,),
+                "WHERE clips.id=?", (clip_id,),
             ).fetchone())
 
     def review_clip(self, clip_id, expected_revision, status, note=None):
-        if status not in {"unreviewed", "approved", "not_approved"}:
-            raise ValueError("Choose Unreviewed, Approved or Not approved.")
+        if status not in {"unreviewed", "approved", "not_approved", "ready_to_post"}:
+            raise ValueError("Choose Unreviewed, Approved, Not approved or Ready for posting.")
         if note is not None and (not isinstance(note, str) or len(note) > 2000):
             raise ValueError("Keep the review reason within 2,000 characters.")
         with self.connect() as db:
@@ -432,9 +470,18 @@ class Store:
             body = clip["body"]
             if body.get("context_request", {}).get("status") == "pending":
                 raise ValueError("Wait for the context review to finish before deciding on this clip.")
-            if (body.get("status") not in {"ready", "held"} or not body.get("folder")
+            reject_held = status == "not_approved" and body.get("status") == "held" and db.execute(
+                "SELECT state FROM runs WHERE id=?", (clip["run_id"],)
+            ).fetchone()["state"] == "completed"
+            if not reject_held and (body.get("status") not in {"ready", "held"} or not body.get("folder")
                     or not (Path(body["folder"]) / "short.mp4").is_file()):
                 raise ValueError("Wait for a rendered preview before reviewing this clip.")
+            if status == "ready_to_post":
+                run = self.unpack(db.execute("SELECT * FROM runs WHERE id=?", (clip["run_id"],)).fetchone())
+                if body["status"] != "ready" or run["state"] != "completed":
+                    raise ValueError("Finish this recording's work before marking the final video ready for posting.")
+                if any((body.get(key) or {}).get("status") == "pending" for key in ("caption_check", "tighten_check")):
+                    raise ValueError("Finish the pending clip check before marking it ready for posting.")
             if note is None:
                 previous = db.execute(
                     "SELECT note FROM clip_reviews WHERE clip_id=? AND revision=?",
@@ -462,10 +509,15 @@ class Store:
             clip = self.unpack(db.execute("SELECT * FROM clips WHERE id=?", (clip_id,)).fetchone())
             if clip["revision"] != expected_revision:
                 raise ValueError("This clip changed. Reload it before saving.")
+            run = self.unpack(db.execute("SELECT * FROM runs WHERE id=?", (clip["run_id"],)).fetchone())
+            if self.media_cleaned(run):
+                raise ValueError("Source media was cleaned up. This final video is preserved, but editing requires a new run.")
             if clip["body"].get("context_request", {}).get("status") == "pending":
                 raise ValueError("Finish or resume this clip's context review before editing it.")
             if (clip["body"].get("caption_check") or {}).get("status") == "pending":
                 raise ValueError("Finish or resume this clip's caption check before editing it.")
+            if (clip["body"].get("tighten_check") or {}).get("status") == "pending":
+                raise ValueError("Finish or resume the tighter edit check before editing this clip.")
             active = db.execute(
                 "SELECT id FROM runs WHERE id=? AND state IN ('queued','running','paused')", (clip["run_id"],)
             ).fetchone()
@@ -491,6 +543,8 @@ class Store:
             if clip["revision"] != request["expected_revision"]:
                 raise ValueError("This clip changed. Reload it before requesting a check.")
             run = self.unpack(db.execute("SELECT * FROM runs WHERE id=?", (clip["run_id"],)).fetchone())
+            if self.media_cleaned(run):
+                raise ValueError("Source media was cleaned up. Start a new run to edit this recording again.")
             if run["state"] != "completed":
                 raise ValueError("Wait for this recording's current work to finish before requesting a check.")
             body = clip["body"]

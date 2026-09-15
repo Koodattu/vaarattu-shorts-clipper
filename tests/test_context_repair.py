@@ -258,7 +258,7 @@ def test_repair_context_end_to_end_and_resume_after_model_result(
         assert events[-1] == "llm-exit"
         events.append("render")
         assert clip["revision"] == 2 and clip["body"]["previous_revision"] == 1
-        assert clip["review_status"] == "unreviewed"
+        assert clip["review_status"] == "approved"
         store.save_clip("clip", run, 2, {**clip["body"], "status": "ready"})
 
     monkeypatch.setattr(instance, "deliver", deliver)

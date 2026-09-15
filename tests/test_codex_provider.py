@@ -101,7 +101,7 @@ def test_codex_repairs_bad_content_and_preserves_missing_usage(settings, store):
     assert store.get(run)["spent"] == store.get(run)["reserved"] == 0
 
 
-@pytest.mark.parametrize("status", [401, 429, 503])
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 422])
 def test_codex_access_errors_do_not_retry_or_fall_back_to_paid_api(settings, store, status):
     run = store.admit({"provider": "codex"}, "http-error")
     calls = []

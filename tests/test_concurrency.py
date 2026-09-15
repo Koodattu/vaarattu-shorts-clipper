@@ -149,3 +149,83 @@ def test_gpu_wait_is_exclusive_and_cancellable(tmp_path):
         first.result(timeout=3)
     with waiting_lock(path, name, lambda: None):
         pass
+
+
+@pytest.mark.parametrize("flag", [
+    "caption_check_requested", "tighten_requested", "context_repair_requested", "rerender_requested",
+])
+def test_review_claim_bypasses_vod_limit_and_survives_recovery(store, flag):
+    vod = store.admit({}, "vod")
+    assert store.claim(review=False) == vod
+    other_vod = store.admit({}, "waiting-vod")
+    review = store.admit({}, "review")
+    store.update(review, result={flag: "clip-id"}, stage="render")
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        claims = list(pool.map(lambda _: store.claim(review=True), range(4)))
+    assert claims.count(review) == 1
+    assert store.claim(review=False) is None
+    store.update(vod, state="completed")
+    assert store.claim(review=False) == other_vod
+    store.recover()
+    assert store.claim(review=True) == review
+    assert store.get(other_vod)["state"] == "queued"
+
+
+def test_main_pipeline_caption_stage_is_not_interactive(store):
+    run = store.admit({}, "ordinary-caption-pass")
+    store.update(run, stage="caption-check", result={"caption_check_requested": False})
+    assert store.claim(review=True) is None
+    assert store.claim(review=False) == run
+
+
+def test_review_workers_do_not_wait_for_either_pool(settings, store, monkeypatch):
+    vods = [store.admit({}, f"vod-{i}") for i in range(4)]
+    store.set_concurrency(4)
+    barrier = threading.Barrier(9, timeout=5)
+    mutex = threading.Lock()
+    stop = []
+    finished = 0
+    reviews = []
+
+    class FixturePipeline:
+        def __init__(self, settings, store, run_id, stopping):
+            self.run_id = run_id
+
+        def complete(self):
+            nonlocal finished
+            try:
+                barrier.wait()
+                if self.run_id == reviews[0]:
+                    raise ToolError("Review failed independently.")
+                store.update(self.run_id, state="completed", result={})
+            finally:
+                with mutex:
+                    finished += 1
+                    if finished == 9:
+                        stop[0]()
+
+        def execute(self):
+            # Submit reviews only once all four VOD slots are occupied.
+            with mutex:
+                if not reviews:
+                    for i, flag in enumerate([
+                        "caption_check_requested", "tighten_requested", "context_repair_requested",
+                        "rerender_requested", "caption_check_requested",
+                    ]):
+                        run = store.admit({}, f"review-{i}")
+                        store.update(run, result={flag: "clip-id"})
+                        reviews.append(run)
+            self.complete()
+
+        check_captions = complete
+        suggest_tighter_edit = complete
+        repair_context = complete
+        rerender = complete
+
+    monkeypatch.setattr(worker, "Pipeline", FixturePipeline)
+    monkeypatch.setattr(worker, "lock", lambda _: nullcontext())
+    monkeypatch.setattr(worker.signal, "signal", lambda _, handler: stop.append(handler))
+    worker.work(settings)
+    assert finished == 9
+    assert store.get(reviews[0])["state"] == "failed"
+    assert all(store.get(run)["state"] == "completed" for run in vods + reviews[1:])

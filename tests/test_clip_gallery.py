@@ -62,7 +62,7 @@ def test_pacing_revision_preserves_original_preview_and_source_boundaries(settin
         assert client.get("/api/artifacts/clip/video?revision=3").status_code == 404
 
 
-def test_review_persists_can_be_changed_and_resets_on_new_revision(settings, store):
+def test_content_approval_persists_can_be_changed_and_survives_new_revision(settings, store):
     run = store.admit({}, "review-run")
     store.update(run, state="completed")
     body = rendered_clip(settings, store, run, "clip")
@@ -84,11 +84,11 @@ def test_review_persists_can_be_changed_and_resets_on_new_revision(settings, sto
         assert store.clip("clip")["review_status"] == "approved"
         assert client.post("/api/clips/clip/retry", json={"expected_revision": 1}, headers=headers).status_code == 202
         assert store.clip("clip")["revision"] == 2
-        assert store.clip("clip")["review_status"] == "unreviewed"
+        assert store.clip("clip")["review_status"] == "approved"
         assert client.get("/api/clips").json() == []
         store.save_clip("clip", run, 2, body)
         assert client.post(url, json={"expected_revision": 1, "status": "approved"}, headers=headers).status_code == 400
-        assert client.get("/api/clips").json()[0]["review_status"] == "unreviewed"
+        assert client.get("/api/clips").json()[0]["review_status"] == "approved"
         assert client.post(url, json={"expected_revision": 2, "status": "approved"}, headers=headers).status_code == 200
 
 
@@ -149,7 +149,7 @@ def test_review_rejects_unavailable_preview_and_invalid_requests(settings, store
     assert store.clip("clip")["review_status"] == "unreviewed"
 
 
-def test_queue_rerender_changes_only_layout_and_creates_unreviewed_revision(settings, store):
+def test_queue_rerender_changes_only_layout_and_preserves_content_approval(settings, store):
     run = store.admit({}, "layout-rerender")
     store.update(run, state="completed")
     original = rendered_clip(settings, store, run, "clip")
@@ -173,7 +173,7 @@ def test_queue_rerender_changes_only_layout_and_creates_unreviewed_revision(sett
         assert client.post(url, json=payload, headers=headers).status_code == 400
         assert client.get("/api/clips").json() == []
     changed = store.clip("clip")
-    assert changed["revision"] == 2 and changed["review_status"] == "unreviewed"
+    assert changed["revision"] == 2 and changed["review_status"] == "approved"
     assert changed["body"] == {**original, "layout": layout, "status": "pending", "flags": [], "folder": None, "previous_revision": 1}
     assert store.get(run)["state"] == "queued" and store.get(run)["stage"] == "rerender"
     store.add_layout({**layout, "camera_height": 600})
@@ -182,7 +182,7 @@ def test_queue_rerender_changes_only_layout_and_creates_unreviewed_revision(sett
     store.save_clip("clip", run, 2, {**changed["body"], "status": "ready", "folder": original["folder"]})
     with TestClient(create_app(settings), base_url="http://127.0.0.1:8765") as client:
         clip = client.get("/api/clips").json()[0]
-        assert clip["revision"] == 2 and clip["review_status"] == "unreviewed"
+        assert clip["revision"] == 2 and clip["review_status"] == "approved"
 
 
 @pytest.mark.parametrize("state", ["queued", "running", "paused"])

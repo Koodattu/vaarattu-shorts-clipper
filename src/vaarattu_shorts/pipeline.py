@@ -8,7 +8,7 @@ from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
 
-from . import caption_correction, context_repair, discover, render, selection as review_selection, stream_data, transcribe, youtube
+from . import caption_correction, context_repair, discover, render, selection as review_selection, stream_data, tighten, transcribe, youtube
 from .contracts import CHANNEL_ID, Candidate, RunRequest, Word
 from .llm import Evaluator, ModelAnchorError, ModelOutputError, check_provider, local_server
 from .models import model_path
@@ -363,6 +363,7 @@ class Pipeline:
             and not c["body"].get("caption_warning")
             and not c["body"].get("caption_locked_word_ids")
             and not c["body"].get("caption_correction_pass")
+            and not c["body"].get("speech_cuts")
             and not c["body"].get("reviewed")
         ]
         if not clips:
@@ -398,7 +399,7 @@ class Pipeline:
                     body = {**clip["body"], "status": "held", "flags": [str(exc)]}
             self.store.save_clip(clip["id"], self.run_id, clip["revision"], body)
 
-    def caption_proposal(self, clip, transcript, folder, client=None):
+    def clip_proposal(self, clip, transcript, folder, client=None, propose=caption_correction.propose):
         folder.mkdir(parents=True, exist_ok=True)
         manager = local_server(self.settings, self.config, folder, self.check) if self.config["provider"] == "local" and client is None else nullcontext(client)
         with manager as client:
@@ -408,7 +409,7 @@ class Pipeline:
                 codex_config=self.config.get("codex"),
                 verification_reasoning=self.config.get("verification_reasoning", "low"),
             )
-            return caption_correction.propose(clip["body"], transcript, evaluator)
+            return propose(clip["body"], transcript, evaluator)
 
     def correct_captions(self, transcript):
         if not self.config.get("correct_captions"):
@@ -427,7 +428,7 @@ class Pipeline:
                 self.store.update(self.run_id, stage="caption-check", message="Checking caption word errors.")
                 folder = self.folder / "caption-corrections" / clip["id"] / caption_correction.fingerprint(body)
                 try:
-                    proposal = self.caption_proposal(clip, transcript, folder, client)
+                    proposal = self.clip_proposal(clip, transcript, folder, client)
                     body = caption_correction.apply(body, proposal.changes, automatic=True)
                 except (ModelOutputError, ModelAnchorError):
                     body = {**body, "caption_correction_pass": caption_correction.VERSION,
@@ -441,7 +442,7 @@ class Pipeline:
         request = clip["body"]["caption_check"]
         transcript = json.loads((self.folder / "asr" / "transcript.json").read_text("utf-8"))
         self.store.update(self.run_id, stage="caption-check", message="Checking caption word errors.")
-        proposal = self.caption_proposal(clip, transcript, self.folder / "caption-corrections" / request["id"])
+        proposal = self.clip_proposal(clip, transcript, self.folder / "caption-corrections" / request["id"])
         self.check()
         self.store.save_clip(clip["id"], self.run_id, clip["revision"], {
             **clip["body"], "caption_check": {**request, "status": "complete",
@@ -452,6 +453,26 @@ class Pipeline:
         result.pop("caption_check_requested", None)
         self.store.update(self.run_id, state="completed", stage="complete", progress=1, intent="",
                           message="Caption suggestions are ready for review.", result=result)
+
+    def suggest_tighter_edit(self):
+        run = self.store.get(self.run_id)
+        clip = self.store.clip(run["result"]["tighten_requested"])
+        request = clip["body"]["tighten_check"]
+        if request["status"] == "pending":
+            self.store.update(self.run_id, stage="tighten", message=(
+                "Planning cuts from your editing instructions." if request.get("mode") == "instructed"
+                else "Looking for dispensable speech passages."
+            ))
+            proposal = self.clip_proposal(clip, None, self.folder / "tighten" / request["id"], propose=tighten.propose)
+            self.check()
+            self.store.save_clip(clip["id"], self.run_id, clip["revision"], {
+                **clip["body"], "tighten_check": {**request, **proposal, "status": "complete"},
+            })
+        result = dict(self.store.get(self.run_id)["result"])
+        result.pop("tighten_requested", None)
+        self.store.update(self.run_id, state="completed", stage="complete", progress=1, intent="",
+                          message=("Your instructed edit is ready for review." if request.get("mode") == "instructed"
+                                   else "The tighter edit is ready for review."), result=result)
 
     def prioritize_selection(self, selection, transcript):
         folder = self.folder / "inference" / f"review-priority-{review_selection.VERSION}-{self.chain[:16]}"

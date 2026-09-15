@@ -22,6 +22,35 @@ function find(node, label) {
   for(const child of node.children){const match=find(child,label);if(match)return match;}
 }
 
+test("approved and mixed queues exclude final clips and undo restores content approval",async()=>{
+  const staticPath=path.join(__dirname,"../src/vaarattu_shorts/static");
+  const nodes=new Map([...fs.readFileSync(path.join(staticPath,"index.html"),"utf8").matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],new Element()]));
+  nodes.get("review-player").load=()=>{};nodes.get("review-player").removeAttribute=()=>{};
+  const clips=["approved","unreviewed","ready_to_post","not_approved"].map((status,i)=>({
+    id:String(i),run_id:"run",revision:1,review_status:status,status:"ready",has_preview:true,title:status,start_us:0,end_us:5000000,
+  }));
+  const writes=[];
+  const context=vm.createContext({
+    currentView:"gallery",savedLayouts:[],layouts:async()=>{},api:async()=>clips.map(c=>({...c})),
+    $:id=>nodes.get(id),text:(tag,value)=>Object.assign(new Element(tag),{textContent:value}),clipNotes:()=>[],
+    document:{addEventListener(){}},reviewLabels:{ready_to_post:"Ready for posting",approved:"Approved"},
+    saveClipReview:async(clip,status)=>{writes.push({id:clip.id,status});clip.review_status=status;},
+  });
+  vm.runInContext(fs.readFileSync(path.join(staticPath,"review.js"),"utf8"),context);
+  nodes.get("review-mode").value="approved";
+  await nodes.get("review-mode").onchange();
+  assert.equal(vm.runInContext("reviewQueue.map(c=>c.id).join(',')",context),"0");
+  await nodes.get("review-ready").onclick({detail:1});
+  assert.deepEqual(writes,[{id:"0",status:"ready_to_post"}]);
+  assert.equal(vm.runInContext("reviewQueue.length",context),0);
+  await nodes.get("review-undo").onclick();
+  assert.deepEqual(writes[1],{id:"0",status:"approved"});
+  assert.equal(vm.runInContext("reviewQueue[0].review_status",context),"approved");
+  nodes.get("review-mode").value="both";
+  await nodes.get("review-mode").onchange();
+  assert.equal(vm.runInContext("reviewQueue.map(c=>c.id).join(',')",context),"0,1");
+});
+
 test("context review queues direction and note, preserves the original, and returns a revision or explanation", async()=>{
   const staticPath=path.join(__dirname,"../src/vaarattu_shorts/static");
   const html=fs.readFileSync(path.join(staticPath,"index.html"),"utf8");
