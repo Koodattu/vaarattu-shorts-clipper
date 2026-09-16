@@ -334,6 +334,12 @@ def create_app(settings):
     def refresh_buffer():
         return publishing_action(buffer.refresh, settings, store)
 
+    @app.post("/api/publishing/buffer/fill")
+    def fill_buffer():
+        from .publishing_queue import fill
+
+        return publishing_action(fill, settings, store)
+
     @app.post("/api/publishing/buffer/preview")
     def preview_buffer(request: buffer.PreviewRequest):
         return publishing_action(buffer.preview, settings, store,

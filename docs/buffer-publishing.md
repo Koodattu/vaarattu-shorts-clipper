@@ -23,6 +23,33 @@ own account limits, permissions and media requirements.
 
 ## Publish or schedule
 
+**Fill scheduled queue** uploads and schedules automatically when clicked. It uses only
+current clips marked **Ready for posting**, fills the shared available capacity across
+your selected channels (up to ten clips), and assigns one clip per day at **09:00
+Europe/Helsinki**. It starts today if that time is more than ten minutes away, otherwise
+tomorrow. It appends after existing queued posts and skips dates reserved by other local
+plan entries or already-used posting dates. It does not require every other clip from
+the recording to be reviewed first.
+
+New recordings are ordered by the library's source-video publication date, falling back
+to processing date when unavailable. Clips from the same source, including repeated runs,
+are ordered by source start time. If a recording spans multiple fills, its remaining clips
+continue before a new recording group. Newly finished clips earlier than that recording's
+already-submitted source moments are left out to preserve order; the result reports this.
+
+Existing Buffer submissions and manual posting records prevent resubmission, including
+after a clip is edited. Matching render hashes and repeated source moments are also excluded.
+Posts created directly in Buffer are recognized when their media URL matches this app's
+hosted render. Unrelated uploads made directly to social platforms cannot be identified
+automatically; keep their manual posting records here.
+
+Filling uses each clip's title as its caption, Gaming as the YouTube category, and Not made
+for kids. Use individual previews below when different metadata is needed. Existing remote
+schedules stay unchanged; selected entries in the local plan that have never been submitted
+can move to the new daily schedule. An incomplete or uncertain existing submission stops
+filling until resolved. Accepted posts are retained if a later submission fails. The button
+does not start a recurring worker: press it again as slots become available.
+
 Only the current revision marked **Ready for posting** can start a new submission.
 The Publishing page shows ten clips per page, with final-video playback, an editable
 post caption, YouTube title, category and audience setting. The default category is
@@ -37,15 +64,15 @@ YouTube visibility is public. Instagram videos use Reel format and share to the 
   posts**. The stored dates and source order are preserved; this does not use Buffer's
   own recurring time slots.
 
-Every option opens a preview with the exact video revision, caption, destination
+The individual and selected-batch options open a preview with the exact video revision, caption, destination
 accounts and publishing time. Nothing uploads or posts until the preview is confirmed.
 The app then uploads unchanged final MP4 bytes to R2 and submits their public HTTPS URLs
 to Buffer. A previously verified upload is reused. Keep the page open while a batch is
 being submitted. Each clip's submissions are persisted independently.
 
 After Buffer accepts a schedule, it handles publication even if the local app is closed.
-The local daily plan does not continuously refill Buffer: submit another batch as queue
-slots become available. Refresh Buffer status to see the current per-platform results.
+The local daily plan does not continuously refill Buffer: use **Fill scheduled queue** or
+submit another selected batch as slots become available. Refresh Buffer status to see the current per-platform results.
 An accepted/scheduled post is not counted as published until Buffer reports it sent.
 Notification-only posts, drafts and provider errors are shown as needing attention.
 Manage cancellations, remote edits and failed remote posts in Buffer, then refresh here.

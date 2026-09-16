@@ -20,7 +20,7 @@ from .config import load_env, save_env
 from .storage import atomic_json, digest
 
 PLATFORMS = delivery.PLATFORMS
-POST_FIELDS = "id status text dueAt channelId externalLink schedulingType assets { source } error { message }"
+POST_FIELDS = "id status text dueAt sentAt channelId externalLink schedulingType assets { source } error { message }"
 RETRYABLE = {"pending", "failed"}
 UNCERTAIN = {"submitting", "unknown"}
 
@@ -228,9 +228,11 @@ def selected_channels(settings, api):
     return cfg, {p: channels[c] for p, c in mapping.items()}
 
 
-def capacity(api, cfg, jobs):
+def capacity(api, cfg, jobs, posts=None):
     channel_ids = list(cfg["mapping"].values())
-    posts = api.posts(cfg["organization_id"], {"channelIds": channel_ids, "status": ["scheduled", "sending", "needs_approval"]})
+    if posts is None:
+        posts = api.posts(cfg["organization_id"], {"channelIds": channel_ids, "status": ["scheduled", "sending", "needs_approval"]})
+    posts = [p for p in posts if p["status"] in {"scheduled", "sending", "needs_approval"}]
     ids = {p["id"] for p in posts}
     counts = {c: sum(p["channelId"] == c for p in posts) for c in channel_ids}
     for job in jobs.values():

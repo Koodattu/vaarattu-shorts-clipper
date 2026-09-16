@@ -25,6 +25,7 @@ function fixture(){
         state.storage=true;return {used_bytes:0};
       }
       if(url.endsWith("buffer/connect")){assert.equal(nodes.get("publishing-buffer-key").value,"");state.buffer=true;return {};}
+      if(url.endsWith("buffer/fill"))return {scheduled:2,message:"",skipped_order:0};
       if(url.endsWith("preview"))return {id:"ticket",channels:{youtube:{name:"Channel"}},items:body.items.map(i=>({...i,mapping:{youtube:"yt"},mode:body.mode==="now"?"now":"schedule",due_at:body.mode==="now"?null:"2030-01-01T16:00:00Z",timezone:body.timezone||"Europe/Helsinki"}))};
       if(url.includes("/send/"))return {receipts:{youtube:{status:state.fail?"unknown":"scheduled"}}};
       return {};
@@ -83,4 +84,17 @@ test("uncertain submissions stop a batch and require fresh confirmation",async()
   assert.equal(nodes.get("publishing-confirm").checked,false);
   assert.equal(nodes.get("publishing-preview-dialog").open,true);
   assert.match(nodes.get("publishing-preview-message").textContent,/attention/);
+});
+test("fill button schedules directly only when clicked and blocks repeat clicks while busy",async()=>{
+  const {nodes,writes,state}=fixture();state.storage=true;state.buffer=true;
+  await nodes.get("refresh-publishing").onclick();
+  assert.equal(writes.length,0);
+  assert.equal(nodes.get("publishing-fill").disabled,false);
+  const first=nodes.get("publishing-fill").onclick();
+  const duplicate=nodes.get("publishing-fill").onclick();
+  await Promise.all([first,duplicate]);
+  assert.equal(writes.length,1);
+  assert.equal(writes[0].url,"/api/publishing/buffer/fill");
+  assert.match(nodes.get("publishing-fill-message").textContent,/2 clips scheduled at 09:00 Europe\/Helsinki/);
+  assert.equal(nodes.get("publishing-fill").disabled,false);
 });

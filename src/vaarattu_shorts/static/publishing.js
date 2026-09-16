@@ -25,6 +25,7 @@ async function loadPublishing(){
   publishingOptions($("publishing-organization"),data.organizations.map(o=>[o.id,o.name]),data.organization_id);
   for(const p of Object.keys(publishingNames))publishingOptions($("publishing-"+p),[["","Do not publish here"],...data.channels.filter(c=>c.service===p).map(c=>[c.id,`${c.displayName||c.name}${c.isDisconnected?" · Reconnect in Buffer":""}${c.isLocked?" · Locked":""}${c.isQueuePaused?" · Paused":""}`])],data.mapping[p]);
   $("publishing-save-channels").disabled=!data.connected;$("publishing-refresh-buffer").disabled=!data.connected;
+  $("publishing-fill").disabled=!storage.connected||!data.connected||!Object.keys(data.mapping).length;
   $("publishing-capacity").textContent=data.remaining?`${Object.entries(data.remaining).map(([p,n])=>`${publishingNames[p]}: ${n}/10 queue slots available`).join(" · ")}. Last checked ${new Date(data.refreshed_at).toLocaleString()}.`:"Buffer Free: three channels, ten queued posts per channel. Refresh Buffer status to check availability; it is checked again before submission.";
   for(const id of publishingSelected)if(!data.clips.some(c=>c.id===id&&c.ready&&c.plan&&!c.publication))publishingSelected.delete(id);
   publishingPage=Math.min(publishingPage,Math.max(0,Math.ceil(data.clips.length/10)-1));publishingFields.clear();$("publishing-videos").replaceChildren();
@@ -117,6 +118,14 @@ $("publishing-preview-plan").onclick=()=>openPublishingPreview(publishingData.cl
 $("publishing-previous").onclick=()=>{if(!publishingBusy){publishingPage--;return loadPublishing().catch(e=>error(e.message));}};
 $("publishing-next").onclick=()=>{if(!publishingBusy){publishingPage++;return loadPublishing().catch(e=>error(e.message));}};
 $("refresh-publishing").onclick=()=>loadPublishing().catch(e=>error(e.message));
+$("publishing-fill").onclick=()=>publishingWork(async()=>{
+  $("publishing-fill").disabled=true;
+  $("publishing-fill-message").textContent="Checking available slots, uploading final clips and scheduling daily posts… Keep this page open until submission finishes.";
+  try{
+    const result=await api("/api/publishing/buffer/fill",{method:"POST"});
+    $("publishing-fill-message").textContent=`${result.scheduled} clip${result.scheduled===1?"":"s"} scheduled at 09:00 Europe/Helsinki.${result.message?` ${result.message}`:""}${result.skipped_order?` ${result.skipped_order} earlier source moments were left out to preserve posting order.`:""}`;
+  }catch(e){$("publishing-fill-message").textContent=e.message;}
+});
 $("publishing-refresh-buffer").onclick=()=>publishingWork(async()=>{await api("/api/publishing/buffer/refresh",{method:"POST"});$("publishing-message").textContent="Buffer channels and delivery status refreshed.";});
 $("publishing-organization").onchange=()=>publishingWork(async()=>{await api("/api/publishing/buffer/channels",{method:"POST",body:JSON.stringify({organization_id:$("publishing-organization").value,mapping:{}})});});
 $("publishing-save-channels").onclick=()=>publishingWork(async()=>{const mapping=Object.fromEntries(Object.keys(publishingNames).map(p=>[p,$("publishing-"+p).value]));await api("/api/publishing/buffer/channels",{method:"POST",body:JSON.stringify({organization_id:$("publishing-organization").value,mapping})});$("publishing-message").textContent="Publishing channels saved.";});
