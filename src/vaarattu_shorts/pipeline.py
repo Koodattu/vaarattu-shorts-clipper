@@ -43,7 +43,7 @@ def check_space(settings):
 
 
 class Pipeline:
-    def __init__(self, settings, store, run_id, stopping=lambda: False):
+    def __init__(self, settings, store, run_id, stopping=lambda: False, *, folder=None):
         self.settings, self.store, self.run_id, self.stopping = settings, store, run_id, stopping
         self.config = store.get(run_id)["config"]
         # A resumed run retains its original channel even if .env changes later.
@@ -53,7 +53,7 @@ class Pipeline:
             asr_batch_size=self.config.get("asr_batch_size", 0),
             asr_flash_attention=self.config.get("asr_flash_attention", False),
         )
-        self.folder = settings.work / "runs" / run_id
+        self.folder = folder or settings.work / "runs" / run_id
         self.folder.mkdir(parents=True, exist_ok=True)
         self.chain = hashlib.sha256(json.dumps(self.config, sort_keys=True).encode()).hexdigest()
 

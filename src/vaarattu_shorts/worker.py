@@ -7,6 +7,7 @@ from pathlib import Path
 from concurrent.futures import Future, ThreadPoolExecutor
 from threading import Event, Thread
 
+from . import highlights
 from .pipeline import Pipeline
 from .processes import Interrupted, ToolError, lock
 from .storage import Store, atomic_json
@@ -80,8 +81,11 @@ def work(settings, once=False):
     signal.signal(signal.SIGTERM, stop)
     with lock(settings.work / "worker.lock"):
         store.recover()
-        with ThreadPoolExecutor(max_workers=4, thread_name_prefix="clip-job") as pool:
+        highlight_store = highlights.store_for(settings)
+        highlight_store.recover()
+        with ThreadPoolExecutor(max_workers=4, thread_name_prefix="clip-job") as pool, ThreadPoolExecutor(max_workers=1, thread_name_prefix="highlight-job") as highlight_pool:
             active = set()
+            highlight_job = None
             reviews = {}
 
             def review_job(future, run_id):
@@ -92,6 +96,16 @@ def work(settings, once=False):
 
             try:
                 while not stopping.is_set():
+                    if highlight_job is not None and highlight_job.done():
+                        highlight_job.result()
+                        highlight_job = None
+                    if highlight_job is None:
+                        highlight_id = highlight_store.claim(review=False)
+                        if highlight_id:
+                            highlight_job = highlight_pool.submit(highlights.run_job, settings, highlight_store, highlight_id, stopping.is_set)
+                            if once:
+                                highlight_job.result()
+                                return
                     for future, thread in tuple(reviews.items()):
                         if future.done():
                             thread.join()

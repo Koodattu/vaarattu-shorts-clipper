@@ -10,12 +10,13 @@ let clipPage = 0, displayedRun = null;
 let runList = [], detailSignature = "", clipsSignature = "", runListSignature = "", currentView = "library";
 const labels = {local:"Local · Gemma 4",gemini:"Gemini 3.8 Flash",openai:"GPT-5.6 Luna",codex:"Codex",zai:"GLM-5.3-Flash",deepseek:"DeepSeek V4 Flash",meta:"Meta Muse Spark 1.3"};
 function showView(view){
-  const names={library:"Video library",gallery:"Clip gallery",review:"Review queue",process:"New run",results:"Runs & clips",layouts:"Layout presets",editor:"Edit clip",delivery:"Posting & cleanup",publishing:"Publishing"};
+  const names={library:"Video library",gallery:"Clip gallery",review:"Review queue",process:"New run",results:"Runs & clips",layouts:"Layout presets",editor:"Edit clip",delivery:"Posting & cleanup",publishing:"Publishing",highlights:"Highlights"};
   if(!names[view])return;
   if(currentView!==view){
     $("notice").hidden=true;
     $("source-player").pause();
     $("review-player").pause();
+    $("highlight-player")?.pause();
     for(const video of $("clips").querySelectorAll("video"))video.pause();
     for(const video of $("gallery-clips").querySelectorAll("video"))video.pause();
     if(view==="layouts"){
@@ -25,7 +26,7 @@ function showView(view){
     }
   }
   currentView=view;
-  for(const key of ["library","gallery","review","process","results","layouts","delivery","publishing"]){
+  for(const key of ["library","gallery","review","process","results","layouts","delivery","publishing","highlights"]){
     $("view-"+key).hidden=key!==view;
     $("nav-"+key).setAttribute("aria-current",key===(view==="editor"?"results":view)?"page":"false");
   }
@@ -38,6 +39,7 @@ function showView(view){
   if(view==="review"&&typeof loadReviewQueue==="function")loadReviewQueue();
   if(view==="process")matchSelectedStream();
   if(view==="delivery")loadDelivery().catch(e=>error(e.message));
+  if(view==="highlights")loadHighlights();
   if(view==="publishing")loadPublishing().catch(e=>error(e.message));
 }
 function goView(view){
@@ -110,6 +112,7 @@ function paintLibrary(){
     const states={not_started:"Not started",queued:"Queued",running:"Processing",paused:"Paused",failed:"Failed",cancelled:"Cancelled",completed:video.outcome==="no_candidates"?"No suitable clips":video.outcome==="needs_attention"?"Clips need attention":"Completed"};
     const status=text("p",`${video.processed?"Processed · ":""}${states[video.state]||video.state}${video.available?"":" · Recording unavailable"}`,"video-status"+(video.outcome==="needs_attention"||video.state==="failed"?" attention":video.processed?" complete":["running","queued"].includes(video.state)?" active":""));
     const buttons=text("div","","video-actions");const select=action(video.processed?"Select again":"Select video",()=>{$("video").value=video.url;paintSelectedVideo();goView("process");$("video").focus();});select.disabled=!video.available;buttons.append(select);
+    const highlight=action("Create highlight video",()=>openHighlights(video.url));highlight.disabled=!video.available;buttons.append(highlight);
     if(video.run_id)buttons.append(action("View run",async()=>{activeRun=video.run_id;paintRuns();await detail();goView("results");}));
     if(video.completed_run_id&&video.completed_run_id!==video.run_id)buttons.append(action("Previous results",async()=>{activeRun=video.completed_run_id;paintRuns();await detail();goView("results");}));
     const link=document.createElement("a");link.href=video.url;link.target="_blank";link.rel="noopener";link.textContent="↗";link.title="Open on YouTube";link.setAttribute("aria-label",`Open ${video.title} on YouTube`);buttons.append(link);row.append(info,status,buttons);box.append(row);

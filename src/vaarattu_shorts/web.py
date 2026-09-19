@@ -6,6 +6,7 @@ import json
 import os
 import secrets
 import threading
+import uuid
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
@@ -14,13 +15,13 @@ from fastapi import Body, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import buffer, caption_correction, catalog, delivery, discover, r2, stream_data, tighten
+from . import buffer, caption_correction, catalog, delivery, discover, highlight_sources, highlights, r2, stream_data, tighten
 from .context_repair import ContextRequest
 from .contracts import MIN_CLIP_US, EditRequest, LayoutSave, RunRequest, Word, clip_duration_limit, video_id
 from .llm import PROVIDERS, codex_settings
 from .models import CATALOG, model_path
 from .pipeline import preflight
-from .storage import BusyError, Store
+from .storage import BusyError, Store, atomic_json
 
 
 def public_clip(clip):
@@ -80,6 +81,8 @@ def create_app(settings):
     catalog_lock = threading.Lock()
     app = FastAPI(title="Vaarattu Shorts", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.store = store
+    highlights_store = highlights.store_for(settings)
+    app.state.highlights_store = highlights_store
     static = Path(__file__).parent / "static"
 
     @app.middleware("http")
@@ -200,6 +203,61 @@ def create_app(settings):
         if not 0 < stream_id <= 2147483647:
             raise ValueError("Enter a valid vaarattu.tv stream ID.")
         return stream_data.stream_detail(stream_id)
+
+    @app.post("/api/highlights/resolve")
+    def resolve_highlight(urls: list[str] = Body(embed=True, min_length=1, max_length=30)):
+        if any(len(url) > 500 for url in urls):
+            raise ValueError("Use video URLs of at most 500 characters.")
+        identity = uuid.uuid4().hex
+        folder = settings.work / "highlights" / "manifests" / identity
+        if not catalog_lock.acquire(blocking=False):
+            raise HTTPException(409, "Channel videos are already being fetched. Try again shortly.")
+        try:
+            manifest = highlight_sources.resolve(settings, store, urls, folder)
+        finally:
+            catalog_lock.release()
+        atomic_json(folder / "manifest.json", manifest)
+        return {"id": identity, **manifest}
+
+    @app.post("/api/highlights", status_code=202)
+    def start_highlight(body: highlights.Start, idempotency_key: str = Header(min_length=8, max_length=100)):
+        path = settings.work / "highlights" / "manifests" / body.manifest_id / "manifest.json"
+        if not path.is_file():
+            raise ValueError("Check the recording parts before starting.")
+        manifest = json.loads(path.read_text("utf-8"))
+        manifests = preflight(settings, body)
+        config = {**body.model_dump(), "manifest": manifest, "model_manifests": manifests,
+                  "channel_id": settings.youtube_channel_id, "asr_batch_size": settings.asr_batch_size,
+                  "asr_flash_attention": settings.asr_flash_attention,
+                  **({"codex": codex_settings()} if body.provider == "codex" else {})}
+        return {"id": highlights_store.admit(config, idempotency_key)}
+
+    @app.get("/api/highlights")
+    def list_highlights():
+        return [highlights.public(settings, highlights_store, run) for run in highlights_store.runs()]
+
+    @app.get("/api/highlights/{run_id}/plan")
+    def highlight_plan(run_id: str, revision: int):
+        run = highlights_store.get(run_id)
+        if revision not in [r["revision"] for r in run["result"].get("history", [])]:
+            raise HTTPException(404, "This edit is not ready yet.")
+        return FileResponse(highlights.revision_folder(settings, run_id, revision) / "plan.json",
+                            media_type="application/json", filename=f"highlight-{run_id}-{revision}.json")
+
+    @app.get("/api/highlights/{run_id}/video")
+    def highlight_video(run_id: str, revision: int, quality: Literal["draft", "final"] = "draft"):
+        run = highlights_store.get(run_id)
+        saved = next((r for r in run["result"].get("history", []) if r["revision"] == revision), None)
+        path = highlights.revision_folder(settings, run_id, revision) / f"{quality}.mp4"
+        if not saved or not saved.get(f"has_{quality}") or not path.is_file():
+            raise HTTPException(404, "This video is not ready yet.")
+        return FileResponse(path, media_type="video/mp4")
+
+    @app.post("/api/highlights/{run_id}/{action}", status_code=202)
+    def control_highlight(run_id: str, action: str, revision: int = Body(ge=1),
+                          guidance: str = Body(default="", max_length=2000), restore: int | None = Body(default=None, ge=1)):
+        highlights.control(highlights_store, run_id, action, revision, guidance, restore)
+        return {"id": run_id}
 
     @app.get("/api/layouts")
     def layouts():

@@ -42,3 +42,12 @@ Confirmed target machine: Windows, i7-13700K, RTX 4090 (24 GB), approximately 64
 The next step, when authorized to run it, is the bounded real-media/model validation described in [implementation status](docs/implementation-status.md). The existing Run UI and worker cover the pipeline through output files. Prove this path before adding archive queues or a larger library UI.
 
 The six reference projects remain separate. Their documents are evidence about those projects, not requirements inherited by this one. This design adds no runtime dependency on them.
+
+## Landscape highlight videos
+
+The **Highlights** tab turns a complete YouTube or Twitch recording into a preferred
+5-20 minute landscape video. The Video library also has **Create highlight video**.
+YouTube recording parts are matched before processing; transcript-based editing
+produces a 720p review draft, then an approved 1080p/30 fps final without subtitles.
+Jobs, reviews and output stay separate from shorts and publishing. See
+[Highlights workflow](docs/highlights.md) for setup, review, recovery and limitations.

@@ -117,3 +117,5 @@ kbd{font-family:inherit;font-size:.85em;font-weight:400;opacity:.8;border:1px so
 #posting-plan video{display:block;width:180px;max-width:100%;max-height:320px;margin-block:var(--space-lg)}
 #posting-plan .form-surface,#view-delivery>.form-surface{margin-block:var(--space-xl)}
 .review-header{flex-wrap:wrap}.review-header label{font-size:.85rem}
+
+.highlights-workspace{display:grid;grid-template-columns:minmax(180px,1fr) minmax(0,3fr);gap:24px;margin-top:28px}.highlights-workspace video{display:block;width:100%;aspect-ratio:16/9;background:#000;margin:16px 0}.highlights-workspace progress{width:100%}#highlight-form textarea{width:100%}#highlight-downloads{margin:16px 0}@media(max-width:900px){.highlights-workspace{grid-template-columns:1fr}}
