@@ -83,6 +83,9 @@ class Store:
                 CREATE TABLE IF NOT EXISTS buffer_publications(
                     clip_id TEXT PRIMARY KEY REFERENCES clips(id), body TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS clip_publishing_copy(
+                    clip_id TEXT PRIMARY KEY REFERENCES clips(id), body TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS buffer_previews(
                     id TEXT PRIMARY KEY, expires REAL NOT NULL, body TEXT NOT NULL
                 );

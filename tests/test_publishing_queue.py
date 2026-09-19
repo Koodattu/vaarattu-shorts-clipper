@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import pytest
 from fastapi.testclient import TestClient
 
-from vaarattu_shorts import buffer, delivery, publishing_queue
+from vaarattu_shorts import buffer, delivery, publishing_copy, publishing_queue
 from vaarattu_shorts.web import create_app
 from test_buffer import remote as remote
 from test_posting_and_cleanup import rendered
@@ -11,6 +11,8 @@ from test_posting_and_cleanup import rendered
 
 @pytest.fixture(autouse=True)
 def fixed_clock(monkeypatch):
+    monkeypatch.setattr(publishing_copy, "_propose", lambda *args: publishing_copy.Copy(
+        title="Posting title", caption="Posting caption."))
     monkeypatch.setattr(buffer, "now", lambda: datetime(2030, 10, 26, 5, 0, tzinfo=timezone.utc))
 
 

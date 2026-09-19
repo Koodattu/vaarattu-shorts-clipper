@@ -15,7 +15,7 @@ from typing import Literal
 import httpx
 from pydantic import BaseModel, Field
 
-from . import delivery, r2
+from . import delivery, publishing_copy, r2
 from .config import load_env, save_env
 from .storage import atomic_json, digest
 
@@ -208,6 +208,7 @@ def status(settings, store):
                 clips.append({"id": clip["id"], "revision": clip["revision"], "title": body["title"],
                               "run_id": clip["run_id"], "source_title": run["title"], "start_us": body["start_us"],
                               "ready": clip["review_status"] == "ready_to_post", "video_sha256": body.get("video_sha256"),
+                              "copy": publishing_copy.get(store, clip),
                               "plan": plan.get(clip["id"]), "publication": jobs.get(clip["id"])})
     clips.sort(key=lambda c: (c["plan"]["scheduled_at"] if c["plan"] else "9999", c["run_id"], c["start_us"]))
     return {"connected": bool(os.environ.get("BUFFER_API_KEY")), **config(settings), "clips": clips}
@@ -309,8 +310,13 @@ def preview(settings, store, items, mode, zone="Europe/Helsinki", local_time="")
                 if not planned or planned["revision"] != raw["revision"]:
                     raise ValueError("Add each selected final revision to the daily posting plan first.")
                 due_at, zone = planned["scheduled_at"], planned["timezone"]
-            title = raw.get("title", clip["body"]["title"]).strip()
-            caption = raw.get("caption", title).strip()
+            if clip["revision"] != raw["revision"] or clip["review_status"] != "ready_to_post":
+                raise ValueError("A selected clip changed. Review the current revision and preview publishing again.")
+            saved = publishing_copy.get(store, clip)
+            if not raw.get("title") and not raw.get("caption"):
+                saved = publishing_copy.generate(settings, store, clip)
+            title = (raw.get("title") or (saved or {}).get("title", "")).strip()
+            caption = (raw.get("caption") or (saved or {}).get("caption", "")).strip()
             if not title or len(title) > 100 or len(caption) > 2200 or "<" in title or ">" in title:
                 raise ValueError("Use a title of 1–100 characters without angle brackets and a caption up to 2,200 characters.")
             category = raw.get("category", "20")

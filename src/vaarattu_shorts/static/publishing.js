@@ -6,9 +6,23 @@ const publishingStatuses={pending:"Not submitted",failed:"Submission failed",unk
 function publishingLink(label,url){const a=text("a",label);a.href=url.startsWith("https://")?url:"https://publish.buffer.com/";a.target="_blank";a.rel="noopener";return a;}
 function publishingVideo(id,revision){const v=document.createElement("video");v.controls=true;v.preload="none";v.src=`/api/artifacts/${encodeURIComponent(id)}/video?revision=${revision}`;return v;}
 function publishingWhen(item){return item.due_at?`${new Date(item.due_at).toLocaleString(undefined,{timeZone:item.timezone})} · ${item.timezone}`:"Publish now";}
-function publishingRemember(){for(const [id,fields] of publishingFields)publishingEdits.set(id,Object.fromEntries(Object.entries(fields).map(([k,e])=>[k,e.type==="checkbox"?e.checked:e.value])));}
-function publishingItem(clip){publishingRemember();return {clip_id:clip.id,revision:clip.revision,title:clip.title.slice(0,100),caption:clip.title,category:"20",made_for_kids:false,...publishingEdits.get(clip.id)};}
+function publishingRemember(){for(const [id,fields] of publishingFields)publishingEdits.set(id,{...publishingEdits.get(id),revision:publishingData.clips.find(c=>c.id===id)?.revision,copy_id:publishingEdits.get(id)?.copy_id??publishingData.clips.find(c=>c.id===id)?.copy?.id??null,...Object.fromEntries(Object.entries(fields).map(([k,e])=>[k,e.type==="checkbox"?e.checked:e.value]))});}
+function publishingItem(clip){publishingRemember();return {clip_id:clip.id,revision:clip.revision,title:clip.copy?.title||"",caption:clip.copy?.caption||"",note:clip.copy?.note||"",copy_id:clip.copy?.id||null,category:"20",made_for_kids:false,...publishingEdits.get(clip.id)};}
 function publishingOptions(select,options,value){select.replaceChildren();for(const [id,label] of options){const o=text("option",label);o.value=id;select.append(o);}select.value=value||"";}
+async function publishingSaveCopy(clip){
+  const value=publishingItem(clip);
+  const body={revision:clip.revision,title:value.title,caption:value.caption,note:value.note,expected_id:value.copy_id};
+  if(!value.title.trim()&&!value.caption.trim()){
+    clip.copy=await api(`/api/publishing/copy/${clip.id}/generate`,{method:"POST",body:JSON.stringify({revision:clip.revision,note:value.note,expected_id:value.copy_id})});
+  }else if(!clip.copy||["title","caption","note"].some(k=>value[k]!==clip.copy[k])){
+    clip.copy=await api(`/api/publishing/copy/${clip.id}`,{method:"POST",body:JSON.stringify(body)});
+  }
+  if(clip.copy){
+    const values={...value,copy_id:clip.copy.id,...Object.fromEntries(["title","caption","note"].map(k=>[k,clip.copy[k]]))};
+    publishingEdits.set(clip.id,values);
+    for(const [key,field] of Object.entries(publishingFields.get(clip.id)||{}))if(key in values&&field.type!=="checkbox")field.value=values[key];
+  }
+}
 async function publishingWork(fn){
   if(publishingBusy)return;publishingBusy=true;
   try{await fn();}catch(e){$("publishing-message").textContent=e.message;}
@@ -28,6 +42,10 @@ async function loadPublishing(){
   $("publishing-fill").disabled=!storage.connected||!data.connected||!Object.keys(data.mapping).length;
   $("publishing-capacity").textContent=data.remaining?`${Object.entries(data.remaining).map(([p,n])=>`${publishingNames[p]}: ${n}/10 queue slots available`).join(" · ")}. Last checked ${new Date(data.refreshed_at).toLocaleString()}.`:"Buffer Free: three channels, ten queued posts per channel. Refresh Buffer status to check availability; it is checked again before submission.";
   for(const id of publishingSelected)if(!data.clips.some(c=>c.id===id&&c.ready&&c.plan&&!c.publication))publishingSelected.delete(id);
+  for(const [id,edits] of publishingEdits){
+    const clip=data.clips.find(c=>c.id===id);
+    if(!clip||clip.revision!==edits.revision||(clip.copy?.id||null)!==edits.copy_id)publishingEdits.delete(id);
+  }
   publishingPage=Math.min(publishingPage,Math.max(0,Math.ceil(data.clips.length/10)-1));publishingFields.clear();$("publishing-videos").replaceChildren();
   for(const clip of data.clips.slice(publishingPage*10,(publishingPage+1)*10)){
     const row=text("article","","form-section"),job=clip.publication;
@@ -56,13 +74,23 @@ async function loadPublishing(){
       })));
     }else{
       const values=publishingItem(clip),fields={};
-      for(const [name,label,tag] of [["title","YouTube title","input"],["caption","Post caption","textarea"]]){
-        const field=document.createElement(tag);field.value=values[name];field.maxLength=name==="title"?100:2200;if(tag==="textarea")field.rows=3;
+      for(const [name,label,tag] of [["title","YouTube title","input"],["caption","Post caption","textarea"],["note","Writing guidance (optional)","textarea"]]){
+        const field=document.createElement(tag);field.value=values[name];field.maxLength=name==="title"?100:name==="note"?2000:2200;if(tag==="textarea")field.rows=3;
         const wrapper=text("label",label);wrapper.append(field);row.append(wrapper);fields[name]=field;
       }
       const category=document.createElement("select");publishingOptions(category,[["1","Film & animation"],["2","Autos & vehicles"],["10","Music"],["15","Pets & animals"],["17","Sports"],["19","Travel & events"],["20","Gaming"],["22","People & blogs"],["23","Comedy"],["24","Entertainment"],["25","News & politics"],["26","How-to & style"],["27","Education"],["28","Science & technology"],["29","Nonprofits & activism"]],values.category);
       const categoryLabel=text("label","YouTube category");categoryLabel.append(category);row.append(categoryLabel);fields.category=category;
       const kids=document.createElement("input");kids.type="checkbox";kids.checked=values.made_for_kids;const kidsLabel=text("label","","check");kidsLabel.append(kids,text("span","Made for kids (YouTube audience setting)"));row.append(kidsLabel);fields.made_for_kids=kids;publishingFields.set(clip.id,fields);
+      row.append(text("p",clip.copy?"Saved for this final version. Editing the video requires new posting copy.":"Generate posting copy or enter your own. Blank fields are generated when preparing a post."));
+      row.append(action(clip.copy?"Regenerate posting copy":"Generate posting copy",()=>publishingWork(async()=>{
+        const value=publishingItem(clip);$("publishing-message").textContent="Writing a title and caption from the final clip…";
+        clip.copy=await api(`/api/publishing/copy/${clip.id}/generate`,{method:"POST",body:JSON.stringify({revision:clip.revision,note:value.note,expected_id:value.copy_id})});
+        publishingEdits.set(clip.id,{...value,copy_id:clip.copy.id});
+        for(const key of ["title","caption","note"])fields[key].value=clip.copy[key];
+        publishingRemember();$("publishing-message").textContent="Posting copy generated and saved. You can edit it before scheduling.";
+      })),action("Save posting copy",()=>publishingWork(async()=>{
+        await publishingSaveCopy(clip);$("publishing-message").textContent="Posting copy saved.";
+      })));
       if(clip.plan){
         const select=document.createElement("input");select.type="checkbox";select.checked=publishingSelected.has(clip.id);
         select.onchange=()=>{if(select.checked&&publishingSelected.size>=10){select.checked=false;$("publishing-message").textContent="Select up to ten daily posts at a time.";return;}if(select.checked)publishingSelected.add(clip.id);else publishingSelected.delete(clip.id);publishingSelection();};
@@ -83,6 +111,12 @@ async function loadPublishing(){
   $("publishing-previous").hidden=publishingPage===0;$("publishing-next").hidden=(publishingPage+1)*10>=data.clips.length;publishingSelection();
 }
 async function openPublishingPreview(items,mode,extra={}){return publishingWork(async()=>{
+  if(mode!=="resume"){
+    for(const item of items){
+      const clip=publishingData?.clips.find(c=>c.id===item.clip_id);
+      if(clip){await publishingSaveCopy(clip);Object.assign(item,publishingItem(clip));}
+    }
+  }
   publishingPreview=await api("/api/publishing/buffer/preview",{method:"POST",body:JSON.stringify({items,mode,...extra})});
   $("publishing-preview-items").replaceChildren();$("publishing-preview-message").textContent="";$("publishing-confirm").checked=false;$("publishing-send").disabled=true;
   $("publishing-send").textContent=publishingPreview.items[0].mode==="now"?"Publish now":"Schedule in Buffer";
@@ -120,8 +154,13 @@ $("publishing-next").onclick=()=>{if(!publishingBusy){publishingPage++;return lo
 $("refresh-publishing").onclick=()=>loadPublishing().catch(e=>error(e.message));
 $("publishing-fill").onclick=()=>publishingWork(async()=>{
   $("publishing-fill").disabled=true;
-  $("publishing-fill-message").textContent="Checking available slots, uploading final clips and scheduling daily posts… Keep this page open until submission finishes.";
+  $("publishing-fill-message").textContent="Preparing posting copy, checking available slots and scheduling daily posts… Keep this page open until submission finishes.";
   try{
+    publishingRemember();
+    for(const clip of publishingData.clips){
+      const edits=publishingEdits.get(clip.id);
+      if(!clip.publication&&edits&&(edits.title.trim()||edits.caption.trim()||edits.note.trim()))await publishingSaveCopy(clip);
+    }
     const result=await api("/api/publishing/buffer/fill",{method:"POST"});
     $("publishing-fill-message").textContent=`${result.scheduled} clip${result.scheduled===1?"":"s"} scheduled at 09:00 Europe/Helsinki.${result.message?` ${result.message}`:""}${result.skipped_order?` ${result.skipped_order} earlier source moments were left out to preserve posting order.`:""}`;
   }catch(e){$("publishing-fill-message").textContent=e.message;}

@@ -10,7 +10,7 @@ function fixture(){
   const directory=path.join(__dirname,"../src/vaarattu_shorts/static");
   const nodes=new Map([...fs.readFileSync(path.join(directory,"index.html"),"utf8").matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],new Element()]));
   const writes=[],state={storage:false,buffer:false,fail:false};
-  const clips=[{id:"clip",revision:3,title:"Clip",ready:true,source_title:"Recording",plan:null,publication:null}];
+  const clips=[{id:"clip",revision:3,title:"Clip",ready:true,source_title:"Recording",plan:null,publication:null,copy:{id:"copy-1",title:"Posting title",caption:"Posting caption.",note:""}}];
   const data={connected:false,organizations:[{id:"org",name:"My account"}],organization_id:"org",channels:[{id:"yt",service:"youtube",name:"Channel"}],mapping:{youtube:"yt"},clips};
   const find=(node,label)=>{if(node.textContent===label)return node;for(const c of node.children||[]){const match=find(c,label);if(match)return match;}};
   const context=vm.createContext({
@@ -25,6 +25,10 @@ function fixture(){
         state.storage=true;return {used_bytes:0};
       }
       if(url.endsWith("buffer/connect")){assert.equal(nodes.get("publishing-buffer-key").value,"");state.buffer=true;return {};}
+      if(url.includes("/publishing/copy/")){
+        const copy={id:"copy-2",title:body.title||"Generated title",caption:body.caption||"Generated caption.",note:body.note||""};
+        clips[0].copy=copy;return copy;
+      }
       if(url.endsWith("buffer/fill"))return {scheduled:2,message:"",skipped_order:0};
       if(url.endsWith("preview"))return {id:"ticket",channels:{youtube:{name:"Channel"}},items:body.items.map(i=>({...i,mapping:{youtube:"yt"},mode:body.mode==="now"?"now":"schedule",due_at:body.mode==="now"?null:"2030-01-01T16:00:00Z",timezone:body.timezone||"Europe/Helsinki"}))};
       if(url.includes("/send/"))return {receipts:{youtube:{status:state.fail?"unknown":"scheduled"}}};
@@ -97,4 +101,31 @@ test("fill button schedules directly only when clicked and blocks repeat clicks 
   assert.equal(writes[0].url,"/api/publishing/buffer/fill");
   assert.match(nodes.get("publishing-fill-message").textContent,/2 clips scheduled at 09:00 Europe\/Helsinki/);
   assert.equal(nodes.get("publishing-fill").disabled,false);
+});
+
+test("posting copy can be regenerated with guidance and manual edits are saved before preview",async()=>{
+  const {nodes,writes,state,data,find}=fixture();state.storage=true;state.buffer=true;
+  await nodes.get("refresh-publishing").onclick();
+  find("Writing guidance (optional)").children[0].value="Kuiva huumori";
+  await find("Regenerate posting copy").onclick();
+  assert.equal(writes[0].url,"/api/publishing/copy/clip/generate");
+  assert.equal(writes[0].body.note,"Kuiva huumori");
+  assert.equal(find("Post caption").children[0].value,"Generated caption.");
+  find("Post caption").children[0].value="My own caption.";
+  await find("Preview publish now").onclick();
+  assert.equal(writes[1].url,"/api/publishing/copy/clip");
+  assert.equal(writes[1].body.expected_id,"copy-2");
+  assert.equal(writes[2].body.items[0].caption,"My own caption.");
+  assert.equal(data.clips[0].copy.caption,"My own caption.");
+  assert.equal(nodes.get("publishing-send").disabled,true);
+});
+
+test("a new video revision does not reuse unsaved text from the old revision",async()=>{
+  const {nodes,data,find}=fixture();
+  await nodes.get("refresh-publishing").onclick();
+  find("Post caption").children[0].value="Old edit";
+  // Replace the server object, leaving the displayed revision's object intact.
+  data.clips=[{...data.clips[0],revision:4,copy:null}];
+  await nodes.get("refresh-publishing").onclick();
+  assert.equal(find("Post caption").children[0].value,"");
 });

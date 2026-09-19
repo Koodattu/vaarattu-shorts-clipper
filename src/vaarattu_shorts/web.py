@@ -314,6 +314,38 @@ def create_app(settings):
     def get_buffer():
         return buffer.status(settings, store)
 
+    @app.post("/api/publishing/copy/{clip_id}")
+    def save_publishing_copy(clip_id: str, revision: int = Body(ge=1),
+                             title: str = Body(min_length=1, max_length=100),
+                             caption: str = Body(min_length=1, max_length=2200),
+                             note: str = Body(default="", max_length=2000),
+                             expected_id: str | None = Body(default=None, max_length=100)):
+        from . import publishing_copy
+
+        def save():
+            clip = store.clip(clip_id)
+            if clip["revision"] != revision:
+                raise ValueError("This clip changed. Refresh before saving its posting copy.")
+            return publishing_copy.save(store, clip, {"title": title, "caption": caption},
+                                        note=note, expected_id=expected_id)
+
+        return publishing_action(save)
+
+    @app.post("/api/publishing/copy/{clip_id}/generate")
+    def generate_publishing_copy(clip_id: str, revision: int = Body(ge=1),
+                                 note: str = Body(default="", max_length=2000),
+                                 expected_id: str | None = Body(default=None, max_length=100)):
+        from . import publishing_copy
+
+        def generate():
+            clip = store.clip(clip_id)
+            if clip["revision"] != revision:
+                raise ValueError("This clip changed. Refresh before generating its posting copy.")
+            return publishing_copy.generate(settings, store, clip, note=note,
+                                            regenerate=True, expected_id=expected_id)
+
+        return publishing_action(generate)
+
     @app.post("/api/publishing/buffer/connect")
     async def connect_buffer(request: Request):
         from starlette.concurrency import run_in_threadpool

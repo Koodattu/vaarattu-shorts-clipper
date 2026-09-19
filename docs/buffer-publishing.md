@@ -118,3 +118,18 @@ References: [Buffer API setup](https://developers.buffer.com/guides/getting-star
 [video post example](https://developers.buffer.com/examples/create-video-post.html),
 [create options](https://developers.buffer.com/types/CreatePostInput.html),
 [channel connection](https://support.buffer.com/en-us/articles/connecting-your-channels-to-buffer-HvWLgAJvL9).
+
+
+## Posting titles and captions
+
+The Publishing tab saves a separate title and post caption for each final clip revision.
+Generate posting copy uses the recording's configured LLM and the final edited words, excluding
+removed speech. It asks for natural Finnish, a specific title and one or two short sentences;
+no hashtags, engagement bait or invented details. Optional writing guidance is sent with the request.
+Regenerate replaces the saved copy. You can edit and save both fields without rerendering or
+clearing Ready for posting. Editing the video makes its old copy ineligible for the new revision.
+
+Previewing a post saves your text first; blank fields trigger generation. Fill scheduled queue
+saves entered text and generates missing copy for selected clips before submitting anything.
+Generation errors stop the batch before submission, preserving text already prepared for retry.
+Existing Buffer submissions keep their original text; manage those posts in Buffer.

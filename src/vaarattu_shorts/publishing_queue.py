@@ -5,7 +5,7 @@ import json
 import uuid
 from zoneinfo import ZoneInfo
 
-from . import buffer, delivery, r2
+from . import buffer, delivery, publishing_copy, r2
 from .contracts import video_id
 from .storage import atomic_json
 
@@ -108,6 +108,8 @@ def fill(settings, store):
     if not selected:
         return {"scheduled": 0, "message": "No unposted Ready for posting clips are available in source order.",
                 "clips": [], "skipped_order": skipped_order}
+    # Prepare all text before creating plans or submitting any clip in this batch.
+    copies = {c["id"]: publishing_copy.generate(settings, store, c) for c in selected}
     local_now = buffer.now().astimezone(ZoneInfo(ZONE))
     day = local_now.date()
     if datetime.combine(day, CLOCK, ZoneInfo(ZONE)) <= local_now + timedelta(minutes=10):
@@ -158,8 +160,7 @@ def fill(settings, store):
             occupied.add(day)
             day += timedelta(days=1)
     items = [{"clip_id": c["id"], "revision": c["revision"],
-              "title": c["body"]["title"].replace("<", "").replace(">", "")[:100],
-              "caption": c["body"]["title"][:2200]} for c in selected]
+              "title": copies[c["id"]]["title"], "caption": copies[c["id"]]["caption"]} for c in selected]
     ticket = buffer.preview(settings, store, items, "plan")
     result = {"scheduled": 0, "clips": [], "skipped_order": skipped_order, "message": ""}
     for item in ticket["items"]:
