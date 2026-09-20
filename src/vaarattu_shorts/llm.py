@@ -297,7 +297,7 @@ class Evaluator:
     def report(self, message):
         self.store.update(self.run_id, message=message)
 
-    def wait_for_retry(self, reason, delay, retry):
+    def wait_for_retry(self, reason, delay, retry, total=None):
         previous = self.store.get(self.run_id)["message"]
         deadline = time.monotonic() + delay
         next_update = 0
@@ -310,7 +310,7 @@ class Evaluator:
             if now >= next_update:
                 self.report(
                     f"{reason} Retrying in {math.ceil(remaining)} seconds "
-                    f"(retry {retry} of {len(SERVICE_RETRY_DELAYS)})."
+                    f"(retry {retry} of {len(SERVICE_RETRY_DELAYS) if total is None else total})."
                 )
                 next_update = now + 5
             time.sleep(min(0.2, remaining))
@@ -424,7 +424,8 @@ class Evaluator:
             raise ValueError("The model refused or truncated the selection response.")
         return choice.get("message", {}).get("content", "")
 
-    def call(self, system, prompt, response_type, key, *, validate=None, reasoning_effort="none"):
+    def call(self, system, prompt, response_type, key, *, validate=None, reasoning_effort="none",
+             output_retry_delays=None, repair_instruction=None):
         self.check()
         schema = response_type.model_json_schema()
         fingerprint = hashlib.sha256(
@@ -446,16 +447,20 @@ class Evaluator:
         ).hexdigest()
         cache = self.folder / f"{key}-{fingerprint[:16]}.json"
         if cache.exists():
-            parsed = response_type.model_validate_json(cache.read_text("utf-8"))
-            if validate:
-                try:
+            try:
+                parsed = response_type.model_validate_json(cache.read_text("utf-8"))
+                if validate:
                     validate(parsed)
-                except ValueError as exc:
+                return parsed
+            except ValueError as exc:
+                if output_retry_delays is None:
                     raise ModelOutputError("The model's suggestion could not be verified.") from exc
-            return parsed
+                # Highlights can regenerate an obsolete or invalid cached suggestion.
         attempt = 0
         service_retries = 0
-        while attempt < 2:
+        output_retries = 1 if output_retry_delays is None else len(output_retry_delays)
+        original_prompt = prompt
+        while attempt <= output_retries:
             self.check()
             size = self.request_size(system, prompt, response_type)
             limit = self.context_size - MAX_OUTPUT - 256 if self.provider == "local" else 60000
@@ -596,13 +601,18 @@ class Evaluator:
                 self.store.settle(request_id, None, {"retry_delay_seconds": delay})
                 self.wait_for_retry(reason, delay, service_retries)
             except ModelOutputError as exc:
-                if attempt or response is None or response.status_code >= 400:
+                if attempt >= output_retries or response is None or response.status_code >= 400:
                     raise
-                prompt += (
+                prompt = original_prompt + (
                     f"\nValidation problem: {exc} Return valid JSON matching the schema. "
-                    + ("Return only the supplied candidate IDs, each exactly once in ranked order."
-                       if isinstance(exc.__cause__, ModelRankingError)
-                       else "Use only supplied anchors in their original order and keep the proposed idea inside the clip.")
+                    + (repair_instruction or (
+                        "Return only the supplied candidate IDs, each exactly once in ranked order."
+                        if isinstance(exc.__cause__, ModelRankingError)
+                        else "Use only supplied anchors in their original order and keep the proposed idea inside the clip."))
                 )
+                if output_retry_delays is not None:
+                    delay = output_retry_delays[attempt]
+                    self.wait_for_retry("The model returned an invalid suggestion.", delay,
+                                        attempt + 1, total=output_retries)
                 attempt += 1
         raise AssertionError("Unreachable")

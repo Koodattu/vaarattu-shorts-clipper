@@ -57,3 +57,47 @@ test('revision requires instructions and does not change the shorts API',async()
   nodes.get('highlight-guidance').value='Remove the inventory detour';await nodes.get('highlight-revise').onclick();
   assert.match(writes[0].url,/^\/api\/highlights\/.+\/revise$/);assert.equal(writes[0].body.guidance,'Remove the inventory detour');
 });
+
+test('partial model recovery warnings remain visible alongside the draft',async()=>{
+  const {nodes,run,context}=fixture();
+  run.warnings=['Section 2 could not be fully analyzed; some highlights may be missing.'];
+  await vm.runInContext('loadHighlights()',context);
+  assert.ok(nodes.get('highlight-notes').children.some(node=>node.textContent===run.warnings[0]));
+  assert.match(nodes.get('highlight-player').src,/quality=draft/);
+});
+
+test('full recording rebuild is explicit and preserves optional guidance',async()=>{
+  const {nodes,writes,context}=fixture();await vm.runInContext('loadHighlights()',context);
+  assert.equal(writes.length,0);
+  nodes.get('highlight-guidance').value='A condensed episode with entertaining commentary';
+  await nodes.get('highlight-rebuild').onclick();
+  assert.match(writes[0].url,/\/rebuild$/);
+  assert.equal(writes[0].body.revision,1);
+  assert.equal(writes[0].body.guidance,'A condensed episode with entertaining commentary');
+});
+
+
+test('paused runs can rebuild and progress identifies the stage and current revision work',async()=>{
+  const {nodes,run,context,writes}=fixture();
+  run.state='paused';run.stage='edit-2';run.progress=0.75;
+  run.activity={request_count:12,thinking:'low',phases:{'Scene editing':{requests:8,retries:1,seconds:120}}};
+  await vm.runInContext('loadHighlights()',context);
+  assert.match(nodes.get('highlight-status').textContent,/75% of this stage/);
+  assert.match(nodes.get('highlight-meta').textContent,/12 model requests in this revision/);
+  assert.ok(nodes.get('highlight-notes').children.some(n=>n.textContent.includes('1 retries / repairs')));
+  await nodes.get('highlight-controls').children.find(n=>n.textContent==='Rebuild from full recording').onclick();
+  assert.match(writes[0].url,/rebuild$/);
+});
+
+
+test('new highlight requests do not send a preferred runtime',async()=>{
+  const {nodes,context,writes}=fixture();
+  assert.equal(nodes.has('highlight-target'),false);
+  await vm.runInContext('openHighlights("https://youtu.be/abc_def-ghI")',context);
+  nodes.get('highlight-provider').value='codex';
+  nodes.get('highlight-encoder').value='h264_nvenc';
+  await nodes.get('highlight-form').onsubmit({preventDefault(){}});
+  const submission=writes.find(w=>w.url==='/api/highlights');
+  assert.ok(submission);
+  assert.equal(Object.hasOwn(submission.body,'target_minutes'),false);
+});

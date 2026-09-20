@@ -11,9 +11,9 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
-from . import highlight_edit as editing, highlight_sources as sources, render, transcribe, youtube
+from . import highlight_episode as editing, highlight_sources as sources, render, transcribe, youtube
 from .contracts import Contract
-from .llm import Evaluator
+from .llm import Evaluator, ModelOutputError
 from .pipeline import Pipeline, check_space
 from .llm import local_server
 from .processes import Interrupted, ToolError, run_tool
@@ -22,13 +22,13 @@ from .storage import Store, atomic_json, digest
 
 class Start(Contract):
     manifest_id: str = Field(pattern=r"^[a-f0-9]{32}$")
-    target_minutes: int = Field(default=12, ge=5, le=20)
+    target_minutes: int | None = Field(default=None, exclude=True, description="Legacy setting; ignored. Length follows the selected content.")
     provider: Literal["local", "gemini", "openai", "codex", "zai", "deepseek", "meta"] = "codex"
     local_model: Literal["gemma4-31b", "gemma4-26b-a4b"] = "gemma4-31b"
     context_size: Literal[16384, 32768] = 32768
     budget_usd: float = Field(default=0, ge=0, le=100)
     discovery_reasoning: Literal["low", "medium"] = "low"
-    verification_reasoning: Literal["low", "medium"] = "medium"
+    verification_reasoning: Literal["low", "medium"] = "low"
     video_encoder: Literal["h264_nvenc", "libx264"] = "h264_nvenc"
     final_transcription: Literal[False] = False
 
@@ -65,7 +65,7 @@ def control(store, run_id, action, revision, guidance="", restore=None):
         db.execute("BEGIN IMMEDIATE")
         run = store.unpack(db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone())
         result = run["result"]
-        if run["state"] != "completed" or revision != result.get("revision"):
+        if (run["state"] != "completed" and not (action == "rebuild" and run["state"] in {"paused", "failed", "cancelled"})) or revision != result.get("revision"):
             raise ValueError("Refresh this highlight video before changing it; processing may still be running.")
         result = dict(result)
         if action == "approve":
@@ -73,11 +73,12 @@ def control(store, run_id, action, revision, guidance="", restore=None):
                 raise ValueError("Review a rendered draft before approving it.")
             result.update(mode="final", approved_revision=revision)
             state = "queued"
-        elif action == "revise":
-            if not guidance.strip() or len(guidance) > 2000:
+        elif action in {"revise", "rebuild"}:
+            if (action == "revise" and not guidance.strip()) or len(guidance) > 2000:
                 raise ValueError("Describe the changes in 1-2000 characters.")
-            result.update(mode="draft", revision=max([revision, *[h["revision"] for h in result.get("history", [])]])+1, parent_revision=revision,
-                          guidance=guidance.strip(), approved_revision=None, has_draft=False, has_final=False, review="unreviewed")
+            result.update(mode="draft", revision=max([revision, *[h["revision"] for h in result.get("history", [])]])+1, parent_revision=revision if action == "revise" else None,
+                          guidance=guidance.strip(), approved_revision=None, has_draft=False, has_final=False, review="unreviewed",
+                          revision_started=time.time(), editing_reasoning="low", warnings=[], issues=[], metrics={}, duration=0)
             state = "queued"
         elif action == "restore":
             saved = next((r for r in result.get("history", []) if r["revision"] == restore), None)
@@ -90,14 +91,26 @@ def control(store, run_id, action, revision, guidance="", restore=None):
             state = "completed"
         else:
             raise ValueError("This highlight action is unavailable.")
-        db.execute("UPDATE runs SET state=?,intent='',result=?,message='',updated=? WHERE id=?",
-                   (state, json.dumps(result), time.time(), run_id))
+        db.execute("UPDATE runs SET state=?,intent='',result=?,message='',updated=?,progress=? WHERE id=?",
+                   (state, json.dumps(result), time.time(), 0 if action in {"revise", "rebuild"} else run["progress"], run_id))
 
 
 def public(settings, store, run):
     result = run["result"]
     revision = result.get("revision", 1)
     folder = revision_folder(settings, run["id"], revision)
+    usage = store.usage(run["id"])
+    requests = [r for r in usage["requests"] if r.get("created", 0) >= result.get("revision_started", run["created"])]
+    phases = {}
+    for request in requests:
+        step = request.get("step", "")
+        label = ("Discovery" if step.startswith("scan-") else "First ranking" if step.startswith("episode-screen")
+                 else "Edited ranking" if step.startswith("episode-rank") else "Pacing review" if step.startswith("episode-critic")
+                 else "Scene editing")
+        phase = phases.setdefault(label, {"requests": 0, "retries": 0, "seconds": 0})
+        phase["requests"] += 1
+        phase["retries"] += int(request.get("attempt", 1) > 1 or request.get("service_retries", 0) > 0 or "-repair-" in step)
+        phase["seconds"] += request.get("elapsed_seconds", 0)
     return {"id": run["id"], "title": run["config"]["manifest"]["title"],
             "state": run["state"], "stage": run["stage"], "progress": run["progress"],
             "message": run["message"], "revision": revision,
@@ -105,9 +118,11 @@ def public(settings, store, run):
             "has_draft": bool(result.get("has_draft") and (folder / "draft.mp4").is_file()),
             "has_final": bool(result.get("has_final") and (folder / "final.mp4").is_file()),
             "duration": result.get("duration", 0), "issues": result.get("issues", []),
+            "warnings": result.get("warnings", []), "metrics": result.get("metrics", {}),
             "review": result.get("review"), "history": result.get("history", []),
-            "shorter_than_target": result.get("shorter_than_target", False),
-            "usage": {k: v for k, v in store.usage(run["id"]).items() if k != "requests"}}
+            "activity": {"request_count": len(requests), "phases": phases,
+                         "thinking": result.get("editing_reasoning", run["config"].get("verification_reasoning", "low"))},
+            "usage": {k: v for k, v in usage.items() if k != "requests"}}
 
 
 def render_video(settings, plan, media, output, encoder, check, progress):
@@ -237,10 +252,9 @@ class Highlights(Pipeline):
             with manager as client:
                 evaluator = Evaluator(self.config["provider"], self.store, self.run_id, inference,
                     self.config["budget_usd"], self.check, client, self.config["context_size"],
-                    codex_config=self.config.get("codex"), discovery_reasoning=self.config["discovery_reasoning"],
-                    verification_reasoning=self.config["verification_reasoning"])
-                plan = editing.plan(items, evaluator, self.progress, self.config["target_minutes"]*60,
-                                    previous, result.get("guidance", ""))
+                    codex_config=self.config.get("codex"), discovery_reasoning=result.get("editing_reasoning", self.config["discovery_reasoning"]),
+                    verification_reasoning=result.get("editing_reasoning", self.config["verification_reasoning"]))
+                plan = editing.plan(items, evaluator, self.progress, previous=previous, guidance=result.get("guidance", ""))
             atomic_json(folder / "plan.json", plan)
             return plan, [folder / "plan.json"]
 
@@ -310,7 +324,7 @@ class Highlights(Pipeline):
         history = [h for h in result.get("history", []) if h["revision"] != revision]
         current = {"revision": revision, "duration": rendered.get("duration", plan["duration"]),
                    "has_draft": bool(plan["retained"]), "has_final": mode == "final" and bool(rendered),
-                   "issues": plan["issues"], "shorter_than_target": plan["shorter_than_target"],
+                   "issues": plan["issues"], "warnings": plan.get("warnings", []), "metrics": plan.get("metrics", {}),
                    "parent_revision": result.get("parent_revision"), "guidance": result.get("guidance", ""),
                    "plan_sha256": digest(folder / "plan.json"), "media_sha256": digest(folder / "media.json")}
         history.append(current)
@@ -327,6 +341,8 @@ def run_job(settings, store, run_id, stopping):
     except Interrupted as exc:
         store.update(run_id, state="cancelled" if exc.action == "cancel" else "paused", intent="",
                      message="Completed highlight stages are saved.")
+    except ModelOutputError as exc:
+        store.update(run_id, state="paused", intent="", message=str(exc))
     except (ValueError, ToolError) as exc:
         store.update(run_id, state="failed", intent="", message=str(exc))
     except Exception as exc:

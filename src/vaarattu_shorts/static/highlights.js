@@ -4,7 +4,7 @@ function highlightDuration(seconds){return `${Math.floor(seconds/60)}m ${Math.ro
 function highlightMessage(message){$("highlight-message").textContent=message;}
 function highlightLock(value){
   highlightBusy=value;
-  for(const id of ["highlight-resolve","highlight-start","highlight-revise","highlight-approve","highlight-reject"])$(id).disabled=value;
+  for(const id of ["highlight-resolve","highlight-start","highlight-revise","highlight-rebuild","highlight-approve","highlight-reject"])$(id).disabled=value;
   $("highlight-start").disabled=value||!highlightManifest;
 }
 async function resolveHighlight(){
@@ -55,17 +55,23 @@ function paintHighlights(){
   $("highlight-title").textContent=run.title;
   $("highlight-progress").value=run.progress;
   const stage=run.stage.startsWith("audio-")?"Preparing recording audio":run.stage.startsWith("transcript-")?"Transcribing speech":run.stage.startsWith("edit-")?"Selecting and editing highlights":run.stage.startsWith("media-")?"Downloading and checking selected footage":run.stage.startsWith("render-")?(run.stage.endsWith("final")?"Rendering final 1080p video":"Rendering 720p review draft"):"Completed stages are saved automatically.";
-  $("highlight-status").textContent=`${run.state} · ${Math.round(run.progress*100)}% · ${run.message||stage}`;
-  $("highlight-meta").textContent=`Revision ${run.revision}${run.duration?` · ${highlightDuration(run.duration)}`:""} · ${run.usage.request_count} model requests · ${run.review||"Not reviewed"}`;
+  $("highlight-status").textContent=`${run.state} · ${Math.round(run.progress*100)}% of this stage · ${run.message||stage}`;
+  $("highlight-meta").textContent=`Revision ${run.revision}${run.duration?` · ${highlightDuration(run.duration)}`:""} · ${run.activity?.request_count??run.usage.request_count} model requests in this revision · ${run.review||"Not reviewed"}`;
   const controls=$("highlight-controls");controls.replaceChildren();
   for(const [label,op,states] of [["Pause","pause",["running","queued"]],["Resume / retry","resume",["paused","failed","cancelled"]],["Cancel","cancel",["running","queued","paused"]]])if(states.includes(run.state))controls.append(action(label,()=>highlightAction(op)));
+  if(["paused","failed","cancelled"].includes(run.state))controls.append(action("Rebuild from full recording",()=>highlightAction("rebuild")));
   const player=$("highlight-player");player.hidden=!run.has_draft;
   const url=run.has_draft?`/api/highlights/${run.id}/video?revision=${run.revision}&quality=${run.has_final?"final":"draft"}`:"";
   if(player.getAttribute("src")!==url){player.pause();if(url)player.src=url;else player.removeAttribute("src");player.load();}
   $("highlight-review-actions").hidden=run.state!=="completed"||!run.has_draft;
   $("highlight-approve").hidden=run.has_final;
   const notes=$("highlight-notes");notes.replaceChildren();
-  if(run.shorter_than_target&&run.has_draft)notes.append(text("p","This draft is shorter than five minutes. It was not padded with weaker material."));
+  if(run.activity?.thinking)notes.append(text("p",`Editing thinking: ${run.activity.thinking}.`,"muted"));
+  for(const [label,phase] of Object.entries(run.activity?.phases||{}))notes.append(text("p",`${label}: ${phase.requests} requests, ${phase.retries} retries / repairs, ${highlightDuration(phase.seconds)} waiting for the model.`,"muted"));
+  if(run.stage.startsWith("edit-")&&run.state==="running")notes.append(text("p","Editing is in progress. Selected footage download and rendering come next.","muted"));
+  if(run.metrics?.eligible_scenes!==undefined)notes.append(text("p",`${run.metrics.mapped_scenes} scenes found; ${run.metrics.eligible_scenes} passed the initial quality check. Length follows the selected content.`,"muted"));
+  if(run.metrics?.edited_scenes)notes.append(text("p",`${run.metrics.edited_scenes} scenes edited before selection; ${run.metrics.selected_scenes} scenes and ${run.metrics.retained_ranges} retained ranges in this draft.`,"muted"));
+  for(const warning of run.warnings||[])notes.append(text("p",warning));
   for(const issue of run.issues)notes.append(text("p",issue.instruction));
   if(run.has_draft)notes.append(text("p","Editing used the transcript only. Check gameplay pauses and how the cuts sound before approving.","muted"));
   const downloads=$("highlight-downloads");downloads.replaceChildren();
@@ -88,8 +94,8 @@ async function highlightAction(op,restore=null){
   if(op==="revise"&&!guidance){error("Describe the changes you want first.");return;}
   highlightLock(true);
   try{
-    await api(`/api/highlights/${run.id}/${op}`,{method:"POST",body:JSON.stringify({revision:run.revision,guidance:op==="revise"?guidance:"",restore})});
-    highlightMessage(op==="approve"?"Approved. The final 1080p render will use this exact edit.":op==="revise"?"Revision requested. Your previous draft is saved.":"Highlight video updated.");
+    await api(`/api/highlights/${run.id}/${op}`,{method:"POST",body:JSON.stringify({revision:run.revision,guidance:["revise","rebuild"].includes(op)?guidance:"",restore})});
+    highlightMessage(op==="approve"?"Approved. The final 1080p render will use this exact edit.":["revise","rebuild"].includes(op)?"New draft requested. Your previous draft is saved.":"Highlight video updated.");
     await loadHighlights();
   }catch(e){error(e.message);}finally{highlightLock(false);}
 }
@@ -107,7 +113,7 @@ $("highlight-form").onsubmit=async event=>{
   highlightLock(true);
   try{
     const provider=$("highlight-provider").value;
-    const body={manifest_id:highlightManifest.id,target_minutes:Number($("highlight-target").value),provider,local_model:$("highlight-local").value||"gemma4-31b",context_size:32768,budget_usd:["codex","local"].includes(provider)?0:Number($("highlight-budget").value),video_encoder:$("highlight-encoder").value};
+    const body={manifest_id:highlightManifest.id,provider,local_model:$("highlight-local").value||"gemma4-31b",context_size:32768,budget_usd:["codex","local"].includes(provider)?0:Number($("highlight-budget").value),video_encoder:$("highlight-encoder").value};
     const signature=JSON.stringify(body);
     if(highlightStartKey?.signature!==signature)highlightStartKey={signature,key:crypto.randomUUID()};
     const run=await api("/api/highlights",{method:"POST",headers:{"Idempotency-Key":highlightStartKey.key},body:signature});
@@ -117,3 +123,5 @@ $("highlight-form").onsubmit=async event=>{
 $("highlight-approve").onclick=()=>highlightAction("approve");
 $("highlight-revise").onclick=()=>highlightAction("revise");
 $("highlight-reject").onclick=()=>highlightAction("reject");
+
+$("highlight-rebuild").onclick=()=>highlightAction("rebuild");

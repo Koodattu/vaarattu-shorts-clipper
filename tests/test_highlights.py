@@ -1,10 +1,12 @@
 import json
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from vaarattu_shorts import highlight_edit as edit, highlight_sources as sources, highlights
-from vaarattu_shorts.llm import ModelAnchorError
+from vaarattu_shorts import highlight_edit as edit, highlight_episode as episode, highlight_sources as sources, highlights
+from vaarattu_shorts.llm import Evaluator as ModelEvaluator, ModelAnchorError, ModelOutputError
+from vaarattu_shorts.processes import Interrupted
 from vaarattu_shorts.storage import atomic_json
 from vaarattu_shorts.web import create_app
 
@@ -134,6 +136,15 @@ class Evaluator:
         self.calls.append((key, payload, kw))
         if schema is edit.Scan:
             value = edit.Scan(beats=[edit.Beat(first="u1", last="u7", value=4, reason="Developed story", continuation="")])
+        elif schema is episode.EditBatch:
+            value = episode.EditBatch(scenes=[episode.NamedProposal(id=c["scene"]["id"],
+                spans=[edit.Span(first="u1", last="u7")], pauses=[], value=3, reason="Complete story") for c in payload["scenes"]])
+        elif schema is episode.Proposal:
+            value = episode.Proposal(spans=[edit.Span(first="u1", last="u7")], pauses=[], value=3, reason="Complete story")
+        elif schema is episode.SceneEdit:
+            value = episode.SceneEdit(spans=[edit.Span(first="u1", last="u7")], gaps=[], value=3, reason="Complete story")
+        elif schema is episode.Ratings:
+            value = episode.Ratings(scenes=[episode.Rating(id=c["id"], score=80, reason="Enjoyable scene") for c in payload["scenes"]])
         elif schema is edit.Picks:
             value = edit.Picks(ids=["b0"])
         elif schema is edit.Edit:
@@ -216,7 +227,8 @@ def test_highlights_api_local_boundary_and_final_approval(settings, monkeypatch)
         assert client.post("/api/highlights", headers=headers, json={"manifest_id": "../escape"}).status_code == 422
 
 
-def test_pipeline_resume_final_and_revision(settings, store, monkeypatch):
+@pytest.mark.parametrize("critic_failure", [False, True])
+def test_pipeline_resume_final_and_revision(settings, store, monkeypatch, critic_failure):
     separate = highlights.store_for(settings)
     run_id = separate.admit(config(), "pipeline")
     events = []
@@ -244,17 +256,26 @@ def test_pipeline_resume_final_and_revision(settings, store, monkeypatch):
     monkeypatch.setattr(highlights.youtube, "probe", lambda *args: {"format": {"duration": "120"}})
     monkeypatch.setattr(highlights.transcribe, "transcribe", transcribe)
     monkeypatch.setattr(highlights.render, "align", lambda *args, **kw: {"origin_us": 0, "section_duration": 120})
-    monkeypatch.setattr(highlights, "Evaluator", lambda *args, **kw: Evaluator())
+    class PipelineEvaluator(Evaluator):
+        def call(self, system, prompt, schema, key, **kw):
+            if critic_failure and schema is edit.Review:
+                raise ModelOutputError("Invalid critique after retries")
+            return super().call(system, prompt, schema, key, **kw)
+
+    monkeypatch.setattr(highlights, "Evaluator", lambda *args, **kw: PipelineEvaluator())
     monkeypatch.setattr(highlights, "render_video", render)
     separate.claim()
     first = highlights.Highlights(settings, separate, run_id).execute()
     assert first["has_draft"] and not first["has_final"]
+    visible = highlights.public(settings, separate, separate.get(run_id))
+    assert bool(first["warnings"]) == critic_failure
+    assert visible["warnings"] == first["warnings"] == first["history"][0]["warnings"]
     assert events == ["audio", "transcribe", "section", "draft"]
     assert store.runs() == []
     assert not (settings.work / "runs" / run_id).exists()
     highlights.control(separate, run_id, "approve", 1)
     separate.claim()
-    monkeypatch.setattr(edit, "VERSION", "a-newer-prompt-must-not-change-an-approved-edit")
+    monkeypatch.setattr(episode, "VERSION", "a-newer-prompt-must-not-change-an-approved-edit")
     highlights.Highlights(settings, separate, run_id).execute()
     assert events == ["audio", "transcribe", "section", "draft", "final"]
     highlights.control(separate, run_id, "revise", 1, "Keep the story")
@@ -300,3 +321,238 @@ def test_final_render_rejects_changed_approved_plan_before_any_ai(settings):
                     "approved_revision": 1, "plan_sha256": "original-approved-hash"})
     with pytest.raises(ValueError, match="approved edit"):
         highlights.Highlights(settings, separate, run_id).execute()
+
+
+@pytest.fixture
+def model_replies(settings, store, monkeypatch):
+    run = store.admit({"provider": "codex"}, "highlight-recovery")
+    replies, requests, waits = [], [], []
+
+    def handle(request):
+        requests.append(json.loads(request.content))
+        value = replies.pop(0)
+        if isinstance(value, int):
+            return httpx.Response(value)
+        return httpx.Response(200, json={"status": "completed", "output": [
+            {"content": [{"type": "output_text", "text": value if isinstance(value, str) else json.dumps(value)}]}],
+            "usage": {"input_tokens": 100, "output_tokens": 10}})
+
+    with httpx.Client(transport=httpx.MockTransport(handle)) as client:
+        evaluator = ModelEvaluator("codex", store, run, settings.work, 0, lambda: None, client)
+        monkeypatch.setattr(evaluator, "wait_for_retry", lambda reason, delay, retry, total=None: waits.append((delay, retry, total)))
+        yield evaluator, replies, requests, waits
+
+
+def beat(first="u1", last="u7"):
+    return {"first": first, "last": last, "value": 4, "reason": "Complete story", "continuation": ""}
+
+
+def test_context_only_proposals_defer_and_cross_boundary_setup_is_preserved(model_replies):
+    evaluator, replies, requests, waits = model_replies
+    original = transcript()
+    original["words"] = [dict(original["words"][0], id=f"w{i}", start_us=i*5000000+1000000,
+                              end_us=i*5000000+3000000) for i in range(120)]
+    original["duration_us"] = 600000000
+    items = edit.units({"s0": original})
+    replies.extend([{"beats": [beat("u75", "u80"), beat("u65", "u76")]},
+                    {"beats": [beat("u65", "u80"), beat("u95", "u100")]}])
+    progress, warnings = [], []
+    result = edit.discover(items, evaluator, progress.append, warnings)
+    assert [(b["first"], b["last"]) for b in result] == [("u65", "u80"), ("u95", "u100")]
+    assert len(requests) == 2 and not waits and not warnings
+    assert progress[-1] == 1
+
+
+def test_invalid_highlight_retries_with_specific_feedback_and_reuses_valid_cache(model_replies):
+    evaluator, replies, requests, waits = model_replies
+    replies.extend([{"beats": [beat("invented", "u7")]}, "broken JSON", {"beats": [beat()]}])
+    items = edit.units({"s0": transcript()})
+    warnings = []
+    expected = edit.discover(items, evaluator, lambda _: None, warnings)
+    assert edit.discover(items, evaluator, lambda _: None, warnings) == expected
+    assert len(requests) == 3 and len(expected) == 1 and not warnings
+    assert waits == [(5, 1, 2), (15, 2, 2)]
+    assert "invented" in requests[1]["input"] and "Validation problem" in requests[1]["input"]
+    assert requests[2]["input"].count("Validation problem") == 1
+
+
+def test_scan_keeps_verified_proposals_after_persistent_bad_anchors(model_replies):
+    evaluator, replies, requests, waits = model_replies
+    replies.extend([{"beats": [beat(), beat("invented", "u7")]}]*3)
+    warnings = []
+    result = edit.discover(edit.units({"s0": transcript()}), evaluator, lambda _: None, warnings)
+    assert len(result) == 1 and result[0]["first"] == "u1"
+    assert len(requests) == 3 and len(waits) == 2
+    assert len(warnings) == 1 and "could not be fully analyzed" in warnings[0]
+
+
+def test_failed_scan_does_not_block_later_sections(model_replies):
+    evaluator, replies, requests, waits = model_replies
+    original = transcript()
+    original["duration_us"] = 900000000
+    original["words"] += [dict(w, id="later-"+w["id"], start_us=w["start_us"]+720000000,
+                               end_us=w["end_us"]+720000000) for w in original["words"]]
+    replies.extend(["invalid"]*3 + [{"beats": [beat("u21", "u27")]}])
+    warnings = []
+    result = edit.discover(edit.units({"s0": original}), evaluator, lambda _: None, warnings)
+    assert len(result) == 1 and result[0]["first"] == "u21"
+    assert len(requests) == 4 and len(waits) == 2 and len(warnings) == 1
+
+
+def test_failed_ranking_keeps_only_known_unique_choices(model_replies):
+    evaluator, replies, requests, waits = model_replies
+    replies.extend([{"ids": ["invented", "b0", "b0"]}]*3)
+    warnings = []
+    candidate = dict(beat(), id="b0")
+    result = edit.shortlist([candidate], edit.units({"s0": transcript()}), evaluator, 300, warnings)
+    assert result == [candidate] and len(warnings) == 1 and len(requests) == 3
+
+
+@pytest.mark.parametrize("previous", [False, True])
+def test_invalid_edit_never_renders_hallucinated_cuts(model_replies, previous):
+    evaluator, replies, requests, waits = model_replies
+    replies.extend([{"spans": [{"first": "u7", "last": "u1"}], "gaps": [], "reason": "Bad cut"}]*3)
+    old = {"spans": [{"first": "u1", "last": "u7"}], "gaps": [], "reason": "Safe edit"} if previous else None
+    warnings = []
+    items = edit.units({"s0": transcript()})
+    result = edit.edit_sequence(dict(beat(), id="b0"), items, evaluator, 300, "edit-test", previous=old, warnings=warnings)
+    if previous:
+        assert result.model_dump() == old
+        assert edit.compile_edit(result, items)[0]["first"] == "u1"
+    else:
+        assert edit.compile_edit(result, items) == []
+    assert len(warnings) == 1 and len(requests) == 3
+
+
+def test_invalid_critic_keeps_valid_timeline_and_surfaces_warning(model_replies):
+    evaluator, replies, requests, waits = model_replies
+    replies.extend([{"beats": [beat()]}, {"ids": ["b0"]},
+                    {"spans": [{"first": "u1", "last": "u7"}], "gaps": [], "reason": "Safe edit"},
+                    *[{"issues": [{"sequence": "invented", "instruction": "Change edit"}]}]*3])
+    result = edit.plan(edit.units({"s0": transcript()}), evaluator, lambda _: None, 300)
+    assert len(result["retained"]) == 1
+    assert len(result["warnings"]) == 1 and "review could not be completed" in result["warnings"][0]
+    assert len(requests) == 6
+
+
+def test_no_verified_edit_is_recoverable_pause_not_empty_success(settings, model_replies, monkeypatch):
+    evaluator, replies, requests, waits = model_replies
+    replies.extend(["invalid"]*3)
+    separate = highlights.store_for(settings)
+    run_id = separate.admit(config(), "invalid-output")
+    separate.claim()
+    monkeypatch.setattr(highlights.Highlights, "execute", lambda self: edit.plan(
+        edit.units({"s0": transcript()}), evaluator, lambda _: None, 300))
+    highlights.run_job(settings, separate, run_id, lambda: False)
+    run = separate.get(run_id)
+    assert run["state"] == "paused" and "No verified highlight edit" in run["message"]
+    assert len(requests) == 3
+    highlights.control(separate, run_id, "resume", 1)
+    assert separate.get(run_id)["state"] == "queued"
+
+
+@pytest.mark.parametrize("failure", [ValueError("Spending limit reached"), Interrupted("cancel")])
+def test_recovery_does_not_swallow_budget_or_cancellation(failure):
+    evaluator = Evaluator()
+    evaluator.call = lambda *args, **kw: (_ for _ in ()).throw(failure)
+    with pytest.raises(type(failure)):
+        edit.discover(edit.units({"s0": transcript()}), evaluator, lambda _: None, [])
+
+
+def test_auth_failure_does_not_become_an_empty_scan(model_replies):
+    evaluator, replies, requests, waits = model_replies
+    replies.append(401)
+    with pytest.raises(ValueError, match="HTTP 401"):
+        edit.discover(edit.units({"s0": transcript()}), evaluator, lambda _: None, [])
+    assert len(requests) == 1 and not waits
+
+
+def test_invalid_cached_suggestion_is_regenerated(model_replies, settings):
+    evaluator, replies, requests, waits = model_replies
+    replies.extend([{"beats": [beat()]}, {"beats": [beat()]}])
+    items = edit.units({"s0": transcript()})
+    expected = edit.discover(items, evaluator, lambda _: None)
+    cache = next(p for p in settings.work.glob("scan-0-*.json") if len(p.name.split(".")) == 2)
+    cache.write_text('{"beats":[{"bad":"shape"}]}', encoding="utf-8")
+    assert edit.discover(items, evaluator, lambda _: None) == expected
+    assert len(requests) == 2
+    assert json.loads(cache.read_text(encoding="utf-8"))["beats"][0]["first"] == "u1"
+
+
+def test_invalid_revision_keeps_last_valid_edit_and_unresolved_issue(model_replies):
+    evaluator, replies, requests, waits = model_replies
+    valid = {"spans": [{"first": "u1", "last": "u7"}], "gaps": [], "reason": "Safe edit"}
+    replies.extend([{"beats": [beat()]}, {"ids": ["b0"]}, valid,
+                    {"issues": [{"sequence": "b0", "instruction": "Tighten the detour"}]},
+                    *["invalid"]*3])
+    result = edit.plan(edit.units({"s0": transcript()}), evaluator, lambda _: None, 300)
+    assert result["sequences"][0]["edit"] == valid
+    assert result["issues"][0]["instruction"] == "Tighten the detour"
+    assert len(result["review_history"]) == 1 and len(requests) == 7
+    assert "previous verified edit was kept" in result["warnings"][0]
+
+
+def test_cancel_during_output_repair_stops_before_next_request(model_replies, monkeypatch):
+    evaluator, replies, requests, waits = model_replies
+    replies.extend(["invalid", {"beats": [beat()]}])
+    monkeypatch.setattr(evaluator, "wait_for_retry", lambda *args, **kw: (_ for _ in ()).throw(Interrupted("cancel")))
+    with pytest.raises(Interrupted):
+        edit.discover(edit.units({"s0": transcript()}), evaluator, lambda _: None, [])
+    assert len(requests) == 1
+
+
+def test_scene_repair_explains_evidence_ids_instead_of_repeating_generic_error(model_replies):
+    evaluator, replies, requests, waits = model_replies
+    rows = [{"id": f"u{i}", "asset": "s0", "start_us": i*10000000,
+             "end_us": i*10000000+2000000, "speech_start_us": i*10000000,
+             "speech_end_us": i*10000000+2000000, "unsafe": False, "text": "A thought."} for i in range(2)]
+    bad = {"spans": [{"first": "u0", "last": "u1"}], "pauses": [
+        {"id": "gu0:u1", "action": "keep", "evidence": "A thought.", "reason": "Comic timing"}],
+        "value": 3, "reason": "Enjoyable exchange"}
+    good = json.loads(json.dumps(bad))
+    good["pauses"][0]["evidence"] = "u1"
+    replies.extend([bad, good])
+    result = episode.compact({"first": "u0", "last": "u1"}, rows, evaluator, "repair-evidence")
+    assert result.gaps[0].evidence == "u1"
+    assert "evidence must be a retained passage ID such as u1, not quoted speech" in requests[1]["input"]
+    assert waits == [(5, 1, 1)]
+    episode.compact({"first": "u0", "last": "u1"}, rows, evaluator, "repair-evidence")
+    assert len(requests) == 2
+
+
+def test_scene_repair_supplies_complete_gap_id(model_replies):
+    evaluator, replies, requests, waits = model_replies
+    rows = [{"id": f"u{i}", "asset": "s0", "start_us": i*10000000,
+             "end_us": i*10000000+2000000, "speech_start_us": i*10000000,
+             "speech_end_us": i*10000000+2000000, "unsafe": False, "text": "A thought."} for i in range(2)]
+    bad = {"spans": [{"first": "u0", "last": "u1"}], "pauses": [
+        {"id": "gu0", "action": "lead_in", "seconds": 3, "reason": "Reaction"}],
+        "value": 3, "reason": "Enjoyable exchange"}
+    good = json.loads(json.dumps(bad))
+    good["pauses"][0]["id"] = "gu0:u1"
+    replies.extend([bad, good])
+    result = episode.compact({"first": "u0", "last": "u1"}, rows, evaluator, "repair-gap")
+    assert result.gaps[0].id == "gu0:u1"
+    assert "Available IDs: gu0:u1" in requests[1]["input"]
+
+
+def test_resume_repairs_one_scene_without_regenerating_verified_batch_neighbors(model_replies):
+    evaluator, replies, requests, waits = model_replies
+    rows = [{"id": f"u{i}", "asset": "s0", "start_us": i*10000000,
+             "end_us": i*10000000+2000000, "speech_start_us": i*10000000,
+             "speech_end_us": i*10000000+2000000, "unsafe": False, "text": "A thought."} for i in range(4)]
+    beats = [{"id": "a", "first": "u0", "last": "u1"}, {"id": "b", "first": "u2", "last": "u3"}]
+    good = {"spans": [{"first": "u0", "last": "u1"}], "pauses": [], "value": 3, "reason": "Enjoyable exchange"}
+    bad = {"spans": [{"first": "u2", "last": "u3"}], "pauses": [
+        {"id": "gu2:u3", "action": "keep", "evidence": "A thought.", "reason": "Comic timing"}],
+        "value": 3, "reason": "Enjoyable exchange"}
+    replies.extend([{"scenes": [{"id": "a", **good}, {"id": "b", **bad}]}, bad, bad])
+    with pytest.raises(ModelOutputError, match="scene b"):
+        episode.edit_scenes(beats, rows, evaluator, "edit", "", [])
+    corrected = json.loads(json.dumps(bad))
+    corrected["pauses"][0]["evidence"] = "u3"
+    replies.append(corrected)
+    result = episode.edit_scenes(beats, rows, evaluator, "edit", "", [])
+    assert [s["beat"]["id"] for s in result] == ["a", "b"]
+    assert len(requests) == 4
+    assert json.loads(requests[-1]["input"])["scene"]["id"] == "b"
