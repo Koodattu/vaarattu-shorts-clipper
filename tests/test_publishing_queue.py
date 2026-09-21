@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+from datetime import datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,6 +15,7 @@ def fixed_clock(monkeypatch):
     monkeypatch.setattr(publishing_copy, "_propose", lambda *args: publishing_copy.Copy(
         title="Posting title", caption="Posting caption."))
     monkeypatch.setattr(buffer, "now", lambda: datetime(2030, 10, 26, 5, 0, tzinfo=timezone.utc))
+    monkeypatch.setattr(publishing_queue.random, "randint", lambda low, high: low)
 
 
 def recording(settings, store, source, published, count):
@@ -31,7 +33,9 @@ def outside_post(remote, n, platform="youtube", due="2030-10-25T06:00:00Z", **fi
                                           dueAt=due, assets=[], **fields)
 
 
-def test_fill_schedules_ten_then_continues_source_group_without_reposts(settings, store, remote):
+def test_fill_schedules_ten_then_continues_source_group_without_reposts(settings, store, remote, monkeypatch):
+    offsets = iter([0, 120, 17, 53, 92, 11, 119, 64, 38, 81])
+    monkeypatch.setattr(publishing_queue.random, "randint", lambda low, high: next(offsets))
     recording(settings, store, "new-video", "2030-10-01T00:00:00Z", 12)
     # Processing order differs from source age: this older recording was processed last.
     recording(settings, store, "old-video", "2020-01-01T00:00:00Z", 2)
@@ -42,13 +46,21 @@ def test_fill_schedules_ten_then_continues_source_group_without_reposts(settings
     assert [c["clip_id"] for c in result["clips"]] == [f"new-video-{n:02d}" for n in range(10)]
     assert len(remote["mutations"]) == 30
     assert buffer.config(settings)["remaining"] == dict.fromkeys(buffer.PLATFORMS, 0)
-    assert result["clips"][0]["due_at"] == "2030-10-26T06:00:00+00:00"
-    assert result["clips"][1]["due_at"] == "2030-10-27T07:00:00+00:00", "09:00 stays local through DST"
+    assert result["clips"][0]["due_at"] == "2030-10-26T16:00:00+00:00"
+    assert result["clips"][1]["due_at"] == "2030-10-27T19:00:00+00:00", "The window stays local through DST"
+    local_times = [datetime.fromisoformat(c["due_at"]).astimezone(ZoneInfo("Europe/Helsinki"))
+                   for c in result["clips"]]
+    assert all(time(19) <= due.time() <= time(21) for due in local_times)
+    assert len({due.time() for due in local_times}) == 10
+    assert all(b.date() - a.date() == timedelta(days=1) for a, b in zip(local_times, local_times[1:]))
+    assert [m["dueAt"] for m in remote["mutations"]] == [c["due_at"] for c in result["clips"] for _ in range(3)]
+    assert [p["scheduled_at"] for p in delivery.posting_plan(store)] == [c["due_at"] for c in result["clips"]]
     assert publishing_queue.fill(settings, store)["scheduled"] == 0
     assert len(remote["mutations"]) == 30
     for post in remote["posts"].values():
         post["status"] = "sent"
     recording(settings, store, "newest-video", "2030-10-20T00:00:00Z", 1)
+    monkeypatch.setattr(publishing_queue.random, "randint", lambda low, high: low)
     second = publishing_queue.fill(settings, store)
     assert [c["clip_id"] for c in second["clips"]] == ["new-video-10", "new-video-11", "newest-video-00", "old-video-00", "old-video-01", "early", "late"]
     assert len({m["assets"][0]["video"]["url"] for m in remote["mutations"]}) == 17
@@ -89,7 +101,7 @@ def test_queue_uses_smallest_available_capacity_and_appends_after_external_posts
         outside_post(remote, n, due="2030-10-30T19:00:00Z")
     result = publishing_queue.fill(settings, store)
     assert result["scheduled"] == 1
-    assert result["clips"][0]["due_at"] == "2030-10-31T07:00:00+00:00"
+    assert result["clips"][0]["due_at"] == "2030-10-31T17:00:00+00:00"
     assert len(remote["mutations"]) == 3
 
 
@@ -121,16 +133,39 @@ def test_selected_pending_local_plan_is_retimed_but_remote_schedule_is_kept(sett
     delivery.schedule(store, [remote["run"]], "2030-11-15", "18:00", "Europe/Helsinki")
     outside_post(remote, 0, due="2030-10-29T14:00:00Z")
     result = publishing_queue.fill(settings, store)
-    assert [c["due_at"] for c in result["clips"]] == ["2030-10-30T07:00:00+00:00", "2030-10-31T07:00:00+00:00"]
+    assert [c["due_at"] for c in result["clips"]] == ["2030-10-30T17:00:00+00:00", "2030-10-31T17:00:00+00:00"]
     assert remote["posts"]["outside-0"]["dueAt"] == "2030-10-29T14:00:00Z"
     assert all(p["buffer_managed"] for p in delivery.posting_plan(store))
 
 
-def test_after_nine_starts_tomorrow_and_skips_existing_reserved_day(settings, store, remote, monkeypatch):
-    monkeypatch.setattr(buffer, "now", lambda: datetime(2030, 10, 26, 12, 0, tzinfo=timezone.utc))
+def test_after_window_starts_tomorrow_and_skips_existing_reserved_day(settings, store, remote, monkeypatch):
+    monkeypatch.setattr(buffer, "now", lambda: datetime(2030, 10, 26, 19, 0, tzinfo=timezone.utc))
     outside_post(remote, 0, due="2030-10-27T00:00:00Z")
     result = publishing_queue.fill(settings, store)
-    assert result["clips"][0]["due_at"] == "2030-10-28T07:00:00+00:00"
+    assert result["clips"][0]["due_at"] == "2030-10-28T17:00:00+00:00"
+
+
+@pytest.mark.parametrize(("local_now", "expected", "latest"), [
+    ("2030-10-26T18:00:00", "2030-10-26T19:00:00", False),
+    ("2030-10-26T19:30:20", "2030-10-26T19:41:00", False),
+    ("2030-10-26T19:30:20", "2030-10-26T21:00:00", True),
+    ("2030-10-26T20:49:59", "2030-10-26T21:00:00", False),
+    ("2030-10-26T20:50:00", "2030-10-27T19:00:00", False),
+    ("2030-10-26T23:59:00", "2030-10-27T19:00:00", False),
+    ("2030-03-30T23:59:00", "2030-03-31T19:00:00", False),
+])
+def test_evening_window_and_lead_time(settings, store, remote, monkeypatch, local_now, expected, latest):
+    zone = ZoneInfo("Europe/Helsinki")
+    current = datetime.fromisoformat(local_now).replace(tzinfo=zone)
+    monkeypatch.setattr(buffer, "now", lambda: current.astimezone(timezone.utc))
+    monkeypatch.setattr(publishing_queue.random, "randint", lambda low, high: high if latest else low)
+    result = publishing_queue.fill(settings, store)
+    due = datetime.fromisoformat(result["clips"][0]["due_at"])
+    assert due == datetime.fromisoformat(expected).replace(tzinfo=zone)
+    assert due > current + timedelta(minutes=10)
+    second = datetime.fromisoformat(result["clips"][1]["due_at"]).astimezone(zone)
+    assert second.date() == due.astimezone(zone).date() + timedelta(days=1)
+    assert second.time() == (time(21) if latest else time(19))
 
 
 def test_bad_render_rolls_back_plan_without_any_upload(settings, store, remote):
@@ -145,7 +180,7 @@ def test_unselected_plan_dates_in_another_timezone_remain_reserved(settings, sto
     store.review_clip("late", 1, "approved")
     rendered(settings, store, remote["run"], "extra", 50_000_000)
     result = publishing_queue.fill(settings, store)
-    assert [c["due_at"] for c in result["clips"]] == ["2030-10-26T06:00:00+00:00", "2030-10-29T07:00:00+00:00"]
+    assert [c["due_at"] for c in result["clips"]] == ["2030-10-26T16:00:00+00:00", "2030-10-29T17:00:00+00:00"]
 
 
 def test_fill_route_requires_local_authorization_and_shares_publishing_lock(settings, store, remote):

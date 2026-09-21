@@ -145,6 +145,8 @@ class Evaluator:
             value = episode.SceneEdit(spans=[edit.Span(first="u1", last="u7")], gaps=[], value=3, reason="Complete story")
         elif schema is episode.Ratings:
             value = episode.Ratings(scenes=[episode.Rating(id=c["id"], score=80, reason="Enjoyable scene") for c in payload["scenes"]])
+        elif schema is episode.EpisodeReview:
+            value = episode.EpisodeReview(context=[], duplicates=[], issues=[edit.Issue(sequence="b0", instruction="Retain payoff")] if self.issues else [])
         elif schema is edit.Picks:
             value = edit.Picks(ids=["b0"])
         elif schema is edit.Edit:
@@ -258,7 +260,7 @@ def test_pipeline_resume_final_and_revision(settings, store, monkeypatch, critic
     monkeypatch.setattr(highlights.render, "align", lambda *args, **kw: {"origin_us": 0, "section_duration": 120})
     class PipelineEvaluator(Evaluator):
         def call(self, system, prompt, schema, key, **kw):
-            if critic_failure and schema is edit.Review:
+            if critic_failure and schema in {edit.Review, episode.EpisodeReview}:
                 raise ModelOutputError("Invalid critique after retries")
             return super().call(system, prompt, schema, key, **kw)
 

@@ -134,7 +134,7 @@ class Evaluator:
         elif schema is episode.Ratings:
             value = episode.Ratings(scenes=[episode.Rating(id=c["id"], score=90-int(c["id"][1:]), reason="Grounded personality moment") for c in payload["scenes"]])
         else:
-            value = source.Review(issues=[source.Issue(sequence="b0", instruction="Remove this repetitive scene.")] if self.revise and key=="episode-critic-0-0" else [])
+            value = episode.EpisodeReview(context=[], duplicates=[], issues=[source.Issue(sequence="b0", instruction="Remove this repetitive scene.")] if self.revise and key=="episode-critic-0-0" else [])
         if validate:
             validate(value)
         return value
@@ -340,3 +340,121 @@ def test_new_highlight_requests_do_not_persist_a_runtime_target():
     assert "target_minutes" not in request.model_dump()
     legacy = highlights.Start(manifest_id="a"*32, target_minutes=10)
     assert "target_minutes" not in legacy.model_dump()
+
+
+def test_final_floor_defaults_to_75_and_is_independent_of_discovery():
+    rows = items(4)
+    pool = [scene("a", "u0", "u1"), scene("b", "u2", "u3")]
+    ratings = [{"id": "a", "score": 74}, {"id": "b", "score": 75}]
+    selected, decisions = episode.assemble(pool, ratings, rows)
+    assert [s["beat"]["id"] for s in selected] == ["b"]
+    assert decisions[-1]["decision"] == "below editorial threshold"
+    selected, _ = episode.assemble(pool, ratings, rows, floor=70)
+    assert len(selected) == 2
+    assert highlights.Start(manifest_id="a"*32).final_score_floor == 75
+
+
+def test_review_evidence_uses_output_clock_and_actual_pause_at_jump_cut():
+    rows = items(4)
+    evidence = episode.scene_evidence(scene("a", "u0", "u1"), rows, with_context=True, output_start_us=20000000)
+    assert evidence[0]["output_start_seconds"] == 20
+    assert evidence[1]["output_start_seconds"] == evidence[0]["output_end_seconds"]
+    assert evidence[1]["cut_before"] == "jump_cut"
+    assert "pause_before=0.80s" in evidence[1]["speech"]
+    assert "gap gu0:u1 8.0s" not in json.dumps(evidence)
+    assert evidence[0]["reference_only_not_in_video"] == [{"id": "u2", "text": "Thought 2."}, {"id": "u3", "text": "Thought 3."}]
+    assert all("Thought 2." not in r["speech"] for r in evidence)
+
+
+def test_review_uses_continuous_clock_across_scenes_and_episode_index():
+    evaluator = Evaluator()
+    rows = items(6)
+    selected = [scene("a", "u0", "u1"), scene("b", "u4", "u5")]
+    episode.critique(selected, rows, evaluator, 0, [])
+    payload = evaluator.calls[0][1]
+    first, second = payload["assembled"]
+    assert second["output_ranges"][0]["output_start_seconds"] == first["output_ranges"][-1]["output_end_seconds"]
+    assert "pause_before=0.60s" in second["output_ranges"][0]["speech"]
+    assert {s["sequence"] for s in payload["episode_index"]} == {"a", "b"}
+
+
+def test_minimal_context_addition_preserves_only_requested_passage_and_parent():
+    rows = items(8)
+    strong = scene("strong", "u3", "u4")
+    snapshot = json.dumps(strong)
+    addition = episode.ContextAddition(sequence="strong", first="u2", last="u2", reason="Required question")
+    expanded = episode.add_context(strong, [addition], rows, [strong])
+    assert expanded["edit"]["spans"] == [{"first": "u2", "last": "u4"}]
+    assert all(s["first"] not in {"u0", "u1"} for s in episode.compiled(expanded, rows))
+    assert json.dumps(strong) == snapshot
+    assert expanded["required_context"][0]["reason"] == "Required question"
+
+
+@pytest.mark.parametrize("fault", ["invented", "not_offered", "overlap", "unsafe"])
+def test_context_cannot_invent_anchors_restore_arbitrary_scenes_or_duplicate_footage(fault):
+    rows = items(8)
+    strong = scene("a", "u3", "u4")
+    addition = episode.ContextAddition(sequence="a", first="u2", last="u2", reason="Setup")
+    selected = [strong]
+    if fault == "invented":
+        addition.first = "u999"
+    elif fault == "not_offered":
+        addition.first = "u0"
+    elif fault == "overlap":
+        selected.append(scene("b", "u2", "u2"))
+    else:
+        rows[2]["unsafe"] = True
+    with pytest.raises(ModelAnchorError):
+        episode.add_context(strong, [addition], rows, selected)
+
+
+def test_duplicate_review_removes_only_repeated_scene_and_preserves_named_keep(monkeypatch):
+    real = Evaluator.call
+    def call(self, system, prompt, schema, key, **kwargs):
+        if schema is episode.EpisodeReview:
+            self.calls.append((key, json.loads(prompt), kwargs))
+            result = episode.EpisodeReview(issues=[], context=[], duplicates=[episode.Duplicate(drop="b1", keep="b0", reason="Same point already made")] if key=="episode-critic-0-0" else [])
+            kwargs["validate"](result)
+            return result
+        return real(self, system, prompt, schema, key, **kwargs)
+    monkeypatch.setattr(Evaluator, "call", call)
+    result = episode.plan(items(), Evaluator(), lambda _: None)
+    assert [s["beat"]["id"] for s in result["sequences"]] == ["b0", "b2"]
+    assert result["review_history"][0]["duplicates"][0]["keep"] == "b0"
+
+
+def test_context_request_is_applied_before_rescoring_without_promoting_weak_scene(monkeypatch):
+    rows = items(12)
+    beats = [scene("b0", "u3", "u4")["beat"], scene("b1", "u8", "u9")["beat"]]
+    monkeypatch.setattr(source, "discover", lambda *a: beats)
+    real = Evaluator.call
+    def call(self, system, prompt, schema, key, **kwargs):
+        if schema is episode.EpisodeReview:
+            self.calls.append((key, json.loads(prompt), kwargs))
+            result = episode.EpisodeReview(issues=[], duplicates=[], context=[episode.ContextAddition(sequence="b0", first="u2", last="u2", reason="The question is needed")] if key=="episode-critic-0-0" else [])
+            kwargs["validate"](result)
+            return result
+        return real(self, system, prompt, schema, key, **kwargs)
+    monkeypatch.setattr(Evaluator, "call", call)
+    evaluator = Evaluator()
+    result = episode.plan(rows, evaluator, lambda _: None)
+    assert result["sequences"][0]["edit"]["spans"] == [{"first": "u2", "last": "u4"}]
+    assert len(result["sequences"]) == 2
+    assert result["final_score_floor"] == 75
+    assert len([k for k, _, _ in evaluator.calls if k.startswith("episode-rank")]) == 2
+
+
+def test_reviewer_schema_requires_all_output_fields():
+    schema = episode.EpisodeReview.model_json_schema()
+    assert set(schema["required"]) == set(schema["properties"]) == {"issues", "context", "duplicates"}
+
+
+def test_duplicate_pair_cannot_drop_both_scenes():
+    class InvalidReviewer(Evaluator):
+        def call(self, system, prompt, schema, key, validate=None, **kwargs):
+            result = episode.EpisodeReview(issues=[], context=[], duplicates=[
+                episode.Duplicate(drop="a", keep="b", reason="Repeated"),
+                episode.Duplicate(drop="b", keep="a", reason="Repeated")])
+            validate(result)
+    with pytest.raises(ModelAnchorError, match="not dropped"):
+        episode.critique([scene("a", "u0", "u1"), scene("b", "u4", "u5")], items(6), InvalidReviewer(), 0, [])

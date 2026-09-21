@@ -31,6 +31,7 @@ class Start(Contract):
     verification_reasoning: Literal["low", "medium"] = "low"
     video_encoder: Literal["h264_nvenc", "libx264"] = "h264_nvenc"
     final_transcription: Literal[False] = False
+    final_score_floor: int = Field(default=editing.FINAL_SCORE_FLOOR, ge=0, le=100)
 
     @model_validator(mode="after")
     def budget(self):
@@ -78,7 +79,7 @@ def control(store, run_id, action, revision, guidance="", restore=None):
                 raise ValueError("Describe the changes in 1-2000 characters.")
             result.update(mode="draft", revision=max([revision, *[h["revision"] for h in result.get("history", [])]])+1, parent_revision=revision if action == "revise" else None,
                           guidance=guidance.strip(), approved_revision=None, has_draft=False, has_final=False, review="unreviewed",
-                          revision_started=time.time(), editing_reasoning="low", warnings=[], issues=[], metrics={}, duration=0)
+                          revision_started=time.time(), editing_reasoning="low", warnings=[], issues=[], metrics={}, duration=0, selection_preview=None)
             state = "queued"
         elif action == "restore":
             saved = next((r for r in result.get("history", []) if r["revision"] == restore), None)
@@ -120,6 +121,7 @@ def public(settings, store, run):
             "duration": result.get("duration", 0), "issues": result.get("issues", []),
             "warnings": result.get("warnings", []), "metrics": result.get("metrics", {}),
             "review": result.get("review"), "history": result.get("history", []),
+            "selection_preview": result.get("selection_preview"),
             "activity": {"request_count": len(requests), "phases": phases,
                          "thinking": result.get("editing_reasoning", run["config"].get("verification_reasoning", "low"))},
             "usage": {k: v for k, v in usage.items() if k != "requests"}}
@@ -254,11 +256,15 @@ class Highlights(Pipeline):
                     self.config["budget_usd"], self.check, client, self.config["context_size"],
                     codex_config=self.config.get("codex"), discovery_reasoning=result.get("editing_reasoning", self.config["discovery_reasoning"]),
                     verification_reasoning=result.get("editing_reasoning", self.config["verification_reasoning"]))
-                plan = editing.plan(items, evaluator, self.progress, previous=previous, guidance=result.get("guidance", ""))
+                plan = editing.plan(items, evaluator, self.progress, previous=previous, guidance=result.get("guidance", ""),
+                                    final_score_floor=self.config.get("final_score_floor", editing.FINAL_SCORE_FLOOR))
             atomic_json(folder / "plan.json", plan)
             return plan, [folder / "plan.json"]
 
         plan = self.stage(f"edit-{revision}", editing_stage, editing.VERSION)
+        self.store.update(self.run_id, result={**result, "selection_preview": {
+            "score_floor": plan.get("final_score_floor", 60), "scenes": len(plan["sequences"]),
+            "duration": plan["duration"]}})
         media = []
         for source in self.config["manifest"]["sources"]:
             asset = source["asset"]
@@ -326,6 +332,7 @@ class Highlights(Pipeline):
                    "has_draft": bool(plan["retained"]), "has_final": mode == "final" and bool(rendered),
                    "issues": plan["issues"], "warnings": plan.get("warnings", []), "metrics": plan.get("metrics", {}),
                    "parent_revision": result.get("parent_revision"), "guidance": result.get("guidance", ""),
+                   "selection_preview": {"score_floor": plan.get("final_score_floor", 60), "scenes": len(plan["sequences"]), "duration": plan["duration"]},
                    "plan_sha256": digest(folder / "plan.json"), "media_sha256": digest(folder / "media.json")}
         history.append(current)
         result = {**result, **current, "history": history, "review": "approved" if mode == "final" else "unreviewed"}

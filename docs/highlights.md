@@ -49,7 +49,7 @@ require a spending limit. Local providers reuse the existing model installation.
   Unknown visual content alone does not justify retaining long waits. The model
   has not watched gameplay; inference can still be wrong and needs human review.
 - Rate actual edited material in bounded batches, recording every score and reason.
-  Scores below 60/100 and edits marked discard are excluded. Assemble worthwhile
+  The configurable final floor defaults to 75/100; edits marked discard are also excluded. Assemble worthwhile
   scenes in source order, rejecting overlapping footage. Keep every worthwhile
   non-overlapping scene, regardless of the resulting duration.
 - Review assembled speech, original neighboring passages, pacing and joins. Revise
@@ -144,7 +144,7 @@ tradeoffs in [the design](vod-supercut-design.md).
 
 ## Episode pipeline rework (20 September 2026)
 
-`episode-v3` plans save the mapped scenes, screening scores, quality-filtered edited scene pool, ranking reasons,
+`episode-v4` plans save the mapped scenes, screening scores, quality-filtered edited scene pool, ranking reasons,
 selection and reserve decisions, pacing history, warnings, and source-anchored final
 intervals. The UI shows edited/selected scene and retained-range counts. New request
 prompts and schemas invalidate only the relevant model cache entries; audio and
@@ -185,3 +185,43 @@ Tests cover all 220 eligible scenes reaching editing in batches of four, a singl
 worthwhile scene producing a short video, and a timeline exceeding 20 minutes.
 Batch/context limits and bounded retries remain execution safeguards rather than
 editorial quotas. More worthwhile material can legitimately require more work.
+
+
+## Final quality selection and edited-timeline review (21 September 2026)
+
+Initial screening stays at 60/100. The final assembly floor defaults to 75 and can
+be set with **Minimum final score** when starting a run. It does not impose a
+runtime or scene-count quota. The chosen floor, selected count, and planned duration
+are saved and displayed before footage preparation and rendering. Existing saved
+and approved drafts retain their original plans; they are not silently re-filtered.
+
+Scoring sees actual output-relative speech times and jump-cut markers. Pacing review
+uses the continuous episode output clock, including real pause lengths across cuts
+and scene boundaries. Nearby excluded speech is labelled reference-only, without
+source timestamps that could be mistaken for waiting in the finished video.
+
+The existing reviewer can request minimal setup/payoff passages from this supplied
+reference material. The compiler checks same-source anchors, safe boundaries and
+no overlap with other retained scenes before inserting them into the strong scene.
+This does not promote an entire lower-scoring scene. Changed scenes are re-scored.
+Filler edits still operate inside scenes and preserve complete thoughts.
+
+A compact episode-wide index supports repetition checks across review batches.
+Structured duplicate decisions name both the scene to remove and the scene to keep.
+Conflicting decisions cannot remove both versions; a duplicate is removed only if
+the named replacement remains eligible after revisions. Similar topics alone do
+not justify deletion. These checks use the existing two-pass review loop, with no
+additional full-VOD model pass. Unresolved review notes remain visible.
+
+
+## Visual source timeline
+
+Completed drafts show a full-width source timeline above the review workspace.
+Green ranges are retained footage; dark gaps are excluded. Split recording parts
+share one chronological ruler. Each range has source and output times, plus its
+saved scene score and explanation when available. Click a range (or focus it and
+press Enter) to seek in the draft. Seeking uses the renderer's per-range 30 fps
+rounding. Zoom up to 64x and scroll horizontally for short cuts; Fit recording
+restores the overview, and Show playhead locates the current playback position.
+Polling preserves zoom, scroll and playback. This is a read-only view of the saved
+revision, so it adds no model calls and does not change or re-render the video.

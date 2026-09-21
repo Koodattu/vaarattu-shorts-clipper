@@ -162,7 +162,7 @@ $("publishing-fill").onclick=()=>publishingWork(async()=>{
       if(!clip.publication&&edits&&(edits.title.trim()||edits.caption.trim()||edits.note.trim()))await publishingSaveCopy(clip);
     }
     const result=await api("/api/publishing/buffer/fill",{method:"POST"});
-    $("publishing-fill-message").textContent=`${result.scheduled} clip${result.scheduled===1?"":"s"} scheduled at 09:00 Europe/Helsinki.${result.message?` ${result.message}`:""}${result.skipped_order?` ${result.skipped_order} earlier source moments were left out to preserve posting order.`:""}`;
+    $("publishing-fill-message").textContent=`${result.scheduled} clip${result.scheduled===1?"":"s"} scheduled at random times between 19:00 and 21:00 Finnish time (Europe/Helsinki), one per day.${result.message?` ${result.message}`:""}${result.skipped_order?` ${result.skipped_order} earlier source moments were left out to preserve posting order.`:""}`;
   }catch(e){$("publishing-fill-message").textContent=e.message;}
 });
 $("publishing-refresh-buffer").onclick=()=>publishingWork(async()=>{await api("/api/publishing/buffer/refresh",{method:"POST"});$("publishing-message").textContent="Buffer channels and delivery status refreshed.";});

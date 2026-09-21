@@ -1,6 +1,6 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
 class Element{
-  constructor(){this.children=[];this.value='';this.attributes={};this.hidden=false;}
+  constructor(){this.children=[];this.value='';this.attributes={};this.hidden=false;this.style={};this.scrollLeft=0;this.clientWidth=1000;this.currentTime=0;this.listeners={};}
   append(...children){this.children.push(...children);}
   replaceChildren(...children){this.children=children;}
   setAttribute(k,v){this.attributes[k]=v;}
@@ -8,28 +8,32 @@ class Element{
   removeAttribute(k){delete this.attributes[k];}
   set src(v){this.attributes.src=v;}
   get src(){return this.attributes.src;}
+  addEventListener(name,fn){this.listeners[name]=fn;}
+  getBoundingClientRect(){return {left:0,width:100};}
   pause(){}
   load(){this.loads=(this.loads||0)+1;}
 }
 function fixture(){
   const directory=path.join(__dirname,'../src/vaarattu_shorts/static');
   const nodes=new Map([...fs.readFileSync(path.join(directory,'index.html'),'utf8').matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],new Element()]));
-  const writes=[],errors=[];
-  const run={id:'a'.repeat(32),title:'Recording',state:'completed',stage:'completed',progress:1,message:'Ready',revision:1,has_draft:true,has_final:false,duration:360,issues:[],history:[],usage:{request_count:5}};
+  const writes=[],errors=[],reads=[];
+  const plan={retained:[{asset:"s0",start_us:10000000,end_us:20000000,sequence:"b1"},{asset:"s1",start_us:30000000,end_us:35000000,sequence:"b2"}],rankings:[{id:"b1",score:80,reason:"A complete story"}]};
+  const run={id:'a'.repeat(32),title:'Recording',state:'completed',stage:'completed',progress:1,message:'Ready',revision:1,has_draft:true,has_final:false,duration:360,issues:[],history:[],usage:{request_count:5},sources:[{asset:'s0',title:'Part 1',duration:100},{asset:'s1',title:'Part 2',duration:200}]};
   const context=vm.createContext({
     $:id=>nodes.get(id),document:{createElement:()=>new Element()},text:(tag,value)=>Object.assign(new Element(),{textContent:value}),
-    action:(label,onclick)=>Object.assign(new Element(),{textContent:label,onclick}),error:message=>errors.push(message),
+    action:(label,fn)=>Object.assign(new Element(),{textContent:label,onclick:()=>Promise.resolve(fn()).catch(e=>errors.push(e.message))}),error:message=>errors.push(message),
     currentView:'highlights',setTimeout:()=>1,clearTimeout:()=>{},crypto:{randomUUID:()=> 'request-key'},
     goView:view=>{context.currentView=view;},
     api:async(url,options)=>{
-      if(!options){if(url==='/api/status')return {providers:{codex:{available:true,configured:true,model:'configured'}}};return [run];}
+      if(!options){reads.push(url);if(url.includes('/plan?'))return plan;if(url==='/api/status')return {providers:{codex:{available:true,configured:true,model:'configured'}}};return [run];}
       const body=JSON.parse(options.body);writes.push({url,body});
       if(url.endsWith('/resolve'))return {id:'b'.repeat(32),title:'Recording',sources:[{title:'Part 1',duration:100},{title:'Part 2',duration:200}],duration:300,notes:[]};
       return {id:run.id};
     }
   });
+  vm.runInContext(fs.readFileSync(path.join(directory,'highlight-timeline.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(path.join(directory,'highlights.js'),'utf8'),context);
-  return {nodes,writes,errors,run,context};
+  return {nodes,writes,errors,run,context,reads,plan};
 }
 test('library action resolves parts without starting a job',async()=>{
   const {nodes,writes,context}=fixture();
@@ -100,4 +104,75 @@ test('new highlight requests do not send a preferred runtime',async()=>{
   const submission=writes.find(w=>w.url==='/api/highlights');
   assert.ok(submission);
   assert.equal(Object.hasOwn(submission.body,'target_minutes'),false);
+});
+
+
+test('minimum final score is submitted and planned length is visible before rendering',async()=>{
+  const {nodes,context,writes,run}=fixture();
+  await vm.runInContext('openHighlights("https://youtu.be/abc_def-ghI")',context);
+  nodes.get('highlight-provider').value='codex';nodes.get('highlight-score-floor').value='80';
+  await nodes.get('highlight-form').onsubmit({preventDefault(){}});
+  assert.equal(writes.find(w=>w.url==='/api/highlights').body.final_score_floor,80);
+  run.state='running';run.stage='media-4-s0-0';run.has_draft=false;
+  run.selection_preview={score_floor:75,scenes:35,duration:1082};
+  await vm.runInContext('loadHighlights()',context);
+  assert.ok(nodes.get('highlight-notes').children.some(n=>n.textContent.includes('35 scenes, 18m 2s, minimum score 75')));
+});
+
+
+test('source timeline spans all parts and seeks into the rendered edit, not source time',async()=>{
+  const {nodes,context,reads}=fixture();await vm.runInContext('loadHighlights()',context);
+  const sections=nodes.get('highlight-timeline-ranges').children;
+  assert.equal(sections.length,2);
+  assert.equal(sections[1].style.left,`${130/300*100}%`);
+  assert.match(sections[1].getAttribute('aria-label'),/Part 2.*source 0:00:30.*video 0:00:10/);
+  sections[1].onclick({detail:1,clientX:50});
+  assert.equal(nodes.get('highlight-player').currentTime,12.5);
+  assert.equal(nodes.get('highlight-timeline-playhead').style.left,`${132.5/300*100}%`);
+  sections[0].onclick({detail:0});assert.equal(nodes.get('highlight-player').currentTime,0);
+  nodes.get('highlight-zoom-in').onclick();assert.equal(nodes.get('highlight-timeline-track').style.width,'200%');
+  nodes.get('highlight-timeline-viewport').scrollLeft=150;
+  await vm.runInContext('loadHighlights()',context);
+  assert.equal(reads.filter(url=>url.includes('/plan?')).length,1);
+  assert.equal(nodes.get('highlight-timeline-viewport').scrollLeft,150);
+  assert.equal(nodes.get('highlight-timeline-track').style.width,'200%');
+  nodes.get('highlight-zoom-fit').onclick();assert.equal(nodes.get('highlight-timeline-track').style.width,'100%');
+});
+
+test('timeline playhead jumps over removed speech at the exact output cut',async()=>{
+  const {nodes,context}=fixture();await vm.runInContext('loadHighlights()',context);
+  const player=nodes.get('highlight-player');player.currentTime=10;player.listeners.timeupdate();
+  assert.equal(nodes.get('highlight-timeline-playhead').style.left,`${130/300*100}%`);
+  assert.equal(nodes.get('highlight-timeline-ranges').children[1].getAttribute('aria-current'),'true');
+  player.currentTime=15;player.listeners.timeupdate();assert.equal(nodes.get('highlight-timeline-playhead').hidden,true);
+});
+
+test('timeline uses per-section frame rounding from the renderer',()=>{
+  const {context}=fixture();
+  const model=vm.runInContext(`highlightTimelineModel([{asset:'s0',duration:1}],{retained:[
+    {asset:'s0',start_us:0,end_us:150000},
+    {asset:'s0',start_us:200000,end_us:250000}
+  ]})`,context);
+  assert.equal(model.ranges[1].outputStart,4/30);
+  assert.equal(model.outputDuration,6/30);
+});
+
+test('late timeline response cannot replace a different selected recording',async()=>{
+  const {context,nodes,run,plan}=fixture();let resolve;
+  context.api=()=>new Promise(done=>{resolve=done;});context.run=run;
+  const pending=vm.runInContext('loadHighlightTimeline(run)',context);
+  await vm.runInContext('loadHighlightTimeline(null)',context);
+  resolve(plan);await pending;
+  assert.equal(nodes.get('highlight-timeline').hidden,true);
+  assert.equal(nodes.get('highlight-timeline-ranges').children.length,0);
+});
+
+test('timeline failures offer explicit retry without repeatedly fetching during polling',async()=>{
+  const {context,nodes,run,plan}=fixture();let requests=0;
+  context.api=async()=>{requests++;if(requests===1)throw new Error('Unavailable');return plan;};context.run=run;
+  await vm.runInContext('loadHighlightTimeline(run)',context);
+  assert.equal(nodes.get('highlight-timeline-retry').hidden,false);
+  await vm.runInContext('loadHighlightTimeline(run)',context);assert.equal(requests,1);
+  await nodes.get('highlight-timeline-retry').onclick();assert.equal(requests,2);
+  assert.equal(nodes.get('highlight-timeline-ranges').children.length,2);
 });

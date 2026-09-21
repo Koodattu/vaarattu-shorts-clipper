@@ -2,6 +2,7 @@
 
 from datetime import datetime, time, timedelta, timezone
 import json
+import random
 import uuid
 from zoneinfo import ZoneInfo
 
@@ -10,7 +11,8 @@ from .contracts import video_id
 from .storage import atomic_json
 
 ZONE = "Europe/Helsinki"
-CLOCK = time(9, 0)
+WINDOW_START = time(19, 0)
+WINDOW_END = time(21, 0)
 ACCEPTED = {"posted", "scheduled", "sending"}
 
 
@@ -111,8 +113,9 @@ def fill(settings, store):
     # Prepare all text before creating plans or submitting any clip in this batch.
     copies = {c["id"]: publishing_copy.generate(settings, store, c) for c in selected}
     local_now = buffer.now().astimezone(ZoneInfo(ZONE))
+    earliest = (local_now + timedelta(minutes=10)).replace(second=0, microsecond=0) + timedelta(minutes=1)
     day = local_now.date()
-    if datetime.combine(day, CLOCK, ZoneInfo(ZONE)) <= local_now + timedelta(minutes=10):
+    if datetime.combine(day, WINDOW_END, ZoneInfo(ZONE)) < earliest:
         day += timedelta(days=1)
     # Append after queued media, including posts created outside this app.
     occupied = set()
@@ -134,7 +137,7 @@ def fill(settings, store):
     if queued_days:
         day = max(day, max(queued_days) + timedelta(days=1))
     selected_ids = {c["id"] for c in selected}
-    # Only untouched local plan entries for the selected clips may move to 09:00.
+    # Only untouched local plan entries for the selected clips may move to the evening window.
     with store.connect() as db:
         db.execute("BEGIN IMMEDIATE")
         existing_plan = delivery.posting_plan(store)
@@ -152,7 +155,10 @@ def fill(settings, store):
                                                   "video_sha256": clip["body"].get("video_sha256")})
             while day in occupied:
                 day += timedelta(days=1)
-            due = datetime.combine(day, CLOCK, ZoneInfo(ZONE)).astimezone(timezone.utc).isoformat()
+            start = max(datetime.combine(day, WINDOW_START, ZoneInfo(ZONE)), earliest)
+            end = datetime.combine(day, WINDOW_END, ZoneInfo(ZONE))
+            due = (start + timedelta(minutes=random.randint(0, int((end - start).total_seconds() // 60))))
+            due = due.astimezone(timezone.utc).isoformat()
             db.execute("INSERT INTO posting_plan VALUES(?,?,?,?,?,?,?)", (
                 uuid.uuid4().hex, clip["id"], clip["revision"], due, day.isoformat(), ZONE,
                 json.dumps({p: {"status": "pending"} for p in delivery.PLATFORMS}),

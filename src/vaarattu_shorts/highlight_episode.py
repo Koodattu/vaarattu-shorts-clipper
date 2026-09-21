@@ -11,7 +11,8 @@ from . import highlight_edit as source
 from .contracts import Contract
 from .llm import ModelAnchorError, ModelOutputError
 
-VERSION = "episode-v3"
+VERSION = "episode-v4"
+FINAL_SCORE_FLOOR = 75
 units = source.units
 RULES = source.RULES
 
@@ -151,19 +152,41 @@ def compiled(scene, items):
     return compile_scene(SceneEdit.model_validate(scene["edit"]), source.sequence_items(scene["beat"], items))
 
 
-def scene_evidence(scene, items, with_context=False):
+def reference_context(scene, items):
+    retained = compiled(scene, items)
+    positions = {u["id"]: i for i, u in enumerate(items)}
+    kept = {u["id"] for u in items if any(s["asset"] == u["asset"] and s["start_us"] <= u["speech_start_us"]
+            and u["speech_end_us"] <= s["end_us"] for s in retained)}
+    nearby = {}
+    for span in retained:
+        a, b = positions[span["first"]], positions[span["last"]]
+        for u in items[max(0, a-2):a]+items[b+1:b+3]:
+            if u["asset"] == span["asset"] and u["id"] not in kept:
+                nearby[u["id"]] = {"id": u["id"], "text": u["text"]}
+    return list(nearby.values())
+
+
+def scene_evidence(scene, items, with_context=False, output_start_us=0, previous_speech_end_us=None):
+    """Present the compiled output clock; source gaps never masquerade as pauses."""
     context = source.sequence_items(scene["beat"], items)
-    result = []
+    result, cursor, previous_end = [], output_start_us, previous_speech_end_us
     for span in compiled(scene, items):
         speech = [u for u in context if span["start_us"] <= u["speech_start_us"] and u["speech_end_us"] <= span["end_us"]]
+        rows = []
+        for u in speech:
+            start = cursor+u["speech_start_us"]-span["start_us"]
+            end = cursor+u["speech_end_us"]-span["start_us"]
+            pause = max(0, start-previous_end)/1e6 if previous_end is not None else (start-cursor)/1e6
+            rows.append(f"{u['id']} output {start/1e6:.2f}-{end/1e6:.2f}s pause_before={pause:.2f}s: {u['text']}")
+            previous_end = end
+        duration = span["end_us"]-span["start_us"]
         result.append({"first": span["first"], "last": span["last"],
-                       "duration_seconds": round((span["end_us"]-span["start_us"])/1e6, 2),
-                       "speech": source.speech_rows(speech)})
-        if with_context:
-            first = next(i for i, u in enumerate(context) if u["id"] == span["first"])
-            last = next(i for i, u in enumerate(context) if u["id"] == span["last"])
-            result[-1].update(preceding_source=source.speech_rows(context[max(0, first-2):first]),
-                              following_source=source.speech_rows(context[last+1:last+3]))
+                       "output_start_seconds": cursor/1e6, "output_end_seconds": (cursor+duration)/1e6,
+                       "duration_seconds": duration/1e6, "cut_before": "jump_cut" if result else "scene_start",
+                       "speech": "\n".join(rows)})
+        cursor += duration
+    if with_context and result:
+        result[0]["reference_only_not_in_video"] = reference_context(scene, items)
     return result
 
 
@@ -255,6 +278,7 @@ final selection: do not pick a handful to fill a runtime. Score independently on
 0-39 unusable/routine, 40-59 weak or mostly dependent on unseen gameplay, 60-74 worthwhile supporting
 commentary/personality, 75-89 strong, 90-100 exceptional. Judge the actual retained speech, runtime,
 repetition and long gaps, not an earlier model's enthusiasm. Concise ordinary entertaining moments count.
+Output timestamps and pause_before describe the actual edited scene. [CUT] is a jump cut, not waiting.
 An expensive long excerpt needs more substance. Return each supplied ID exactly once with a brief
 concrete reason; no quota. Excerpts marked abbreviated are incomplete evidence, not continuous speech."""
     cards, rankings = [], []
@@ -267,8 +291,7 @@ concrete reason; no quota. Excerpts marked abbreviated are incomplete evidence, 
         excerpt = speech if len(speech) <= 2400 else speech[:900]+"\n[...]\n"+speech[len(speech)//2-300:len(speech)//2+300]+"\n[...]\n"+speech[-900:]
         spans = compiled(seq, items)
         cards.append({"id": seq["beat"]["id"], "edited_seconds": round(seconds(spans), 2),
-                      "retained_ranges": len(spans), "speech": excerpt, "abbreviated": len(speech)>2400,
-                      "preserved_pauses": [g for g in seq["edit"]["gaps"] if g["action"] != "shorten"]})
+                      "retained_ranges": len(spans), "speech": excerpt, "abbreviated": len(speech)>2400})
     return rankings + rate_cards(cards, evaluator, system, "episode-rank", "Comparing edited scenes", warnings)
 
 
@@ -316,7 +339,7 @@ ID exactly once with a brief concrete reason. Abbreviated excerpts are incomplet
     return rate_cards(cards, evaluator, system, "episode-screen", "Assessing source scenes", warnings)
 
 
-def assemble(pool, rankings, items):
+def assemble(pool, rankings, items, floor=FINAL_SCORE_FLOOR):
     lookup = {s["beat"]["id"]: s for s in pool}
     picked, decisions, used = [], [], []
     for rating in sorted(rankings, key=lambda r: -r["score"]):
@@ -324,7 +347,9 @@ def assemble(pool, rankings, items):
         spans = compiled(seq, items)
         length = seconds(spans)
         reason = "selected"
-        if rating["score"] < 60 or seq["edit"]["value"] < 2 or not spans:
+        if seq.get("excluded_as_duplicate_of"):
+            reason = "repeated content kept in "+seq["excluded_as_duplicate_of"]
+        elif rating["score"] < floor or seq["edit"]["value"] < 2 or not spans:
             reason = "below editorial threshold"
         elif any(a["asset"] == b["asset"] and a["start_us"] < b["end_us"] and b["start_us"] < a["end_us"] for a in spans for b in used):
             reason = "overlapping selected footage"
@@ -350,41 +375,117 @@ def timeline(sequences, items):
     return spans
 
 
+class ContextAddition(source.Span):
+    sequence: str
+    reason: str = Field(min_length=1, max_length=250)
+
+
+class Duplicate(Contract):
+    drop: str
+    keep: str
+    reason: str = Field(min_length=1, max_length=250)
+
+
+class EpisodeReview(Contract):
+    issues: list[source.Issue] = Field(max_length=24)
+    context: list[ContextAddition] = Field(max_length=24)
+    duplicates: list[Duplicate] = Field(max_length=24)
+
+
+def add_context(scene, additions, items, selected, reference=None):
+    """Add only offered reference passages, never a whole lower-ranked scene."""
+    result = copy.deepcopy(scene)
+    allowed = {u["id"] for u in reference_context(reference or scene, items)}
+    ranges = [source.bounds(source.Span(**s), items) for s in scene["edit"]["spans"]]
+    for addition in additions:
+        a, b = source.bounds(addition, items)
+        if not all(u["id"] in allowed for u in items[a:b+1]):
+            raise ModelAnchorError("Context additions must use only the supplied reference-only passages.")
+        if items[a]["asset"] != items[ranges[0][0]]["asset"]:
+            raise ModelAnchorError("Context must come from the same source part.")
+        ranges.append((a, b))
+    merged = []
+    for a, b in sorted(ranges):
+        if merged and a <= merged[-1][1]+1:
+            merged[-1][1] = max(b, merged[-1][1])
+        else:
+            merged.append([a, b])
+    first, last = items[merged[0][0]]["id"], items[merged[-1][1]]["id"]
+    result["beat"].update(first=first, last=last, context_first=first, context_last=last)
+    result["edit"]["spans"] = [{"first": items[a]["id"], "last": items[b]["id"]} for a, b in merged]
+    spans = compiled(result, items)
+    others = [s for seq in selected if seq["beat"]["id"] != scene["beat"]["id"] for s in compiled(seq, items)]
+    if any(a["asset"] == b["asset"] and a["start_us"] < b["end_us"] and b["start_us"] < a["end_us"] for a in spans for b in others):
+        raise ModelAnchorError("The requested context is already retained in another scene; do not duplicate footage.")
+    result["required_context"] = scene.get("required_context", [])+[a.model_dump() for a in additions]
+    return result
+
+
 def critique(sequences, items, evaluator, iteration, warnings):
     system = RULES + """
-Review the pacing and joins of this assembled episode, in source order.
-Look for repeated thoughts, abrupt topic changes, unfinished setups, missing reactions, staccato edits
-and long sections with little substance. Use only supplied speech and timings. Give actionable retained
-passage/gap instructions or recommend discarding a scene; never ask another transcript-only pass to watch
-video or verify unseen gameplay. Do not demand a change solely to increase cut count. No issues is valid."""
-    packs, current, issues = [], [], []
+Review the actual assembled OUTPUT timeline. Output times, pause_before and jump_cut markers describe
+what viewers will see; never infer waiting from source passage IDs. reference_only_not_in_video is
+excluded speech, not part of the edit. Ask to add it only when essential for setup, meaning or payoff.
+Request minimal complete passage ranges in context; never restore a whole weak scene for atmosphere.
+Use issues for specific filler/repetition cuts INSIDE strong scenes, preserving necessary setup/payoff.
+Only remove speech in output_ranges; reference-only passages are already excluded.
+The episode_index covers all selected scenes, including those outside this detailed batch. In duplicates,
+drop a redundant scene only when the named keep scene expresses the same point without losing a distinct
+joke, reaction, setup or payoff. Similar topics alone are not duplicates. Only drop scenes in this batch.
+Do not drop a scene referenced as keep in this response. Reference supplied scene IDs only.
+Give actionable passage/gap instructions; do not ask a transcript-only editor to watch unseen gameplay.
+No need to fill time or reach a scene count. Empty lists are valid."""
+    cards, cursor, previous_end = [], 0, None
+    by_id = {u["id"]: u for u in items}
     for seq in sequences:
-        card = {"sequence": seq["beat"]["id"], "retained_ranges": scene_evidence(seq, items, with_context=True),
-                "pause_decisions": seq["edit"]["gaps"]}
-        if current and evaluator.request_size(system, json.dumps({"assembled": current+[card]}, ensure_ascii=False), source.Review) > evaluator.discovery_budget:
+        evidence = scene_evidence(seq, items, with_context=True, output_start_us=cursor, previous_speech_end_us=previous_end)
+        cards.append({"sequence": seq["beat"]["id"], "output_ranges": evidence})
+        spans = compiled(seq, items)
+        cursor += round(seconds(spans)*1e6)
+        previous_end = cursor-(spans[-1]["end_us"]-by_id[spans[-1]["last"]]["speech_end_us"])
+    index = [{"sequence": c["sequence"], "output_start": c["output_ranges"][0]["output_start_seconds"],
+              "summary": next(s["edit"]["reason"] for s in sequences if s["beat"]["id"] == c["sequence"]),
+              "speech_sample": c["output_ranges"][0]["speech"][:120]+" [...] "+c["output_ranges"][-1]["speech"][-120:]} for c in cards]
+    def payload(pack):
+        return {"episode_index": index, "assembled": pack}
+    if cards and evaluator.request_size(system, json.dumps(payload([max(cards, key=lambda c: len(json.dumps(c)))]), ensure_ascii=False), EpisodeReview) > evaluator.discovery_budget:
+        index = [{"sequence": c["sequence"], "summary": c["summary"][:100]} for c in index]
+    packs, current = [], []
+    for card in cards:
+        if current and evaluator.request_size(system, json.dumps(payload(current+[card]), ensure_ascii=False), EpisodeReview) > evaluator.discovery_budget:
             packs.append(current)
-            current = [current[-1]] if len(current)>1 else []
-            # Do not let overlap itself overflow a context window.
-            if current and evaluator.request_size(system, json.dumps({"assembled": current+[card]}, ensure_ascii=False), source.Review) > evaluator.discovery_budget:
-                current = []
+            current = []
         current.append(card)
     if current:
         packs.append(current)
+    combined = EpisodeReview(issues=[], context=[], duplicates=[])
+    all_ids = {s["beat"]["id"] for s in sequences}
     for i, pack in enumerate(packs):
         ids = {p["sequence"] for p in pack}
         def validate(result):
-            if any(x.sequence not in ids for x in result.issues):
-                raise ModelAnchorError("Reference supplied scene IDs only.")
-        result = source.request(evaluator, system, {"assembled": pack}, source.Review, f"episode-critic-{iteration}-{i}", validate,
-            recovery=lambda result: source.Review(issues=[x for x in result.issues if x.sequence in ids] if result else []),
-            warnings=warnings, warning="Part of the pacing review was unavailable. Check the draft's joins and pacing before approving.")
-        for issue in result.issues:
-            if issue.model_dump() not in issues:
-                issues.append(issue.model_dump())
-    return issues
+            if any(x.sequence not in ids for x in [*result.issues, *result.context]):
+                raise ModelAnchorError("Reference scenes from this detailed batch for edits and context.")
+            for ident in {x.sequence for x in result.context}:
+                seq = next(s for s in sequences if s["beat"]["id"] == ident)
+                add_context(seq, [a for a in result.context if a.sequence == ident], items, sequences)
+            dropped = {d.drop for d in result.duplicates}
+            if any(d.drop not in ids or d.keep not in all_ids or d.keep in dropped for d in result.duplicates):
+                raise ModelAnchorError("Drop only a scene in this batch and keep a different supplied scene that is not dropped.")
+        result = source.request(evaluator, system, payload(pack), EpisodeReview, f"episode-critic-{iteration}-{i}", validate,
+            recovery=lambda _: EpisodeReview(issues=[], context=[], duplicates=[]), warnings=warnings,
+            warning="Part of the pacing review could not be verified. Check the draft's joins and context before approving.")
+        combined.issues.extend(result.issues)
+        combined.context.extend(result.context)
+        combined.duplicates.extend(result.duplicates)
+    # Cross-batch conflicts cannot remove both versions of an idea.
+    dropped = {d.drop for d in combined.duplicates}
+    combined.duplicates = [d for d in combined.duplicates if d.keep not in dropped]
+    return combined
 
 
-def plan(items, evaluator, progress, previous=None, guidance=""):
+def plan(items, evaluator, progress, previous=None, guidance="", final_score_floor=FINAL_SCORE_FLOOR):
+    if not 0 <= final_score_floor <= 100:
+        raise ValueError("Choose a final score from 0 to 100.")
     warnings = []
     reuse = previous and previous.get("version") == VERSION
     beats = copy.deepcopy(previous["beats"]) if reuse else source.discover(items, evaluator, lambda p: progress(p*0.25), warnings)
@@ -401,7 +502,7 @@ def plan(items, evaluator, progress, previous=None, guidance=""):
     pool = copy.deepcopy(previous["scene_pool"]) if reuse else []
     if reuse:
         active = {s["beat"]["id"] for s in previous["sequences"]}
-        replacements = edit_scenes([b for b in beats if b["id"] in active], items, evaluator,
+        replacements = edit_scenes([s["beat"] for s in pool if s["beat"]["id"] in active], items, evaluator,
                                   "episode-edit", guidance, warnings, {s["beat"]["id"]: s["edit"] for s in pool})
         pool = [s for s in pool if s["beat"]["id"] not in active]+replacements
     else:
@@ -410,31 +511,56 @@ def plan(items, evaluator, progress, previous=None, guidance=""):
     rankings = rank_scenes(pool, items, evaluator, warnings)
     history, seen, issues = [], set(), []
     for iteration in range(2):
-        selected, decisions = assemble(pool, rankings, items)
+        selected, decisions = assemble(pool, rankings, items, final_score_floor)
         retained = timeline(selected, items)
         fingerprint = json.dumps(retained, sort_keys=True)
         if fingerprint in seen:
             break
         seen.add(fingerprint)
         evaluator.report(f"Reviewing episode pacing and joins: pass {iteration+1} of 2.")
-        issues = critique(selected, items, evaluator, iteration, warnings)
+        review = critique(selected, items, evaluator, iteration, warnings)
+        issues = [i.model_dump() for i in review.issues]
+        issues.extend({"sequence": a.sequence, "instruction": f"Needed context {a.first}-{a.last}: {a.reason}"} for a in review.context)
+        issues.extend({"sequence": d.drop, "instruction": f"Repeated by {d.keep}: {d.reason}"} for d in review.duplicates)
         history.append({"iteration": iteration, "issues": issues, "selected": [s["beat"]["id"] for s in selected],
-                        "edits": [copy.deepcopy(s["edit"]) for s in selected], "duration": seconds(retained)})
+                        "edits": [copy.deepcopy(s["edit"]) for s in selected], "duration": seconds(retained),
+                        "context": [a.model_dump() for a in review.context], "duplicates": [d.model_dump() for d in review.duplicates]})
         if not issues or iteration == 1:
             break
         revised = []
         for i, seq in enumerate(selected):
-            notes = [x["instruction"] for x in issues if x["sequence"] == seq["beat"]["id"]]
+            ident = seq["beat"]["id"]
+            if any(d.drop == ident for d in review.duplicates):
+                continue
+            notes = [x.instruction for x in review.issues if x.sequence == ident]
+            additions = [a for a in review.context if a.sequence == ident]
+            before = copy.deepcopy(seq)
             if notes:
                 try:
                     seq["edit"] = compact(seq["beat"], items, evaluator, f"episode-revise-{i}",
                         guidance+"\n"+"\n".join(notes), seq["edit"], warnings).model_dump()
                 except ModelOutputError:
                     warnings.append(f"Scene {seq['beat']['id']} kept its last verified edit; the pacing change could not be verified.")
+            if additions and seq["edit"]["spans"]:
+                try:
+                    seq.update(add_context(seq, additions, items, selected, reference=before))
+                except ModelAnchorError:
+                    warnings.append(f"Scene {ident} needs a context check; its requested addition conflicted with another retained scene.")
+            if notes or additions:
                 revised.append(seq)
         if revised:
             ids = {s["beat"]["id"] for s in revised}
             rankings = [r for r in rankings if r["id"] not in ids]+rank_scenes(revised, items, evaluator, warnings)
+        scores = {r["id"]: r["score"] for r in rankings}
+        lookup = {s["beat"]["id"]: s for s in pool}
+        for duplicate in review.duplicates:
+            keep = lookup[duplicate.keep]
+            if scores[duplicate.keep] >= final_score_floor and keep["edit"]["value"] >= 2 and compiled(keep, items):
+                lookup[duplicate.drop]["edit"].update(spans=[], gaps=[], value=1)
+                lookup[duplicate.drop]["excluded_as_duplicate_of"] = duplicate.keep
+                for rating in rankings:
+                    if rating["id"] == duplicate.drop:
+                        rating.update(score=0, reason=duplicate.reason)
         progress(0.85)
     if not retained and warnings:
         raise ModelOutputError("No verified episode edit could be produced. Completed work is saved; resume to try again.")
@@ -442,7 +568,7 @@ def plan(items, evaluator, progress, previous=None, guidance=""):
     return {"version": VERSION, "beats": beats, "screening": screening, "scene_pool": pool, "rankings": rankings,
             "selection": decisions, "sequences": selected, "retained": retained, "duration": seconds(retained),
             "review_history": history, "issues": issues, "warnings": list(dict.fromkeys(warnings)),
-            "guidance": guidance,
+            "guidance": guidance, "final_score_floor": final_score_floor,
             "metrics": {"mapped_scenes": len(beats), "eligible_scenes": len(candidates),
                         "edited_scenes": len(pool), "selected_scenes": len(selected),
                         "retained_ranges": len(retained)}}

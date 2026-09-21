@@ -39,7 +39,7 @@ async function loadHighlights(){
     }
     highlightRuns=await api("/api/highlights");
     if(!highlightSelected&&highlightRuns.length)highlightSelected=highlightRuns[0].id;
-    paintHighlights();
+    await paintHighlights();
   }catch(e){error(e.message);}
   finally{if(currentView==="highlights"&&highlightRuns.some(r=>["queued","running"].includes(r.state)))highlightTimer=setTimeout(loadHighlights,3000);}
 }
@@ -51,7 +51,7 @@ function paintHighlights(){
     button.className="run-row"+(run.id===highlightSelected?" selected":"");button.setAttribute("aria-pressed",String(run.id===highlightSelected));box.append(button);
   }
   const run=highlightRuns.find(r=>r.id===highlightSelected);
-  $("highlight-review").hidden=!run;if(!run)return;
+  $("highlight-review").hidden=!run;const timeline=loadHighlightTimeline(run);if(!run)return timeline;
   $("highlight-title").textContent=run.title;
   $("highlight-progress").value=run.progress;
   const stage=run.stage.startsWith("audio-")?"Preparing recording audio":run.stage.startsWith("transcript-")?"Transcribing speech":run.stage.startsWith("edit-")?"Selecting and editing highlights":run.stage.startsWith("media-")?"Downloading and checking selected footage":run.stage.startsWith("render-")?(run.stage.endsWith("final")?"Rendering final 1080p video":"Rendering 720p review draft"):"Completed stages are saved automatically.";
@@ -69,6 +69,7 @@ function paintHighlights(){
   if(run.activity?.thinking)notes.append(text("p",`Editing thinking: ${run.activity.thinking}.`,"muted"));
   for(const [label,phase] of Object.entries(run.activity?.phases||{}))notes.append(text("p",`${label}: ${phase.requests} requests, ${phase.retries} retries / repairs, ${highlightDuration(phase.seconds)} waiting for the model.`,"muted"));
   if(run.stage.startsWith("edit-")&&run.state==="running")notes.append(text("p","Editing is in progress. Selected footage download and rendering come next.","muted"));
+  if(run.selection_preview)notes.append(text("p",`Final selection: ${run.selection_preview.scenes} scenes, ${highlightDuration(run.selection_preview.duration)}, minimum score ${run.selection_preview.score_floor}.`,"muted"));
   if(run.metrics?.eligible_scenes!==undefined)notes.append(text("p",`${run.metrics.mapped_scenes} scenes found; ${run.metrics.eligible_scenes} passed the initial quality check. Length follows the selected content.`,"muted"));
   if(run.metrics?.edited_scenes)notes.append(text("p",`${run.metrics.edited_scenes} scenes edited before selection; ${run.metrics.selected_scenes} scenes and ${run.metrics.retained_ranges} retained ranges in this draft.`,"muted"));
   for(const warning of run.warnings||[])notes.append(text("p",warning));
@@ -86,6 +87,7 @@ function paintHighlights(){
     if(run.state==="completed")row.append(action("Restore this draft",()=>highlightAction("restore",old.revision)));
     history.append(row);
   }
+  return timeline;
 }
 async function highlightAction(op,restore=null){
   if(highlightBusy)return;
@@ -113,7 +115,7 @@ $("highlight-form").onsubmit=async event=>{
   highlightLock(true);
   try{
     const provider=$("highlight-provider").value;
-    const body={manifest_id:highlightManifest.id,provider,local_model:$("highlight-local").value||"gemma4-31b",context_size:32768,budget_usd:["codex","local"].includes(provider)?0:Number($("highlight-budget").value),video_encoder:$("highlight-encoder").value};
+    const body={manifest_id:highlightManifest.id,final_score_floor:Number($("highlight-score-floor").value||75),provider,local_model:$("highlight-local").value||"gemma4-31b",context_size:32768,budget_usd:["codex","local"].includes(provider)?0:Number($("highlight-budget").value),video_encoder:$("highlight-encoder").value};
     const signature=JSON.stringify(body);
     if(highlightStartKey?.signature!==signature)highlightStartKey={signature,key:crypto.randomUUID()};
     const run=await api("/api/highlights",{method:"POST",headers:{"Idempotency-Key":highlightStartKey.key},body:signature});

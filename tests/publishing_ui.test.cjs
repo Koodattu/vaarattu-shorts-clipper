@@ -99,7 +99,7 @@ test("fill button schedules directly only when clicked and blocks repeat clicks 
   await Promise.all([first,duplicate]);
   assert.equal(writes.length,1);
   assert.equal(writes[0].url,"/api/publishing/buffer/fill");
-  assert.match(nodes.get("publishing-fill-message").textContent,/2 clips scheduled at 09:00 Europe\/Helsinki/);
+  assert.match(nodes.get("publishing-fill-message").textContent,/2 clips scheduled at random times between 19:00 and 21:00 Finnish time \(Europe\/Helsinki\), one per day/);
   assert.equal(nodes.get("publishing-fill").disabled,false);
 });
 

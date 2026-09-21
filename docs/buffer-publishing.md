@@ -25,10 +25,14 @@ own account limits, permissions and media requirements.
 
 **Fill scheduled queue** uploads and schedules automatically when clicked. It uses only
 current clips marked **Ready for posting**, fills the shared available capacity across
-your selected channels (up to ten clips), and assigns one clip per day at **09:00
-Europe/Helsinki**. It starts today if that time is more than ten minutes away, otherwise
-tomorrow. It appends after existing queued posts and skips dates reserved by other local
-plan entries or already-used posting dates. It does not require every other clip from
+your selected channels (up to ten clips), and assigns one clip per day at a **random
+minute between 19:00 and 21:00 Finnish time (Europe/Helsinki)**, including both endpoints.
+Each clip gets its own random time, shared across its selected channels and saved with
+the posting plan. Finnish daylight-saving changes are handled automatically. It starts
+today if the window still has a time more than ten minutes away, choosing from the
+remaining eligible minutes; otherwise it starts tomorrow. It appends after existing queued
+posts and skips dates reserved by other local plan entries or already-used posting dates.
+It does not require every other clip from
 the recording to be reviewed first.
 
 New recordings are ordered by the library's source-video publication date, falling back
