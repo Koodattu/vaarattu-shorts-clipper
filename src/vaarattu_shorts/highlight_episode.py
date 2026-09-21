@@ -211,15 +211,23 @@ def compact(beat, items, evaluator, key, guidance="", previous=None, warnings=No
         passage_ids = {u["id"] for u in context}
         gap_ids = [f"g{a['id']}:{b['id']}" for a, b in zip(context, context[1:])
                    if a["asset"] == b["asset"] and b["speech_start_us"]-a["speech_end_us"] >= 1500000]
+        problems = []
+        # Check independent fields together: fixing an ID must not hide bad evidence.
         for pause in proposal.pauses:
             if pause.id not in gap_ids:
-                raise ModelAnchorError(f"Use a complete supplied gap ID, including both passage IDs and the colon. Available IDs: {', '.join(gap_ids)}.")
+                problems.append(f"Unknown gap {pause.id}. Use a complete supplied gap ID, including both passage IDs and the colon.")
             if isinstance(pause, KeepPause) and pause.evidence not in passage_ids:
-                raise ModelAnchorError(f"For {pause.id}, evidence must be a retained passage ID such as {pause.id.split(':')[-1]}, not quoted speech or an explanation. Put explanations in reason.")
+                example = pause.id.split(":")[-1] if pause.id in gap_ids else context[0]["id"]
+                problems.append(f"For {pause.id}, evidence must be a retained passage ID such as {example}, not quoted speech or an explanation. Put explanations in reason.")
+        if problems:
+            raise ModelAnchorError(" ".join(problems)+f" Available IDs: {', '.join(gap_ids)}. "
+                "For each keep pause, copy one retained passage ID into evidence. "
+                "For lead_in, use seconds from 1 to 15; the following passage must be retained. "
+                "Correct all reported fields together. Do not change valid speech ranges just to repair pause fields.")
         verified_proposal(proposal, context)
     proposal = source.request(evaluator, EDIT_RULES, {"scene": beat, "speech": source.speech_rows(context),
         "guidance": guidance, "previous_edit": previous}, Proposal, key, validate,
-        retry_delays=(5,))
+        retry_delays=(5, 15))
     return verified_proposal(proposal, context)
 
 

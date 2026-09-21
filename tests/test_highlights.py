@@ -527,7 +527,7 @@ def test_scene_repair_explains_evidence_ids_instead_of_repeating_generic_error(m
     result = episode.compact({"first": "u0", "last": "u1"}, rows, evaluator, "repair-evidence")
     assert result.gaps[0].evidence == "u1"
     assert "evidence must be a retained passage ID such as u1, not quoted speech" in requests[1]["input"]
-    assert waits == [(5, 1, 1)]
+    assert waits == [(5, 1, 2)]
     episode.compact({"first": "u0", "last": "u1"}, rows, evaluator, "repair-evidence")
     assert len(requests) == 2
 
@@ -558,7 +558,7 @@ def test_resume_repairs_one_scene_without_regenerating_verified_batch_neighbors(
     bad = {"spans": [{"first": "u2", "last": "u3"}], "pauses": [
         {"id": "gu2:u3", "action": "keep", "evidence": "A thought.", "reason": "Comic timing"}],
         "value": 3, "reason": "Enjoyable exchange"}
-    replies.extend([{"scenes": [{"id": "a", **good}, {"id": "b", **bad}]}, bad, bad])
+    replies.extend([{"scenes": [{"id": "a", **good}, {"id": "b", **bad}]}, bad, bad, bad])
     with pytest.raises(ModelOutputError, match="scene b"):
         episode.edit_scenes(beats, rows, evaluator, "edit", "", [])
     corrected = json.loads(json.dumps(bad))
@@ -566,5 +566,53 @@ def test_resume_repairs_one_scene_without_regenerating_verified_batch_neighbors(
     replies.append(corrected)
     result = episode.edit_scenes(beats, rows, evaluator, "edit", "", [])
     assert [s["beat"]["id"] for s in result] == ["a", "b"]
-    assert len(requests) == 4
+    assert len(requests) == 5
     assert json.loads(requests[-1]["input"])["scene"]["id"] == "b"
+
+
+@pytest.mark.parametrize("passages", [(16, 17, 18), (735, 736, 737), (2397, 2398, 2399)])
+def test_scene_repair_reports_gap_and_evidence_faults_together(model_replies, passages):
+    evaluator, replies, requests, waits = model_replies
+    rows = [{"id": f"u{ident}", "asset": "s0", "start_us": i*10000000,
+             "end_us": i*10000000+2000000, "speech_start_us": i*10000000,
+             "speech_end_us": i*10000000+2000000, "unsafe": False, "text": "A thought."}
+            for i, ident in enumerate(passages)]
+    first, middle, last = [r["id"] for r in rows]
+    bad = {"spans": [{"first": first, "last": last}], "pauses": [
+        {"id": f"g{first}", "action": "keep", "evidence": "A thought.", "reason": "Comic timing"},
+        {"id": f"g{middle}", "action": "keep", "evidence": "Another quote.", "reason": "Reaction"}],
+        "value": 3, "reason": "Enjoyable exchange"}
+    good = json.loads(json.dumps(bad))
+    for pause, left, right in zip(good["pauses"], rows, rows[1:]):
+        pause.update(id=f"g{left['id']}:{right['id']}", evidence=right["id"])
+    replies.extend([bad, good])
+    result = episode.compact({"first": first, "last": last}, rows, evaluator, "repair-both")
+    repair = requests[1]["input"]
+    for ident in [first, middle]:
+        assert f"Unknown gap g{ident}." in repair
+        assert f"For g{ident}, evidence must be a retained passage ID" in repair
+    assert f"Available IDs: g{first}:{middle}, g{middle}:{last}" in repair
+    assert result.spans == episode.Proposal.model_validate(bad).spans
+    assert [g.evidence for g in result.gaps] == [middle, last]
+    assert waits == [(5, 1, 2)]
+
+
+def test_scene_repair_allows_second_delayed_retry_without_accepting_bad_evidence(model_replies):
+    evaluator, replies, requests, waits = model_replies
+    rows = [{"id": f"u{i}", "asset": "s0", "start_us": i*10000000,
+             "end_us": i*10000000+2000000, "speech_start_us": i*10000000,
+             "speech_end_us": i*10000000+2000000, "unsafe": False, "text": "A thought."} for i in range(2)]
+    bad = {"spans": [{"first": "u0", "last": "u1"}], "pauses": [
+        {"id": "gu0", "action": "keep", "evidence": "A thought.", "reason": "Comic timing"}],
+        "value": 3, "reason": "Enjoyable exchange"}
+    partial = json.loads(json.dumps(bad))
+    partial["pauses"][0]["id"] = "gu0:u1"
+    good = json.loads(json.dumps(partial))
+    good["pauses"][0]["evidence"] = "u1"
+    replies.extend([bad, partial, good])
+    result = episode.compact({"first": "u0", "last": "u1"}, rows, evaluator, "repair-second")
+    assert result.gaps[0].evidence == "u1"
+    assert waits == [(5, 1, 2), (15, 2, 2)]
+    assert len(requests) == 3
+    episode.compact({"first": "u0", "last": "u1"}, rows, evaluator, "repair-second")
+    assert len(requests) == 3
