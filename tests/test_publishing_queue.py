@@ -196,3 +196,16 @@ def test_fill_route_requires_local_authorization_and_shares_publishing_lock(sett
     assert response.json()["scheduled"] == 2
     assert api.post("/api/publishing/buffer/fill", headers=headers).json()["scheduled"] == 0
     assert len(remote["mutations"]) == 6
+
+
+def test_lazy_fill_import_works_with_contracts_already_loaded_before_twitch_update(monkeypatch):
+    import importlib.util
+    from vaarattu_shorts import contracts
+
+    monkeypatch.delattr(contracts, "recording_id")
+    spec = importlib.util.spec_from_file_location("vaarattu_shorts._queue_import_check", publishing_queue.__file__)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert callable(module.fill)
+    assert module.source_key("https://youtu.be/abc_def-ghI") == "abc_def-ghI"
+    assert module.source_key("https://www.twitch.tv/videos/123") == "https://www.twitch.tv/videos/123"

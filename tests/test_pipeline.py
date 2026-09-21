@@ -6,16 +6,17 @@ from vaarattu_shorts.pipeline import Pipeline
 from vaarattu_shorts.storage import atomic_json
 
 
+@pytest.mark.parametrize("provider", ["youtube", "twitch"])
 @pytest.mark.parametrize(
     "timing_issues", [[], [{"kind": "word_overlap", "start_us": 1000000, "end_us": 2000000}]]
 )
 def test_one_run_reaches_output_with_adapters_replaced_and_resumes(
-    settings, store, monkeypatch, timing_issues
+    settings, store, monkeypatch, timing_issues, provider
 ):
     """Exercise orchestration only: no media, ASR, LLM, subprocess or network execution."""
     events = []
     config = {
-        "video": "abc_def-ghI",
+        "video": "abc_def-ghI" if provider == "youtube" else "https://www.twitch.tv/videos/123",
         "model_manifests": {},
         "provider": "local",
         "budget_usd": 0,
@@ -39,6 +40,15 @@ def test_one_run_reaches_output_with_adapters_replaced_and_resumes(
         return path
 
     monkeypatch.setattr("vaarattu_shorts.pipeline.youtube.acquire", acquire)
+    if provider == "twitch":
+        monkeypatch.setattr("vaarattu_shorts.recordings.highlight_sources.metadata", lambda *_: {
+            "id": "123", "provider": "twitch", "url": config["video"], "duration": 60,
+            "title": "Twitch test", "upload_date": "20260709"})
+        def twitch_acquire(settings, source, folder, check, interval=None):
+            assert source["url"] == config["video"]
+            return acquire(settings, source, folder, check)
+        monkeypatch.setattr("vaarattu_shorts.recordings.highlight_sources.acquire", twitch_acquire)
+
     monkeypatch.setattr("vaarattu_shorts.pipeline.youtube.probe", lambda *_: {"format": {"duration": "60"}})
 
     def transcribe(*args):

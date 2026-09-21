@@ -35,6 +35,11 @@ async function loadPublishing(){
   const [storage,data]=await Promise.all([api("/api/publishing/storage"),api("/api/publishing/buffer")]);publishingData=data;
   $("publishing-storage-status").textContent=`${storage.connected?"Connected":"Not connected"} · ${storage.bucket} · App storage limit: ${(storage.storage_limit/1e9).toFixed(0)} GB`;
   $("publishing-storage-setup").open=!storage.connected;$("publishing-buffer-setup").open=!data.connected;
+  const connected=storage.connected&&data.connected&&Object.keys(data.mapping).length>0;
+  $("publishing-connection-status").textContent=connected?`Ready to publish · ${Object.keys(data.mapping).map(p=>publishingNames[p]).join(" · ")}`:"Set up your accounts and storage in Connections below to enable publishing.";
+  if(!connected)$("publishing-connections").open=true;
+  $("publishing-plan-actions").hidden=!data.clips.some(c=>c.plan&&!c.publication&&c.ready);
+
   $("publishing-buffer-status").textContent=data.connected?"Connected. Select the channels you want to publish to.":"Not connected";
   publishingOptions($("publishing-organization"),data.organizations.map(o=>[o.id,o.name]),data.organization_id);
   for(const p of Object.keys(publishingNames))publishingOptions($("publishing-"+p),[["","Do not publish here"],...data.channels.filter(c=>c.service===p).map(c=>[c.id,`${c.displayName||c.name}${c.isDisconnected?" · Reconnect in Buffer":""}${c.isLocked?" · Locked":""}${c.isQueuePaused?" · Paused":""}`])],data.mapping[p]);

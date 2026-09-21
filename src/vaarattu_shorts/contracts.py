@@ -43,6 +43,26 @@ def video_id(value: str) -> str:
     return found
 
 
+def source_url(value):
+    value = value.strip()
+    parsed = urlparse(value)
+    if parsed.hostname in {"twitch.tv", "www.twitch.tv", "m.twitch.tv"}:
+        match = re.fullmatch(r"/videos/(\d+)/?", parsed.path)
+        if parsed.scheme not in {"https", "http"} or not match or parsed.username or parsed.password or parsed.port:
+            raise ValueError("Use a completed Twitch VOD URL, such as https://www.twitch.tv/videos/123456.")
+        return "twitch", match[1], f"https://www.twitch.tv/videos/{match[1]}"
+    try:
+        identity = video_id(value)
+    except ValueError:
+        raise ValueError("Enter a YouTube video or a completed Twitch VOD URL.") from None
+    return "youtube", identity, f"https://www.youtube.com/watch?v={identity}"
+
+
+def recording_id(value: str) -> str:
+    provider, identity, url = source_url(value)
+    return identity if provider == "youtube" else url
+
+
 class Rect(Contract):
     x: float = Field(ge=0, lt=1)
     y: float = Field(ge=0, lt=1)
@@ -113,7 +133,7 @@ class RunRequest(Contract):
 
     @model_validator(mode="after")
     def normalize(self):
-        self.video = video_id(self.video)
+        self.video = recording_id(self.video)
         if self.provider not in {"local", "codex"} and self.budget_usd <= 0:
             raise ValueError("Set a spending limit for the selected API provider.")
         if self.provider == "codex":

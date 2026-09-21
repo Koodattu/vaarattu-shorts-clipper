@@ -74,8 +74,8 @@ def units(transcripts):
                 groups.append(group)
         for i, group in enumerate(groups):
             start, end = group[0].start_us, max(w.end_us for w in group)
-            before = groups[i-1][-1].end_us if i else 0
-            after = groups[i+1][0].start_us if i+1 < len(groups) else transcript["duration_us"]
+            before = groups[i-1][-1].end_us if i else transcript.get("selection_start_us", 0)
+            after = groups[i+1][0].start_us if i+1 < len(groups) else transcript.get("selection_end_us", transcript["duration_us"])
             a, b = max(0, start-min(300000, max(0, start-before)//2)), end+min(300000, max(0, after-end)//2)
             unsafe = any(t["start_us"] < edge+100000 and t["end_us"] > edge-100000
                          for t in transcript.get("timing_issues", []) for edge in (a, b))

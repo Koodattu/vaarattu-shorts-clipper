@@ -115,6 +115,7 @@ def test_invalid_cuts_gaps_timing_and_duration_fail():
 
 class Evaluator:
     discovery_budget = 48000
+    verification_budget = 48000
     discovery_reasoning = "low"
     verification_reasoning = "medium"
 
@@ -134,7 +135,9 @@ class Evaluator:
     def call(self, system, prompt, schema, key, validate=None, **kw):
         payload = json.loads(prompt)
         self.calls.append((key, payload, kw))
-        if schema is edit.Scan:
+        if schema is highlights.highlight_copy.VideoCopy:
+            value = schema(title="A specific story", caption="A short description.")
+        elif schema is edit.Scan:
             value = edit.Scan(beats=[edit.Beat(first="u1", last="u7", value=4, reason="Developed story", continuation="")])
         elif schema is episode.EditBatch:
             value = episode.EditBatch(scenes=[episode.NamedProposal(id=c["scene"]["id"],
@@ -212,7 +215,7 @@ def test_jobs_are_isolated_and_controls_guard_revisions(settings, store):
 def test_highlights_api_local_boundary_and_final_approval(settings, monkeypatch):
     monkeypatch.setattr("vaarattu_shorts.web.preflight", lambda *args: {})
     monkeypatch.setattr("vaarattu_shorts.web.codex_settings", lambda: {"model": "test"})
-    monkeypatch.setattr(sources, "resolve", lambda *args: config()["manifest"])
+    monkeypatch.setattr(sources, "resolve", lambda *args, **kwargs: config()["manifest"])
     app = create_app(settings)
     with TestClient(app, base_url="http://localhost") as client:
         assert client.post("/api/highlights/resolve", json={"urls": [source()["url"]]}).status_code == 403
@@ -230,7 +233,8 @@ def test_highlights_api_local_boundary_and_final_approval(settings, monkeypatch)
 
 
 @pytest.mark.parametrize("critic_failure", [False, True])
-def test_pipeline_resume_final_and_revision(settings, store, monkeypatch, critic_failure):
+@pytest.mark.parametrize("copy_failure", [False, True])
+def test_pipeline_resume_final_and_revision(settings, store, monkeypatch, critic_failure, copy_failure):
     separate = highlights.store_for(settings)
     run_id = separate.admit(config(), "pipeline")
     events = []
@@ -266,10 +270,16 @@ def test_pipeline_resume_final_and_revision(settings, store, monkeypatch, critic
 
     monkeypatch.setattr(highlights, "Evaluator", lambda *args, **kw: PipelineEvaluator())
     monkeypatch.setattr(highlights, "render_video", render)
+    if copy_failure:
+        monkeypatch.setattr(highlights.highlight_copy, "propose", lambda *a: (_ for _ in ()).throw(RuntimeError("copy service failure")))
     separate.claim()
     first = highlights.Highlights(settings, separate, run_id).execute()
     assert first["has_draft"] and not first["has_final"]
     visible = highlights.public(settings, separate, separate.get(run_id))
+    assert separate.get(run_id)["state"] == "completed"
+    assert bool(visible["publishing_copy"].get("error")) == copy_failure
+    if not copy_failure:
+        assert visible["publishing_copy"]["title"] == "A specific story"
     assert bool(first["warnings"]) == critic_failure
     assert visible["warnings"] == first["warnings"] == first["history"][0]["warnings"]
     assert events == ["audio", "transcribe", "section", "draft"]

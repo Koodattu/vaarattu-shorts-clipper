@@ -6,6 +6,7 @@ import json
 import os
 import secrets
 import threading
+from tempfile import TemporaryDirectory
 import uuid
 from pathlib import Path
 from typing import Literal
@@ -15,9 +16,9 @@ from fastapi import Body, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import buffer, caption_correction, catalog, delivery, discover, highlight_sources, highlights, r2, stream_data, tighten
+from . import buffer, caption_correction, catalog, delivery, discover, highlight_sources, highlights, r2, recordings, stream_data, tighten
 from .context_repair import ContextRequest
-from .contracts import MIN_CLIP_US, EditRequest, LayoutSave, RunRequest, Word, clip_duration_limit, video_id
+from .contracts import MIN_CLIP_US, EditRequest, LayoutSave, RunRequest, Word, clip_duration_limit, source_url
 from .llm import PROVIDERS, codex_settings
 from .models import CATALOG, model_path
 from .pipeline import preflight
@@ -108,7 +109,8 @@ def create_app(settings):
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; img-src 'self' blob: data: https://i.ytimg.com; media-src 'self'; "
-            "style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'"
+            "style-src 'self'; script-src 'self'; frame-src https://www.youtube.com https://player.twitch.tv; "
+            "frame-ancestors 'none'; base-uri 'none'"
         )
         if request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
@@ -192,11 +194,16 @@ def create_app(settings):
 
     @app.get("/api/streams/search")
     def search_streams(video: str, q: str = ""):
-        vod_id = video_id(video)
+        provider, vod_id, url = source_url(video)
         if len(q) > 300:
             raise ValueError("Use a VOD title of at most 300 characters.")
-        saved = next((v for v in store.videos(settings.youtube_channel_id) if v["id"] == vod_id), {})
-        return stream_data.search({"id": vod_id, "title": q.strip() or saved.get("title", "")})
+        saved = next((v for v in store.videos(settings.youtube_channel_id) if v["id"] == vod_id), {}) if provider == "youtube" else {}
+        title = q.strip() or saved.get("title", "")
+        if provider == "twitch" and not title:
+            with TemporaryDirectory(prefix="clip-source-") as folder:
+                title = recordings.metadata(settings, url, Path(folder))["title"]
+        return {**stream_data.search({"id": vod_id, "title": title, "provider": provider}), "recording_title": title}
+
 
     @app.get("/api/streams/{stream_id}")
     def get_stream(stream_id: int):
@@ -205,7 +212,8 @@ def create_app(settings):
         return stream_data.stream_detail(stream_id)
 
     @app.post("/api/highlights/resolve")
-    def resolve_highlight(urls: list[str] = Body(embed=True, min_length=1, max_length=30)):
+    def resolve_highlight(urls: list[str] = Body(embed=True, min_length=1, max_length=30),
+                          collection: bool = Body(default=False), match_parts: bool = Body(default=True)):
         if any(len(url) > 500 for url in urls):
             raise ValueError("Use video URLs of at most 500 characters.")
         identity = uuid.uuid4().hex
@@ -213,7 +221,7 @@ def create_app(settings):
         if not catalog_lock.acquire(blocking=False):
             raise HTTPException(409, "Channel videos are already being fetched. Try again shortly.")
         try:
-            manifest = highlight_sources.resolve(settings, store, urls, folder)
+            manifest = highlight_sources.resolve(settings, store, urls, folder, collection=collection, match_parts=match_parts)
         finally:
             catalog_lock.release()
         atomic_json(folder / "manifest.json", manifest)
@@ -223,8 +231,9 @@ def create_app(settings):
     def start_highlight(body: highlights.Start, idempotency_key: str = Header(min_length=8, max_length=100)):
         path = settings.work / "highlights" / "manifests" / body.manifest_id / "manifest.json"
         if not path.is_file():
-            raise ValueError("Check the recording parts before starting.")
-        manifest = json.loads(path.read_text("utf-8"))
+            raise ValueError("Load the recordings before starting.")
+        manifest = highlight_sources.select_manifest(json.loads(path.read_text("utf-8")),
+                    [s.model_dump() for s in body.segments] if body.segments is not None else None, body.project_title)
         manifests = preflight(settings, body)
         config = {**body.model_dump(), "manifest": manifest, "model_manifests": manifests,
                   "channel_id": settings.youtube_channel_id, "asr_batch_size": settings.asr_batch_size,
@@ -252,6 +261,58 @@ def create_app(settings):
         if not saved or not saved.get(f"has_{quality}") or not path.is_file():
             raise HTTPException(404, "This video is not ready yet.")
         return FileResponse(path, media_type="video/mp4")
+
+    @app.get("/api/highlights/{run_id}/selection")
+    def preview_highlight_selection(run_id: str, revision: int):
+        from . import highlight_selection
+        return highlight_selection.preview(settings, highlights_store, run_id, revision)
+
+    @app.post("/api/highlights/{run_id}/selection", status_code=202)
+    def render_highlight_selection(run_id: str, revision: int = Body(ge=1),
+                                   score_floor: int = Body(ge=0, le=100),
+                                   plan_hash: str = Body(pattern=r"^[a-f0-9]{64}$")):
+        from . import highlight_selection
+        return highlight_selection.queue(settings, highlights_store, run_id, revision, score_floor, plan_hash)
+
+    @app.post("/api/highlights/{run_id}/copy/generate")
+    def generate_highlight_copy(run_id: str, revision: int = Body(ge=1),
+                                note: str = Body(default="", max_length=2000),
+                                expected_id: str | None = Body(default=None, max_length=100)):
+        from . import highlight_copy
+        return highlight_copy.generate(settings, highlights_store, run_id, revision,
+                                       note=note, expected_id=expected_id)
+
+    @app.post("/api/highlights/{run_id}/copy")
+    def save_highlight_copy(run_id: str, revision: int = Body(ge=1),
+                            title: str = Body(min_length=1, max_length=100),
+                            caption: str = Body(min_length=1, max_length=2200),
+                            expected_id: str | None = Body(default=None, max_length=100)):
+        from . import highlight_copy
+        return highlight_copy.save(settings, highlights_store, run_id, revision,
+                                   {"title": title, "caption": caption}, expected_id=expected_id)
+
+    @app.post("/api/highlights/{run_id}/thumbnail/frame")
+    def capture_highlight_frame(run_id: str, revision: int = Body(ge=1),
+                                seconds: float = Body(ge=0, allow_inf_nan=False)):
+        from . import highlight_thumbnails
+        return highlight_thumbnails.capture(settings, highlights_store, run_id, revision, seconds)
+
+    @app.post("/api/highlights/{run_id}/thumbnail/generate")
+    def generate_highlight_thumbnail(run_id: str, revision: int = Body(ge=1),
+                                      frame_id: str = Body(pattern=r"^[a-f0-9]{32}$"),
+                                      request_id: str = Body(pattern=r"^[a-f0-9]{32}$"),
+                                      note: str = Body(default="", max_length=2000),
+                                      quality: Literal["low", "medium", "high"] = Body(default="medium")):
+        from . import highlight_thumbnails
+        return highlight_thumbnails.generate(settings, highlights_store, run_id, revision,
+                                             frame_id, request_id, note, quality)
+
+    @app.get("/api/highlights/{run_id}/thumbnail/{item_id}")
+    def highlight_thumbnail(run_id: str, item_id: str, revision: int, download: bool = False):
+        from . import highlight_thumbnails
+        path = highlight_thumbnails.image_path(settings, highlights_store, run_id, revision, item_id)
+        return FileResponse(path, media_type="image/jpeg",
+                            filename=f"thumbnail-{run_id}-{revision}-{item_id}.jpg" if download else None)
 
     @app.post("/api/highlights/{run_id}/{action}", status_code=202)
     def control_highlight(run_id: str, action: str, revision: int = Body(ge=1),

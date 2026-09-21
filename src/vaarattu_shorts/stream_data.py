@@ -68,7 +68,7 @@ def search(metadata, check=lambda: None):
         with httpx.Client(timeout=15, trust_env=False) as client:
             check()
             params = {"q": metadata.get("title", "")[:300], "limit": 10}
-            if metadata.get("id"):
+            if metadata.get("id") and metadata.get("provider", "youtube") == "youtube":
                 params["youtubeId"] = metadata["id"]
             response = client.get(f"{BASE}/streams/search", params=params)
             if response.status_code not in {400, 404}:

@@ -339,12 +339,14 @@ ID exactly once with a brief concrete reason. Abbreviated excerpts are incomplet
     return rate_cards(cards, evaluator, system, "episode-screen", "Assessing source scenes", warnings)
 
 
-def assemble(pool, rankings, items, floor=FINAL_SCORE_FLOOR):
+def assemble(pool, rankings, items, floor=FINAL_SCORE_FLOOR, compiled_spans=None):
+    if compiled_spans is None:
+        compiled_spans = {s["beat"]["id"]: compiled(s, items) for s in pool}
     lookup = {s["beat"]["id"]: s for s in pool}
     picked, decisions, used = [], [], []
     for rating in sorted(rankings, key=lambda r: -r["score"]):
         seq = lookup[rating["id"]]
-        spans = compiled(seq, items)
+        spans = compiled_spans[rating["id"]]
         length = seconds(spans)
         reason = "selected"
         if seq.get("excluded_as_duplicate_of"):
@@ -358,12 +360,14 @@ def assemble(pool, rankings, items, floor=FINAL_SCORE_FLOOR):
             used.extend(spans)
         decisions.append({**rating, "edited_seconds": round(length, 2), "decision": reason})
     order = {u["asset"]: i for i, u in enumerate(items)}
-    picked.sort(key=lambda s: (order[compiled(s, items)[0]["asset"]], compiled(s, items)[0]["start_us"]))
+    picked.sort(key=lambda s: (order[compiled_spans[s["beat"]["id"]][0]["asset"]],
+                               compiled_spans[s["beat"]["id"]][0]["start_us"]))
     return picked, decisions
 
 
-def timeline(sequences, items):
-    spans = [{**span, "sequence": s["beat"]["id"]} for s in sequences for span in compiled(s, items)]
+def timeline(sequences, items, compiled_spans=None):
+    spans = [{**span, "sequence": s["beat"]["id"]} for s in sequences
+             for span in (compiled_spans[s["beat"]["id"]] if compiled_spans is not None else compiled(s, items))]
     order = {u["asset"]: i for i, u in enumerate(items)}
     spans.sort(key=lambda s: (order[s["asset"]], s["start_us"]))
     cursor = 0

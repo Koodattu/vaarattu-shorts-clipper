@@ -63,9 +63,10 @@ YouTube visibility is public. Instagram videos use Reel format and share to the 
 - **Preview publish now** submits one clip to the selected channels immediately.
 - **Choose posting time** accepts a local date/time and an IANA time zone, defaulting
   to Europe/Helsinki. Missing or ambiguous daylight-saving times are rejected.
-- For one video per day, first make a plan in **Posting & cleanup** using your chosen
-  time and zone. Select up to ten entries in Publishing, then **Preview selected daily
-  posts**. The stored dates and source order are preserved; this does not use Buffer's
+- **Fill scheduled queue** schedules one ready clip per day without a separate local
+  planning step. **Ready for posting** clips appear in Publishing automatically.
+- To choose dates with a local plan instead, expand **Manual posting & saved plans**
+  within Publishing. Select up to ten entries, then **Preview selected daily posts**. The stored dates and source order are preserved; this does not use Buffer's
   own recurring time slots.
 
 The individual and selected-batch options open a preview with the exact video revision, caption, destination

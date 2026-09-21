@@ -18,7 +18,18 @@ waits for that input before making a model request. Guidance does not authorize 
 deletion or timing changes. Existing per-word validation and individual acceptance still apply.
 The tighter-edit dialog embeds and reloads the current revision's video for checking passages.
 
-## Posting & cleanup page
+## Publishing
+
+Marking a clip **Ready for posting** puts it in **Publishing** automatically.
+Cleanup and a local posting plan are not prerequisites. **Fill scheduled queue**
+schedules eligible ready clips directly; individual clips can also be published
+now or scheduled for a specific time while other clips still await review.
+
+**Manual posting & saved plans** is an optional section within Publishing.
+It preserves local planning, video downloads and manual posted-link tracking.
+**Accounts & storage connections** contains account setup and channel selection.
+
+### Optional local posting plan
 
 The daily plan accepts a start date, posting time and IANA time zone such as Europe/Helsinki.
 It includes only final clips from recordings whose clips are all either Not approved or Ready
@@ -45,8 +56,9 @@ manual URL is a human assertion, separate from Buffer-confirmed publication stat
 ## Cleanup behavior
 
 Cleanup is explicit and applies to one completed recording. Every saved clip must have a final
-decision. Held clips without a playable preview can be explicitly marked Not approved on this page;
-open their recording first to inspect the issue. Completed recordings with no candidates can also
+decision. The **Cleanup** page lists eligible recordings first and keeps unfinished
+recordings in a separate disclosure. Open a recording to inspect held clips and make
+their review decisions. Completed recordings with no candidates can also
 be cleaned. Other recordings can continue processing.
 
 **Preview cleanup** lists the exact media files, recoverable bytes and number of kept videos.

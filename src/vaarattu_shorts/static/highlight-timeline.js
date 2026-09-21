@@ -7,8 +7,9 @@ function highlightClock(seconds){
 function highlightTimelineModel(sources,plan){
   let offset=0,output=0;
   const parts=sources.map(source=>{
-    const duration=Math.max(Number(source.duration)||0,...(plan.retained||[]).filter(r=>r.asset===source.asset).map(r=>r.end_us/1e6));
-    const part={...source,offset,duration};offset+=duration;return part;
+    const sourceStart=(source.selection_start_us||0)/1e6;
+    const duration=source.selection_end_us!==undefined?source.selection_end_us/1e6-sourceStart:Math.max(Number(source.duration)||0,...(plan.retained||[]).filter(r=>r.asset===source.asset).map(r=>r.end_us/1e6));
+    const part={...source,offset,duration,sourceStart};offset+=duration;return part;
   });
   const scores=new Map((plan.rankings||[]).map(r=>[r.id,r]));
   const ranges=(plan.retained||[]).map(span=>{
@@ -19,7 +20,7 @@ function highlightTimelineModel(sources,plan){
     const frames=Math.max(1,rawFrames-base===0.5?base+(base%2):Math.round(rawFrames));
     const duration=frames/30;
     const range={...span,sourceStart:span.start_us/1e6,sourceEnd:span.end_us/1e6,
-      start:part.offset+span.start_us/1e6,end:part.offset+span.end_us/1e6,
+      start:part.offset+span.start_us/1e6-part.sourceStart,end:part.offset+span.end_us/1e6-part.sourceStart,
       outputStart:output,outputEnd:output+duration,part,ranking:scores.get(span.sequence)};
     output+=duration;return range;
   }).filter(Boolean);
@@ -66,7 +67,8 @@ function paintHighlightTimeline(){
   const step=[1,2,5,10,15,30,60,120,300,600,900,1800,3600,7200,14400,86400].find(n=>n>=target)||86400;
   for(let t=0;t<model.duration;t+=step){const tick=text("span",highlightClock(t));tick.style.left=`${t/model.duration*100}%`;ruler.append(tick);}
   for(const part of model.parts){
-    const label=text("span",part.title||part.asset);label.title=part.title||part.asset;
+    const title=(part.title||part.asset)+(part.selection_end_us!==undefined?` · ${highlightClock(part.sourceStart)}–${highlightClock(part.sourceStart+part.duration)}`:"");
+    const label=text("span",title);label.title=title;
     label.style.left=`${part.offset/model.duration*100}%`;label.style.width=`${part.duration/model.duration*100}%`;parts.append(label);
   }
   model.ranges.forEach(range=>{

@@ -1,4 +1,4 @@
-"""Source manifests for landscape highlights; shorts retain their YouTube adapter."""
+"""Highlight source manifests and shared Twitch acquisition."""
 from __future__ import annotations
 
 import json
@@ -6,29 +6,13 @@ import re
 import shutil
 import sqlite3
 from pathlib import Path
-from urllib.parse import urlparse
 
 from . import catalog, youtube
-from .contracts import video_id
+from .contracts import source_url
 from .processes import run_tool
 from .storage import digest
 
 PART = re.compile(r"\s*\((?:part|osa)\s+(\d+)\s*/\s*(\d+)\)\s*$", re.I)
-
-
-def source_url(value):
-    value = value.strip()
-    parsed = urlparse(value)
-    if parsed.hostname in {"twitch.tv", "www.twitch.tv", "m.twitch.tv"}:
-        match = re.fullmatch(r"/videos/(\d+)/?", parsed.path)
-        if parsed.scheme not in {"https", "http"} or not match or parsed.username or parsed.port:
-            raise ValueError("Use a completed Twitch VOD URL, such as https://www.twitch.tv/videos/123456.")
-        return "twitch", match[1], f"https://www.twitch.tv/videos/{match[1]}"
-    try:
-        identity = video_id(value)
-    except ValueError:
-        raise ValueError("Enter a YouTube video or a completed Twitch VOD URL.") from None
-    return "youtube", identity, f"https://www.youtube.com/watch?v={identity}"
 
 
 def part_info(title):
@@ -77,12 +61,12 @@ def metadata(settings, value, folder, check=lambda: None):
             "upload_date": info.get("upload_date")}
 
 
-def resolve(settings, store, urls, folder):
+def resolve(settings, store, urls, folder, *, collection=False, match_parts=True):
     normalized = list(dict.fromkeys(source_url(u)[2] for u in urls))
     if not 1 <= len(normalized) <= 30:
         raise ValueError("Enter between one and 30 source URLs.")
     first = metadata(settings, normalized[0], folder / "0")
-    if len(normalized) == 1 and first["provider"] == "youtube" and part_info(first["title"]):
+    if match_parts and len(normalized) == 1 and first["provider"] == "youtube" and part_info(first["title"]):
         base, _, total = part_info(first["title"])
         for attempt in range(6):
             matches = [v for v in store.videos(settings.youtube_channel_id)
@@ -98,18 +82,72 @@ def resolve(settings, store, urls, folder):
             catalog.fetch_page(settings, store, older=bool(saved))
     sources = [first if u == first["url"] else metadata(settings, u, folder / str(i + 1))
                for i, u in enumerate(normalized)]
-    if len(sources) > 1:
+    if len(sources) > 1 and not collection:
         if any(s["provider"] != "youtube" or s["owner"] != first["owner"] for s in sources):
             raise ValueError("Combine only YouTube parts of the same recording; use one Twitch VOD URL.")
         sources = ordered_parts(sources)
-    elif sources[0]["provider"] == "youtube":
+    elif not collection and sources[0]["provider"] == "youtube":
         ordered_parts(sources)
     for i, source in enumerate(sources):
         source["asset"] = f"s{i}"
-    return {"title": PART.sub("", sources[0]["title"]).strip(), "sources": sources,
+    return {"title": (f"Highlights from {len(sources)} recordings" if collection and len(urls) > 1
+                       else PART.sub("", sources[0]["title"]).strip()), "sources": sources,
             "duration": sum(s["duration"] for s in sources),
-            "notes": (["Part boundaries stay separate; footage is never joined across an unverified seam."]
+            "notes": (["Recordings stay separate during analysis and are assembled in the order shown."]
                       if len(sources) > 1 else [])}
+
+
+def select_manifest(manifest, segments=None, title=""):
+    if segments is None:
+        return {**manifest, "title": title.strip() or manifest["title"]}
+    lookup = {s["asset"]: s for s in manifest["sources"]}
+    selected, seen = [], set()
+    for segment in segments:
+        asset, start, end = segment["asset"], segment["start_us"], segment["end_us"]
+        if asset not in lookup or asset in seen:
+            raise ValueError("Choose each loaded recording at most once.")
+        source = lookup[asset]
+        if not 0 <= start < end <= round(source["duration"]*1e6):
+            raise ValueError("Each selected range must start before its end and stay inside the recording.")
+        seen.add(asset)
+        selected.append({**source, "selection_start_us": start, "selection_end_us": end})
+    if not selected:
+        raise ValueError("Include at least one recording range.")
+    return {**manifest, "title": title.strip() or manifest["title"], "sources": selected,
+            "duration": sum(s["selection_end_us"]-s["selection_start_us"] for s in selected)/1e6}
+
+
+def selection_bounds(source):
+    return source.get("selection_start_us", 0), source.get("selection_end_us", round(source["duration"]*1e6))
+
+
+def selected_transcript(transcript, source, offset_us=0):
+    """Keep original VOD timestamps; only fully included words can reach the editor."""
+    if "selection_start_us" not in source and not offset_us:
+        return transcript
+    start, end = selection_bounds(source)
+    def shift(item):
+        return {**item, "start_us": item["start_us"]+offset_us, "end_us": item["end_us"]+offset_us}
+    words = [shift(w) for w in transcript["words"]
+             if start <= w["start_us"]+offset_us and w["end_us"]+offset_us <= end]
+    issues = [shift(i) for i in transcript.get("timing_issues", [])
+              if i["end_us"]+offset_us > start and i["start_us"]+offset_us < end]
+    coverage = [[max(start, a+offset_us), min(end, b+offset_us)]
+                for a, b in transcript.get("coverage", [[0, transcript["duration_us"]]])
+                if b+offset_us > start and a+offset_us < end]
+    return {**transcript, "words": words, "timing_issues": issues, "coverage": coverage,
+            "duration_us": round(source["duration"]*1e6), "selection_start_us": start,
+            "selection_end_us": end, "asr_offset_us": offset_us}
+
+
+def validate_selection(plan, sources):
+    lookup = {s["asset"]: selection_bounds(s) for s in sources}
+    for span in plan["retained"]:
+        if span["asset"] not in lookup:
+            raise ValueError("The edit references a recording outside this project.")
+        start, end = lookup[span["asset"]]
+        if not start <= span["start_us"] < span["end_us"] <= end:
+            raise ValueError("The edit reaches outside a selected recording range. Rebuild this draft.")
 
 
 def acquire(settings, source, folder, check, interval=None):
@@ -142,7 +180,7 @@ def acquire(settings, source, folder, check, interval=None):
     return path
 
 
-def reusable_transcript(settings, source, manifests):
+def _shorts_transcript(settings, source, manifests):
     """Find verified full-source artifacts; callers copy them before depending on them."""
     database = settings.work / "state.sqlite3"
     if source["provider"] != "youtube" or not database.is_file():
@@ -167,3 +205,42 @@ def reusable_transcript(settings, source, manifests):
         except (OSError, ValueError, KeyError):
             continue
     return None
+
+
+def reusable_transcript(settings, source, manifests):
+    reused = _shorts_transcript(settings, source, manifests)
+    if reused:
+        return reused
+    database = settings.work / "highlights" / "state.sqlite3"
+    if not database.is_file():
+        return None
+    with sqlite3.connect(database.as_uri()+"?mode=ro", uri=True) as db:
+        rows = db.execute("SELECT id,config FROM runs WHERE state='completed' ORDER BY created DESC").fetchall()
+    audio_only = None
+    start, end = selection_bounds(source)
+    for identity, raw in rows:
+        config = json.loads(raw)
+        for old in config.get("manifest", {}).get("sources", []):
+            if (old["provider"], old["id"]) != (source["provider"], source["id"]):
+                continue
+            folder = settings.work / "highlights" / "runs" / identity
+            try:
+                audio = json.loads((folder / f"audio-{old['asset']}.checkpoint.json").read_text("utf-8"))
+                if abs(audio["result"]["duration"]-source["duration"]) > 3:
+                    continue
+                if not audio["artifacts"] or any(not Path(a["path"]).is_file() or digest(Path(a["path"])) != a["sha256"] for a in audio["artifacts"]):
+                    continue
+                audio_only = audio_only or {"audio": audio["result"], "transcript": None}
+                if config.get("model_manifests", {}).get("turbo") != manifests.get("turbo"):
+                    continue
+                saved = json.loads((folder / f"transcript-{old['asset']}.checkpoint.json").read_text("utf-8"))
+                transcript = saved["result"]
+                coverage = transcript.get("coverage", [[0, transcript["duration_us"]]])
+                if not any(a <= start < end <= b for a, b in coverage):
+                    continue
+                if not saved["artifacts"] or any(not Path(a["path"]).is_file() or digest(Path(a["path"])) != a["sha256"] for a in saved["artifacts"]):
+                    continue
+                return {"audio": audio["result"], "transcript": transcript}
+            except (OSError, ValueError, KeyError):
+                continue
+    return audio_only

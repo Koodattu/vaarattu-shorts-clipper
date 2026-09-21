@@ -10,7 +10,7 @@ let clipPage = 0, displayedRun = null;
 let runList = [], detailSignature = "", clipsSignature = "", runListSignature = "", currentView = "library";
 const labels = {local:"Local · Gemma 4",gemini:"Gemini 3.8 Flash",openai:"GPT-5.6 Luna",codex:"Codex",zai:"GLM-5.3-Flash",deepseek:"DeepSeek V4 Flash",meta:"Meta Muse Spark 1.3"};
 function showView(view){
-  const names={library:"Video library",gallery:"Clip gallery",review:"Review queue",process:"New run",results:"Runs & clips",layouts:"Layout presets",editor:"Edit clip",delivery:"Posting & cleanup",publishing:"Publishing",highlights:"Highlights"};
+  const names={library:"Video library",gallery:"Clip gallery",review:"Review queue",process:"New run",results:"Runs & clips",layouts:"Layout presets",editor:"Edit clip",delivery:"Cleanup",publishing:"Publishing",highlights:"Highlights"};
   if(!names[view])return;
   if(currentView!==view){
     $("notice").hidden=true;
@@ -49,8 +49,11 @@ function goView(view){
 function error(message){$("error").textContent=message;$("error").hidden=!message;if(message){$("notice").hidden=true;$("error").scrollIntoView({behavior:"auto"});}}
 async function api(path, options={}){
   const response=await fetch(path,{...options,headers:{"Content-Type":"application/json","X-Local-Token":token,...options.headers}});
-  const value=await response.json();
-  if(!response.ok) throw new Error(typeof value.detail==="string"?value.detail:"Check the form fields and try again.");
+  const serverError=`The server could not complete this request (HTTP ${response.status}). Refresh the page to check its status before retrying.`;
+  let value;
+  try{value=await response.json();}
+  catch{throw new Error(response.ok?"The server returned an unreadable response. Refresh the page to check its status before retrying.":serverError);}
+  if(!response.ok) throw new Error(typeof value?.detail==="string"?value.detail:response.status>=500?serverError:"Check the form fields and try again.");
   return value;
 }
 function action(label, fn, secondary=true){const button=document.createElement("button");button.type="button";button.textContent=label;if(secondary)button.className="secondary";button.onclick=()=>Promise.resolve(fn()).catch(e=>error(e.message));return button;}
@@ -141,6 +144,7 @@ async function findStream(){
   try{
     const result=await api(`/api/streams/search?video=${encodeURIComponent($("video").value)}&q=${encodeURIComponent($("stream-query").value)}`);
     if(request!==streamLookup)return;
+    if(!$("stream-query").value.trim()&&result.recording_title)$("stream-query").value=result.recording_title;
     if(result.status==="unavailable"){$("stream-match-status").textContent="Stream search is unavailable. You can enter a stream ID or continue without chat peaks.";return;}
     const suggested=result.matches.find(match=>match.id===result.suggestedStreamId);
     $("stream-match-status").textContent=result.matches.length?"Choose a stream below, or enter its ID.":"No matching stream found. Try another title or enter the stream ID.";
@@ -175,6 +179,11 @@ $("older-videos").onclick=()=>fetchVideos("older");
 $("show-videos").onclick=()=>{videoPage++;paintLibrary();$("channel-videos").scrollTop=0;};
 $("previous-videos").onclick=()=>{videoPage--;paintLibrary();$("channel-videos").scrollTop=0;};
 for(const id of ["video-search","video-filter"])$(id).oninput=()=>{videoPage=0;paintLibrary();};
+function recordingContextUrl(value,startUs){
+  const seconds=Math.max(0,Math.floor(startUs/1e6)-10);
+  if(value.startsWith("https://www.twitch.tv/videos/"))return `${value}?t=${Math.floor(seconds/3600)}h${Math.floor(seconds%3600/60)}m${seconds%60}s`;
+  return `https://www.youtube.com/watch?v=${encodeURIComponent(value)}&t=${seconds}s`;
+}
 async function detail(){
   if(!activeRun){$("run-detail").replaceChildren(text("h3","Your first run starts here"),text("p","Choose a recording from the library, then start a new run. Its progress and clips will appear here.","muted"));$("clips").replaceChildren();$("clip-count").textContent="0 clips";return;}
   const run=await api(`/api/runs/${activeRun}`);
@@ -221,7 +230,7 @@ async function detail(){
       for(const reason of item.exclusion_reasons||[])audit.append(text("p",reason));
       for(const reason of item.review_exclusion_reasons||[])audit.append(text("p",reason));
       if(item.priority_reason)audit.append(text("p",item.priority_reason));
-      const original=text("a","Watch original context");original.href=`https://www.youtube.com/watch?v=${encodeURIComponent(run.config.video)}&t=${Math.max(0,Math.floor(item.start_us/1e6)-10)}s`;original.target="_blank";original.rel="noopener";audit.append(original);
+      const original=text("a","Watch original context");original.href=recordingContextUrl(run.config.video,item.start_us);original.target="_blank";original.rel="noopener";audit.append(original);
       for(const note of item.review_notes||[])audit.append(text("p",note));
       for(const flag of c.flags||[])audit.append(text("p",flag,"muted"));
     }
@@ -251,6 +260,12 @@ function paintClips(){
     for(const flag of clip.flags||[])body.append(text("p",flag,"clip-flag"));
     const buttons=text("div","","actions");buttons.append(action("Edit clip",()=>openEditor(clip.id),false));
     if(["held","ready"].includes(clip.status))buttons.append(action(clip.status==="held"?"Retry render":"Render new revision",async()=>{await api(`/api/clips/${clip.id}/retry`,{method:"POST",body:JSON.stringify({expected_revision:clip.revision})});await refresh();}));
+    if(run.state==="completed"&&clip.status==="held"){
+      if(clip.review_status==="not_approved")body.append(text("p","Not approved","muted"));
+      else buttons.append(action("Mark not approved",async()=>{
+        await api(`/api/clips/${clip.id}/review`,{method:"POST",body:JSON.stringify({expected_revision:clip.revision,status:"not_approved"})});await refresh();
+      }));
+    }
     const link=document.createElement("a");link.href=`${clip.source_url}&t=${Math.floor(clip.start_us/1e6)}`;link.target="_blank";link.rel="noopener";link.textContent="Original VOD ↗";buttons.append(link);body.append(buttons);
     if(clip.status==="ready"&&clip.has_preview){const download=document.createElement("a");download.href=`/api/artifacts/${clip.id}/video?revision=${clip.revision}`;download.download="short.mp4";download.textContent="Download vertical video ↓";body.append(download);}
     card.append(body);grid.append(card);

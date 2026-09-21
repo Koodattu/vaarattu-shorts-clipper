@@ -129,3 +129,19 @@ test("a new video revision does not reuse unsaved text from the old revision",as
   await nodes.get("refresh-publishing").onclick();
   assert.equal(find("Post caption").children[0].value,"");
 });
+
+
+test("ready clips publish without a local plan and connected accounts stay out of the main workflow",async()=>{
+  const {nodes,state,writes,find,data}=fixture();state.storage=true;state.buffer=true;
+  await nodes.get("refresh-publishing").onclick();
+  assert.equal(nodes.get("publishing-fill").disabled,false);
+  assert.equal(find("Choose posting time").disabled,false);
+  assert.equal(nodes.get("publishing-plan-actions").hidden,true);
+  assert.equal(nodes.get("publishing-connections").open,false);
+  assert.match(nodes.get("publishing-connection-status").textContent,/Ready to publish/);
+  assert.equal(writes.length,0);
+  data.clips[0].plan={scheduled_at:"2030-01-01T16:00:00Z",timezone:"Europe/Helsinki"};
+  await nodes.get("refresh-publishing").onclick();
+  assert.equal(nodes.get("publishing-plan-actions").hidden,false);
+  assert.equal(writes.length,0);
+});

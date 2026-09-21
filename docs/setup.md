@@ -145,6 +145,27 @@ Each run now displays request count, reported input/output tokens, reported cach
 
 ## Run one video later
 
+### Clip a Twitch recording
+
+In **New run**, paste a completed public Twitch VOD URL such as
+`https://www.twitch.tv/videos/1234567890` into **YouTube or Twitch recording**.
+Choose the usual layout and processing settings, then start the run. Clipping
+uses the same transcription, ranking, captions, review and rendering pipeline as
+YouTube. Revised clips also download their additional footage from Twitch.
+A URL's playback timestamp does not restrict the clipping run: the whole VOD is
+scanned. Live channels and Twitch clip URLs are not supported.
+
+Twitch uses the existing yt-dlp adapter and needs no YouTube API key. Private,
+subscriber-only, deleted or expired recordings may be unavailable; browser cookies
+are not imported. The video library remains a YouTube channel browser.
+
+Optional chat matching reads the Twitch recording title automatically. A match
+still needs a confirmed timing offset before chat peaks can influence selection;
+a Twitch VOD ID is never treated as a YouTube association.
+
+After installing this change, let any current run finish and restart the app and
+worker normally, then refresh the page. Existing YouTube runs remain compatible.
+
 ### Browse your YouTube channel
 
 Set these entries in the project's ignored `.env` (they have been added without replacing existing entries):

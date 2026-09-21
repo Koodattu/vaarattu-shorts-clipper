@@ -11,7 +11,7 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
-from . import highlight_episode as editing, highlight_sources as sources, render, transcribe, youtube
+from . import highlight_copy, highlight_episode as editing, highlight_sources as sources, render, transcribe, youtube
 from .contracts import Contract
 from .llm import Evaluator, ModelOutputError
 from .pipeline import Pipeline, check_space
@@ -20,8 +20,16 @@ from .processes import Interrupted, ToolError, run_tool
 from .storage import Store, atomic_json, digest
 
 
+class SourceRange(Contract):
+    asset: str = Field(pattern=r"^s[0-9]+$")
+    start_us: int = Field(ge=0)
+    end_us: int = Field(gt=0)
+
+
 class Start(Contract):
     manifest_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    project_title: str = Field(default="", max_length=150)
+    segments: list[SourceRange] | None = Field(default=None, min_length=1, max_length=30)
     target_minutes: int | None = Field(default=None, exclude=True, description="Legacy setting; ignored. Length follows the selected content.")
     provider: Literal["local", "gemini", "openai", "codex", "zai", "deepseek", "meta"] = "codex"
     local_model: Literal["gemma4-31b", "gemma4-26b-a4b"] = "gemma4-31b"
@@ -97,6 +105,7 @@ def control(store, run_id, action, revision, guidance="", restore=None):
 
 
 def public(settings, store, run):
+    from . import highlight_thumbnails
     result = run["result"]
     revision = result.get("revision", 1)
     folder = revision_folder(settings, run["id"], revision)
@@ -106,6 +115,7 @@ def public(settings, store, run):
     for request in requests:
         step = request.get("step", "")
         label = ("Discovery" if step.startswith("scan-") else "First ranking" if step.startswith("episode-screen")
+                 else "Title and description" if step.startswith("highlight-copy")
                  else "Edited ranking" if step.startswith("episode-rank") else "Pacing review" if step.startswith("episode-critic")
                  else "Scene editing")
         phase = phases.setdefault(label, {"requests": 0, "retries": 0, "seconds": 0})
@@ -122,6 +132,8 @@ def public(settings, store, run):
             "warnings": result.get("warnings", []), "metrics": result.get("metrics", {}),
             "review": result.get("review"), "history": result.get("history", []),
             "selection_preview": result.get("selection_preview"),
+            "publishing_copy": highlight_copy.get(settings, run),
+            "thumbnails": highlight_thumbnails.public(settings, run),
             "activity": {"request_count": len(requests), "phases": phases,
                          "thinking": result.get("editing_reasoning", run["config"].get("verification_reasoning", "low"))},
             "usage": {k: v for k, v in usage.items() if k != "requests"}}
@@ -201,6 +213,8 @@ class Highlights(Pipeline):
         result = self.store.get(self.run_id)["result"]
         if result.get("mode") == "final":
             return self.render_final(result)
+        if result.get("mode") == "selection":
+            return self.render_selection(result)
         for key, expected in self.config["model_manifests"].items():
             if digest(self.settings.models / key / "manifest.json") != expected:
                 raise ValueError("A selected model changed. Start a new highlight run.")
@@ -229,12 +243,26 @@ class Highlights(Pipeline):
 
             def transcript():
                 folder = self.folder / asset / "asr"
-                if reuse:
-                    result = reuse["transcript"]
-                    atomic_json(folder / "transcript.json", result)
+                if reuse and reuse["transcript"] is not None:
+                    result = sources.selected_transcript(reuse["transcript"], source)
                 else:
-                    result = transcribe.transcribe(self.settings, Path(audio[asset]["path"]), audio[asset]["duration"],
-                                                  "turbo", folder, self.check, self.progress)
+                    start, end = sources.selection_bounds(source)
+                    partial = start != 0 or end != round(source["duration"]*1e6)
+                    path = Path(audio[asset]["path"])
+                    cropped = folder / "selected.wav"
+                    if partial:
+                        run_tool([self.settings.ffmpeg, "-nostdin", "-v", "error", "-y", "-ss", f"{start/1e6:.6f}",
+                                  "-i", path, "-t", f"{(end-start)/1e6:.6f}", "-vn", "-ac", "1", "-ar", "16000",
+                                  "-c:a", "pcm_s16le", cropped], self.settings, folder, "selected-audio", self.check, timeout=1800)
+                        path = cropped
+                    try:
+                        raw = transcribe.transcribe(self.settings, path, (end-start)/1e6 if partial else audio[asset]["duration"],
+                                                   "turbo", folder, self.check, self.progress)
+                        result = sources.selected_transcript(raw, source, start if partial else 0)
+                    finally:
+                        if partial:
+                            cropped.unlink(missing_ok=True)
+                atomic_json(folder / "transcript.json", result)
                 return result, [folder / "transcript.json"]
 
             transcripts[asset] = self.stage(f"transcript-{asset}", transcript)
@@ -257,11 +285,19 @@ class Highlights(Pipeline):
                     codex_config=self.config.get("codex"), discovery_reasoning=result.get("editing_reasoning", self.config["discovery_reasoning"]),
                     verification_reasoning=result.get("editing_reasoning", self.config["verification_reasoning"]))
                 plan = editing.plan(items, evaluator, self.progress, previous=previous, guidance=result.get("guidance", ""),
-                                    final_score_floor=self.config.get("final_score_floor", editing.FINAL_SCORE_FLOOR))
+                                    final_score_floor=result.get("final_score_floor", self.config.get("final_score_floor", editing.FINAL_SCORE_FLOOR)))
             atomic_json(folder / "plan.json", plan)
             return plan, [folder / "plan.json"]
 
         plan = self.stage(f"edit-{revision}", editing_stage, editing.VERSION)
+        return self.render_draft(result, plan, audio)
+
+    def render_draft(self, result, plan, audio=None, cached_media=()):
+        sources.validate_selection(plan, self.config["manifest"]["sources"])
+        revision = result.get("revision", 1)
+        folder = revision_folder(self.settings, self.run_id, revision)
+        checked_media = {}
+        audio = {} if audio is None else dict(audio)
         self.store.update(self.run_id, result={**result, "selection_preview": {
             "score_floor": plan.get("final_score_floor", 60), "scenes": len(plan["sequences"]),
             "duration": plan["duration"]}})
@@ -278,9 +314,28 @@ class Highlights(Pipeline):
                     windows.append([start, end])
             for i, (start, end) in enumerate(windows):
                 def section():
+                    for saved in cached_media:
+                        if saved["asset"] != asset or saved["start_us"] > round(start*1e6) or saved["end_us"] < round(end*1e6):
+                            continue
+                        path = Path(saved["path"])
+                        if str(path) not in checked_media:
+                            checked_media[str(path)] = digest(path) if path.is_file() else None
+                        if checked_media[str(path)] == saved.get("sha256"):
+                            return saved, [path]
+                    if asset not in audio:
+                        checkpoint = self.folder / f"audio-{asset}.checkpoint.json"
+                        if not checkpoint.is_file():
+                            raise ValueError("Original audio is missing. Restore it before fetching additional footage.")
+                        saved_audio = json.loads(checkpoint.read_text("utf-8"))
+                        for artifact in saved_audio["artifacts"]:
+                            path = Path(artifact["path"])
+                            if not path.is_file() or digest(path) != artifact["sha256"]:
+                                raise ValueError("Original audio is missing or changed. Restore it before fetching additional footage.")
+                        audio[asset] = saved_audio["result"]
+                    audio_path = audio[asset]["path"]
                     where = self.folder / "sections" / f"{asset}-{start:.3f}-{end:.3f}"
                     path = sources.acquire(self.settings, source, where, self.check, (start, end))
-                    mapping = render.align(self.settings, Path(audio[asset]["path"]), path, start, where,
+                    mapping = render.align(self.settings, Path(audio_path), path, start, where,
                                            self.check, clip_duration=max(6, end-start-40))
                     record = {"asset": asset, "path": str(path), "start_us": round(start*1e6),
                               "end_us": round(end*1e6), "mapping": mapping}
@@ -296,7 +351,23 @@ class Highlights(Pipeline):
                 atomic_json(folder / f"{mode}.json", record)
                 return record, [folder / f"{mode}.mp4", folder / f"{mode}.json"]
             rendered = self.stage(f"render-{revision}-{mode}", output)
+        if rendered and result.get("mode") != "selection":
+            self.store.update(self.run_id, message="Preparing the video title and description.")
+            highlight_copy.automatic(self.settings, self.store, self.run_id, revision)
         return self.finish(result, plan, rendered, mode)
+
+    def render_selection(self, result):
+        folder = revision_folder(self.settings, self.run_id, result["revision"])
+        path = folder / "plan.json"
+        if not path.is_file() or digest(path) != result["plan_sha256"]:
+            raise ValueError("The selected edit changed. Restore the previous draft and choose its score floor again.")
+        plan = json.loads(path.read_text("utf-8"))
+        cached = []
+        for old in reversed(result.get("history", [])):
+            path = revision_folder(self.settings, self.run_id, old["revision"]) / "media.json"
+            if path.is_file() and digest(path) == old.get("media_sha256"):
+                cached.extend(json.loads(path.read_text("utf-8")))
+        return self.render_draft(result, plan, cached_media=cached)
 
     def render_final(self, result):
         revision = result["revision"]
@@ -310,6 +381,7 @@ class Highlights(Pipeline):
                 raise ValueError("The approved edit or its source records changed. Review a new draft before exporting.")
         plan = json.loads((folder / "plan.json").read_text("utf-8"))
         media = json.loads((folder / "media.json").read_text("utf-8"))
+        sources.validate_selection(plan, self.config["manifest"]["sources"])
         for item in media:
             self.check()
             if not Path(item["path"]).is_file() or digest(Path(item["path"])) != item["sha256"]:
@@ -322,13 +394,14 @@ class Highlights(Pipeline):
             return record, [folder / "final.mp4", folder / "final.json"]
 
         rendered = self.stage(f"render-{revision}-final", output)
+        highlight_copy.automatic(self.settings, self.store, self.run_id, revision)
         return self.finish(result, plan, rendered, "final")
 
     def finish(self, result, plan, rendered, mode):
         revision = result.get("revision", 1)
         folder = revision_folder(self.settings, self.run_id, revision)
         history = [h for h in result.get("history", []) if h["revision"] != revision]
-        current = {"revision": revision, "duration": rendered.get("duration", plan["duration"]),
+        current = {"revision": revision, "final_score_floor": plan.get("final_score_floor", 60), "duration": rendered.get("duration", plan["duration"]),
                    "has_draft": bool(plan["retained"]), "has_final": mode == "final" and bool(rendered),
                    "issues": plan["issues"], "warnings": plan.get("warnings", []), "metrics": plan.get("metrics", {}),
                    "parent_revision": result.get("parent_revision"), "guidance": result.get("guidance", ""),

@@ -7,31 +7,46 @@ No separate service or dependency is required.
 
 ## Starting a recording
 
-Paste a completed YouTube or Twitch VOD URL. **Check recording parts** reads the
-source metadata. The library action does this automatically. YouTube titles ending
-in `(Part 1/N)` through `(Part N/N)` (also `Osa`) are matched using the configured
-channel and normalized base title, which includes the recording date when present.
-The resolver searches saved entries and up to six catalogue pages; missing or
-ambiguous parts require entering the complete set of URLs, one per line. Part
-numbers determine order. Unrecognized/zero-based numbering is not guessed.
+Paste completed YouTube or Twitch VOD URLs, one per line, then choose **Load
+recordings**. You can combine independent recordings from either platform in one
+project. Give the project a name, such as the game you are collecting highlights
+from. Each recording has an embedded preview, start/end timestamps, range sliders,
+and buttons to preview either boundary. Enter times as H:MM:SS, MM:SS or seconds.
+Choose one continuous range per recording, exclude recordings with their checkbox,
+and use **Move earlier / Move later** to set the final source order.
 
-Only complete recordings are accepted. YouTube channel validation remains in place.
-Twitch public VOD URLs use the existing yt-dlp dependency, without browser cookies.
-Protected or unavailable sources can fail acquisition; the app does not bypass
-access restrictions. One Twitch VOD is one recording. A Twitch VOD and its YouTube
-archive are not combined as consecutive parts.
+For example, select the Diablo portion from three VODs for one project. After
+starting it, reopen the creation form, change the project name and ranges, and
+create another project for the other game. Choices remain in the form until you
+leave or reload the page. Embeds retain their own playback controls and can play
+past the selected end; processing stays inside the chosen range. If a provider
+blocks embedding, open the original recording and enter its timestamps instead.
 
-Review the matched parts, choose a model provider and encoder, then **Create
-highlight video**. Length follows the worthwhile content. There is no runtime
-floor, ceiling, or scene quota; weak material is not used to fill time.
+For a single YouTube URL, the optional part lookup matches titles ending in
+`(Part 1/N)` through `(Part N/N)` (also `Osa`) using the configured channel and
+normalized base title. It searches saved entries and up to six catalogue pages.
+Disable this lookup to use only that URL. Missing or ambiguous parts can be entered
+manually, one URL per line. Unrecognized/zero-based numbering is not guessed.
+
+Only completed recordings are accepted. YouTube channel validation remains in
+place. Twitch public VOD URLs use yt-dlp without browser cookies. Protected or
+unavailable sources can fail acquisition; access restrictions are not bypassed.
+
+Choose a model provider and encoder, then **Create highlight video**. Length
+follows the worthwhile content. There is no runtime floor, ceiling, or scene
+quota; weak material is not used to fill time.
 Codex uses the configured bridge/model and account allowance; paid API providers
 require a spending limit. Local providers reuse the existing model installation.
 
 ## Processing and review
 
-- Download full audio per source part, then transcribe with Turbo. Compatible,
-  hash-verified audio and full transcripts from shorts runs are copied into the
-  highlights workspace when available. Copies protect them from shorts cleanup.
+- Retain full audio per recording for alignment, but transcribe only its chosen
+  range with Turbo. Compatible, hash-verified audio and transcripts from shorts
+  or completed highlight projects are copied into the new workspace. A transcript
+  is reused only when it covers the requested range. Copies protect projects from
+  cleanup of the originals. Transcripts and edits retain original VOD timestamps.
+  Only words wholly inside the chosen range reach the editor, and rendering
+  rejects retained sections outside those boundaries.
 - Map source scenes in six-minute transcript cores with 90 seconds of context.
   Enjoyable commentary, personality and exchanges qualify without a standalone
   punchline. Routine chatter and filler do not. Low discovery reasoning is unchanged.
@@ -62,6 +77,7 @@ require a spending limit. Local providers reuse the existing model installation.
 - Review playback. **Revise draft** edits selected scenes and reuses the saved
   scene pool. **Rebuild from full recording** maps and edits the full saved
   transcript again using current instructions, retaining the earlier draft for comparison.
+  For a range-based project, rebuilding stays within its saved source selections.
   Revising an old highlights-v1/v2 draft also rebuilds selection because it lacks an
   edited scene pool. **Restore this draft** restores a saved revision, and future
   changes still get a new revision number. Saved final approvals always render their
@@ -225,3 +241,79 @@ rounding. Zoom up to 64x and scroll horizontally for short cuts; Fit recording
 restores the overview, and Show playhead locates the current playback position.
 Polling preserves zoom, scroll and playback. This is a read-only view of the saved
 revision, so it adds no model calls and does not change or re-render the video.
+
+
+## Video title and description
+
+After a draft renders, one bounded low-thinking request writes a Finnish title
+and a conversational description, usually 80-140 words in two short paragraphs.
+It considers retained speech, edited scene durations, output positions, and recurring
+themes across the whole video; quality scores are secondary to representativeness.
+Regeneration starts fresh without the previous wording or its previous guidance.
+Only guidance currently supplied by the user is applied. Very long edits use
+explicitly labelled excerpts from every retained scene to stay within the model input budget, without another summarization pass.
+Removed speech, source titles, and editorial notes are not evidence for the text.
+Model service failures use the existing timed retries; if generation still fails,
+the video remains available and the text can be retried or entered manually.
+
+The Highlights review page exposes title, description, optional generation guidance,
+and Generate/Regenerate and Save text buttons. Existing drafts can generate text
+without a new render. Text is saved separately for each revision and edit fingerprint;
+restoring a revision restores its text. Final 1080p rendering reuses any saved text,
+including manual changes. Concurrent saves and responses for stale revisions are
+rejected. No upload or publishing action is triggered by preparing this text.
+
+
+### Frame-based YouTube thumbnails
+
+After a draft or final video completes, pause its player and choose **Use current frame for thumbnail**.
+Review the captured frame, optionally describe the composition/style or exact text, choose low/medium/high
+quality and click **Generate thumbnail**. The generator uses `gpt-image-2.5-sunburst` through OpenAI's
+Images edits API at 1536x864 (16:9), returning a downloadable JPEG. It sends the captured frame, saved
+title/description and instructions; no full video or public hosting is required. Save posting text first.
+
+Set `OPENAI_API_KEY` in the local ignored `.env` and restart normally. Image API billing and model access
+are separate from the Codex bridge, ChatGPT subscription and the recording's text-model budget.
+Generation only happens on request and does not alter the video, approval, editing queue or publishing.
+Thumbnails and original frames are kept under that revision's `thumbnails/` folder; generating another
+keeps all earlier candidates. Download the preferred image for manual upload to YouTube.
+
+Repeated requests with the same request ID do not create another paid generation. Requests run separately
+from the video worker, with one thumbnail request per revision at a time. There is no automatic retry of
+ambiguous image-service failures: a timeout can still incur a charge. Refresh thumbnails after a lost
+connection. A request interrupted by an app restart stays marked as requested; check API usage before
+starting a new one. Previous revisions keep their own images.
+
+
+### Preview a different score floor
+
+After scene analysis is saved, **Score floor preview** provides a 0-100 slider and exact-score field.
+Moving it instantly shows predicted length, scene count, retained sections and scenes added/removed.
+The preview uses the whole saved edited pool, so lowering the floor can restore omitted scenes;
+early discovery rejects and scenes discarded as duplicates are not restored. Existing cuts and
+required setup inside each scene stay together. Duplicate, overlap and discard checks still apply.
+Duration uses the renderer's per-section 30 fps rounding, including preserved pauses.
+
+The slider is read-only until **Render new draft with this floor** is pressed after processing finishes.
+The new revision preserves earlier drafts, reuses verified downloaded footage and fetches missing
+sections if needed. It does not rerun transcription, scoring, editing or automatic posting-copy generation.
+The player and source timeline continue to describe the existing video until the new draft is ready.
+An empty selection or an unchanged edit cannot be rendered. Review the new joins and regenerate title,
+description and thumbnail as needed. New recordings still use the initial score setting and automatic
+first draft; this control previews adjustments once scene analysis exists.
+
+
+### Highlights workspace
+
+The selected recording and its player are the main workspace. Use the recording selector to switch
+videos, or expand **New highlight video** to start another. The creation form is open automatically
+when no recordings exist; model, initial score and encoder options are under **Model, score & encoding**.
+
+- **Review & edit** contains the score preview, source timeline and an expandable edit request.
+- **Title & thumbnail** groups the posting text and thumbnail tools, keeping the player available
+  for frame selection. Tab changes preserve playback position and unsaved form input.
+- **Processing & history** contains request timing, model editing notes and previous drafts.
+
+Approve, reject and download controls stay below the player. Completed videos show their revision,
+length, quality and review state; running jobs show progress and pause/resume controls. Editing notes
+remain signposted above the tools. Tool tabs support arrow keys, Home and End.

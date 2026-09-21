@@ -583,6 +583,14 @@ test("stream matching fills clear suggestions, preserves manual input and discar
   const fourth=nodes.get("find-stream").onclick();
   nodes.get("video").value="ccccccccccc";nodes.get("video").oninput();pending.shift()(result);await fourth;
   assert.equal(nodes.get("stream-id").value,"","A previous video's result must not populate the new video");
+  nodes.get("video").value="https://www.twitch.tv/videos/123";nodes.get("video").oninput();
+  const twitch=nodes.get("video").onchange();
+  pending.shift()({status:"ready",matches:[],recording_title:"Diablo evening"});await twitch;
+  assert.equal(nodes.get("stream-query").value,"Diablo evening");
+  assert.equal(nodes.get("alignment").checked,false);
+  assert.equal(vm.runInContext('recordingContextUrl("https://www.twitch.tv/videos/123", 3720000000)',context),"https://www.twitch.tv/videos/123?t=1h1m50s");
+  assert.equal(vm.runInContext('recordingContextUrl("aaaaaaaaaaa", 5000000)',context),"https://www.youtube.com/watch?v=aaaaaaaaaaa&t=0s");
+
 });
 
 test("Codex selection disables dollar cap and renders unknown costs", async()=>{
@@ -671,4 +679,48 @@ test("Codex selection disables dollar cap and renders unknown costs", async()=>{
   await vm.runInContext('refresh()',context);
   assert.equal(nodes.get("run-button").disabled,false);
   assert.equal(nodes.get("run-availability").hidden,true,"Paused jobs do not occupy a processing slot");
+});
+
+test("API errors preserve JSON messages and report plain-text server failures without retrying",async()=>{
+  const staticPath=path.join(__dirname,"../src/vaarattu_shorts/static");
+  const nodes=new Map([...fs.readFileSync(path.join(staticPath,"index.html"),"utf8").matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],new Element()]));
+  let response,calls=0;
+  const context=vm.createContext({
+    document:{getElementById:id=>nodes.get(id),createElement:tag=>new Element(tag)},
+    fetch:async url=>{
+      if(url==="/api/publishing/buffer/fill"){calls++;return response;}
+      const initial={"/api/status":{token:"fixture",models:{turbo:true},providers:{}},"/api/layouts":[],"/api/runs":[],"/api/videos":{videos:[]}};
+      assert.ok(url in initial,url);return {ok:true,json:async()=>initial[url]};
+    },
+  });
+  vm.runInContext(fs.readFileSync(path.join(staticPath,"app.js"),"utf8"),context);await new Promise(setImmediate);
+  const request=()=>vm.runInContext('api("/api/publishing/buffer/fill",{method:"POST"})',context);
+  response={ok:false,status:500,json:async()=>{throw new SyntaxError("Unexpected token I");}};
+  await assert.rejects(request(),/HTTP 500.*check its status before retrying/);assert.equal(calls,1);
+  response={ok:false,status:400,json:async()=>({detail:"An existing submission needs attention."})};
+  await assert.rejects(request(),/An existing submission needs attention/);assert.equal(calls,2);
+  response={ok:false,status:502,json:async()=>null};
+  await assert.rejects(request(),/HTTP 502/);assert.equal(calls,3);
+  response={ok:true,status:200,json:async()=>{throw new SyntaxError("truncated");}};
+  await assert.rejects(request(),/unreadable response/);assert.equal(calls,4);
+});
+
+
+test("held clips can still be rejected from their recording after cleanup controls move",async()=>{
+  const directory=path.join(__dirname,"../src/vaarattu_shorts/static");
+  const nodes=new Map([...fs.readFileSync(path.join(directory,"index.html"),"utf8").matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],new Element()]));
+  const writes=[];
+  const run={state:"completed",clips:[{id:"held",revision:2,title:"Held clip",status:"held",has_preview:false,start_us:0,end_us:5000000,source_url:"https://www.youtube.com/watch?v=aaaaaaaaaaa"}]};
+  const context=vm.createContext({run,
+    document:{getElementById:id=>nodes.get(id),createElement:tag=>new Element(tag)},
+    fetch:async(url,options)=>{
+      if(options.method==="POST"){writes.push({url,body:JSON.parse(options.body)});return {ok:true,json:async()=>({})};}
+      const data={"/api/status":{token:"fixture",models:{turbo:true},providers:{}},"/api/layouts":[],"/api/runs":[],"/api/videos":{videos:[]}};
+      assert.ok(url in data,url);return {ok:true,json:async()=>data[url]};
+    },
+  });
+  vm.runInContext(fs.readFileSync(path.join(directory,"app.js"),"utf8"),context);await new Promise(setImmediate);
+  vm.runInContext('displayedRun=run;paintClips()',context);
+  assert.equal(writes.length,0);await find(nodes.get("clips"),"Mark not approved").onclick();
+  assert.deepEqual(writes,[{url:"/api/clips/held/review",body:{expected_revision:2,status:"not_approved"}}]);
 });

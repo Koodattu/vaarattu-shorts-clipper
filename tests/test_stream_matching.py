@@ -108,7 +108,7 @@ def test_local_lookup_validates_inputs_and_returns_suggestions(settings, monkeyp
         ).status_code
         == 200
     )
-    assert seen == [{"id": "aaaaaaaaaaa", "title": "A title"}]
+    assert seen == [{"id": "aaaaaaaaaaa", "title": "A title", "provider": "youtube"}]
     assert client.get("/api/streams/search", params={"video": "file:///private"}).status_code == 400
     assert (
         client.get("/api/streams/search", params={"video": "aaaaaaaaaaa", "q": "x" * 301}).status_code == 400

@@ -8,8 +8,8 @@ from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
 
-from . import caption_correction, context_repair, discover, render, selection as review_selection, stream_data, tighten, transcribe, youtube
-from .contracts import CHANNEL_ID, Candidate, RunRequest, Word
+from . import caption_correction, context_repair, discover, recordings, render, selection as review_selection, stream_data, tighten, transcribe, youtube
+from .contracts import CHANNEL_ID, Candidate, RunRequest, Word, source_url
 from .llm import Evaluator, ModelAnchorError, ModelOutputError, check_provider, local_server
 from .models import model_path
 from .processes import Interrupted, ToolError
@@ -102,11 +102,11 @@ class Pipeline:
                 raise ValueError("A selected model changed since this run was created. Start a new run.")
         metadata = self.stage(
             "metadata",
-            lambda: (youtube.metadata(self.settings, self.config["video"], self.folder, self.check), []),
+            lambda: (recordings.metadata(self.settings, self.config["video"], self.folder, self.check), []),
         )
 
         def audio_stage():
-            source = youtube.acquire(self.settings, metadata["id"], self.folder / "audio", self.check)
+            source = recordings.acquire(self.settings, self.config["video"], self.folder / "audio", self.check)
             probe = youtube.probe(self.settings, source, self.folder / "audio", self.check)
             duration = float(probe["format"]["duration"])
             if abs(duration - metadata["duration"]) > 3:
@@ -282,7 +282,7 @@ class Pipeline:
                 "layout": self.config["layout"],
                 "source_id": metadata["id"],
                 "source_title": metadata["title"],
-                "source_url": f"https://www.youtube.com/watch?v={metadata['id']}",
+                "source_url": source_url(self.config["video"])[2],
                 "source_date": metadata["upload_date"],
                 "status": "pending",
                 "reviewed": False,
@@ -545,7 +545,7 @@ class Pipeline:
             ):
                 start = max(0, body["start_us"] / 1e6 - 10)
                 end = min(duration_us / 1e6, body["end_us"] / 1e6 + 10)
-                section = youtube.acquire(self.settings, body["source_id"], folder, self.check, (start, end))
+                section = recordings.acquire(self.settings, body.get("source_url") or body["source_id"], folder, self.check, (start, end))
                 mapping = render.align(
                     self.settings, source, section, start, folder, self.check,
                     (body["end_us"] - body["start_us"]) / 1e6,
@@ -766,7 +766,7 @@ class Pipeline:
         audio = json.loads((self.folder / "audio.checkpoint.json").read_text("utf-8"))["result"]
         source = Path(audio["path"])
         if not source.is_file():
-            source = youtube.acquire(self.settings, self.config["video"], self.folder / "audio", self.check)
+            source = recordings.acquire(self.settings, self.config["video"], self.folder / "audio", self.check)
         self.refine_captions(source, round(audio["duration"] * 1e6))
         if self.config.get("correct_captions"):
             self.correct_captions(json.loads((self.folder / "asr" / "transcript.json").read_text("utf-8")))
