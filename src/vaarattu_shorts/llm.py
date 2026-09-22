@@ -24,7 +24,7 @@ from .storage import atomic_json
 PROVIDERS = {
     "local": {"model": "selected GGUF", "key": None},
     "gemini": {"model": "gemini-3.8-flash", "key": "GEMINI_API_KEY"},
-    "openai": {"model": "gpt-5.6-luna", "key": "OPENAI_API_KEY"},
+    "openai": {"model": "gpt-6-luna", "key": "OPENAI_API_KEY"},
     "codex": {"model": "gpt-5.6-luna", "key": None},
     "zai": {"model": "glm-5.3-flash", "key": "ZAI_API_KEY"},
     "deepseek": {"model": "deepseek-v4-flash", "key": "DEEPSEEK_API_KEY"},
@@ -82,7 +82,7 @@ def rates(provider, now=None):
     if provider == "gemini":
         return (0.75, 3.75) if now.year == 2026 else (1.50, 7.50)
     if provider == "openai":
-        return 0.20, 1.20
+        return 0.10, 0.50
     if provider == "zai":
         return (0.075, 0.25) if now < datetime(2026, 9, 9, 16, tzinfo=timezone.utc) else (0.15, 0.50)
     if provider == "deepseek":
@@ -424,9 +424,7 @@ class Evaluator:
             raise ValueError("The model refused or truncated the selection response.")
         return choice.get("message", {}).get("content", "")
 
-    def call(self, system, prompt, response_type, key, *, validate=None, reasoning_effort="none",
-             output_retry_delays=None, repair_instruction=None):
-        self.check()
+    def request_fingerprint(self, system, prompt, response_type, reasoning_effort="none"):
         schema = response_type.model_json_schema()
         fingerprint = hashlib.sha256(
             json.dumps(
@@ -445,6 +443,25 @@ class Evaluator:
                 sort_keys=True,
             ).encode("utf-8")
         ).hexdigest()
+        return fingerprint
+
+    def cached(self, system, prompt, response_type, key, reasoning_effort="none"):
+        """Read an exact previous response without issuing a request or changing its cache."""
+        self.check()
+        fingerprint = self.request_fingerprint(system, prompt, response_type, reasoning_effort)
+        cache = self.folder / f"{key}-{fingerprint[:16]}.json"
+        if cache.exists():
+            try:
+                return response_type.model_validate_json(cache.read_text("utf-8"))
+            except ValueError:
+                return None
+        return None
+
+    def call(self, system, prompt, response_type, key, *, validate=None, reasoning_effort="none",
+             output_retry_delays=None, repair_instruction=None):
+        self.check()
+        schema = response_type.model_json_schema()
+        fingerprint = self.request_fingerprint(system, prompt, response_type, reasoning_effort)
         cache = self.folder / f"{key}-{fingerprint[:16]}.json"
         if cache.exists():
             try:
@@ -490,7 +507,7 @@ class Evaluator:
                     "service_retries": service_retries,
                     "input_usd_per_million": None if self.codex else input_rate,
                     "output_usd_per_million": None if self.codex else output_rate,
-                    "pricing_checked": "2026-09-06",
+                    "pricing_checked": "2026-09-22" if self.provider == "openai" else "2026-09-06",
                     "prompt_sha256": fingerprint,
                     "request_sha256": hashlib.sha256(
                         json.dumps(body, ensure_ascii=False, sort_keys=True).encode("utf-8")

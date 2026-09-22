@@ -1,3 +1,4 @@
+from vaarattu_shorts import highlight_pauses as pauses
 import json
 
 import pytest
@@ -124,8 +125,8 @@ class Evaluator:
         self.calls.append((key, payload, kw))
         if schema is source.Scan:
             value = source.Scan(beats=[source.Beat(first=f"u{i}", last=f"u{i+1}", value=2, reason="Enjoyable commentary", continuation="") for i in (0, 6, 12)])
-        elif schema is episode.EditBatch:
-            value = episode.EditBatch(scenes=[episode.NamedProposal(id=c["scene"]["id"],
+        elif issubclass(schema, (episode.EditBatch, pauses.Batch)):
+            value = schema(scenes=[dict(id=c["scene"]["id"],
                 spans=[source.Span(first=c["scene"]["first"], last=c["scene"]["last"])],
                 pauses=[], value=3, reason="Enjoyable commentary") for c in payload["scenes"]])
         elif schema is episode.Proposal:
@@ -227,7 +228,7 @@ def test_one_bad_batch_scene_repairs_only_that_scene(monkeypatch):
     real = Evaluator.call
     def call(self, system, prompt, schema, key, **kwargs):
         result = real(self, system, prompt, schema, key, **kwargs)
-        if schema is episode.EditBatch:
+        if issubclass(schema, (episode.EditBatch, pauses.Batch)) and "-repair-" not in key:
             result.scenes[1].spans[0].first = "invented"
         return result
     monkeypatch.setattr(Evaluator, "call", call)
@@ -243,7 +244,7 @@ def test_missing_batch_scene_does_not_regenerate_successful_edits(monkeypatch):
     real = Evaluator.call
     def call(self, system, prompt, schema, key, **kwargs):
         result = real(self, system, prompt, schema, key, **kwargs)
-        if schema is episode.EditBatch:
+        if issubclass(schema, (episode.EditBatch, pauses.Batch)) and "-repair-" not in key:
             result.scenes.pop()
         return result
     monkeypatch.setattr(Evaluator, "call", call)
@@ -257,11 +258,11 @@ def test_systemic_edit_failures_pause_before_processing_entire_recording(monkeyp
     from vaarattu_shorts.llm import ModelOutputError
     real = Evaluator.call
     def call(self, system, prompt, schema, key, **kwargs):
-        if schema is episode.Proposal:
+        if "-repair-" in key:
             self.calls.append((key, {}, {}))
             raise ModelOutputError("Invalid anchors")
         result = real(self, system, prompt, schema, key, **kwargs)
-        if schema is episode.EditBatch:
+        if issubclass(schema, (episode.EditBatch, pauses.Batch)):
             for proposal in result.scenes:
                 proposal.spans[0].first = "invented"
         return result

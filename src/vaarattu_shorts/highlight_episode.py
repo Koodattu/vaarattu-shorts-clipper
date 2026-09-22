@@ -232,53 +232,92 @@ def compact(beat, items, evaluator, key, guidance="", previous=None, warnings=No
 
 
 def edit_scenes(beats, items, evaluator, key, guidance, warnings, previous=None):
-    """Cache batches, validate each scene, and repair only the invalid/missing scene."""
+    """Batch independent edits; repair pauses without rewriting verified speech."""
+    from . import highlight_pauses as pauses
     previous = previous or {}
-    cards = [{"scene": beat, "speech": source.speech_rows(source.sequence_items(beat, items)),
-              "previous_edit": previous.get(beat["id"])} for beat in beats]
+    contexts = {b["id"]: source.sequence_items(b, items) for b in beats}
+    cards = [pauses.card(b, contexts[b["id"]], previous.get(b["id"])) for b in beats]
+    # Keep original pack boundaries so exact legacy responses can be reused after an upgrade.
     packs, current = [], []
     for card in cards:
+        legacy = [{"scene": c["scene"], "speech": source.speech_rows(contexts[c["scene"]["id"]]),
+                   "previous_edit": c["previous_edit"]} for c in current+[card]]
         if current and (len(current) == 4 or evaluator.request_size(EDIT_RULES,
-                json.dumps({"scenes": current+[card], "guidance": guidance}, ensure_ascii=False), EditBatch) > evaluator.discovery_budget):
+                json.dumps({"scenes": legacy, "guidance": guidance}, ensure_ascii=False), EditBatch) > evaluator.discovery_budget):
             packs.append(current)
             current = []
         current.append(card)
     if current:
         packs.append(current)
-    result, failures = [], []
-    def edit_pack(job):
-        i, pack = job
-        evaluator.report(f"Editing shortlisted scenes: batch {i+1} of {len(packs)} ({len(pack)} scenes).")
-        batch = source.request(evaluator, EDIT_RULES, {"scenes": pack, "guidance": guidance}, EditBatch,
-            f"{key}-{i}", recovery=lambda _: EditBatch(scenes=[]), warnings=warnings,
+
+    def request_pack(pack, request_key):
+        schema = pauses.schema(pack, contexts)
+        payload = {"scenes": pack, "guidance": guidance}
+        if evaluator.request_size(pauses.RULES, json.dumps(payload, ensure_ascii=False), schema) > evaluator.discovery_budget and len(pack)>1:
+            middle = len(pack)//2
+            return request_pack(pack[:middle], request_key+"-left")+request_pack(pack[middle:], request_key+"-right")
+        batch = source.request(evaluator, pauses.RULES, payload, schema, request_key,
+            recovery=lambda _: schema(scenes=[]), warnings=warnings,
             warning="A scene batch could not be read; its scenes will be checked individually.", retry_delays=(5,))
-        return pack, batch
-    for pack, batch in source.parallel_requests(evaluator, edit_pack, list(enumerate(packs))):
+        return batch.scenes
+
+    def edit_pack(job):
+        index, pack = job
+        evaluator.report(f"Editing shortlisted scenes: batch {index+1} of {len(packs)} ({len(pack)} scenes).")
+        legacy = [{"scene": c["scene"], "speech": source.speech_rows(contexts[c["scene"]["id"]]),
+                   "previous_edit": c["previous_edit"]} for c in pack]
+        cached = getattr(evaluator, "cached", None)
+        old = cached(EDIT_RULES, json.dumps({"scenes": legacy, "guidance": guidance}, ensure_ascii=False, separators=(",", ":")),
+                     EditBatch, f"{key}-{index}", evaluator.verification_reasoning) if cached else None
+        proposals = old.scenes if old is not None else request_pack(pack, f"{key}-{index}")
         known = {c["scene"]["id"] for c in pack}
-        if any(p.id not in known for p in batch.scenes):
+        if any(p.id not in known for p in proposals):
             warnings.append("An edit referenced an unknown scene; that extra suggestion was ignored.")
-        for card in pack:
-            beat = card["scene"]
-            proposals = [p for p in batch.scenes if p.id == beat["id"]]
+        result, failures = [], []
+        for entry in pack:
+            beat = entry["scene"]
+            context = contexts[beat["id"]]
+            matches = [p for p in proposals if p.id == beat["id"]]
+            repair_key = f"{key}-repair-{beat['id']}"
             try:
-                if len(proposals) != 1:
+                proposal = matches[0] if len(matches)==1 else None
+                if proposal is None:
                     raise ModelAnchorError("Return this scene exactly once.")
-                value = verified_proposal(proposals[0], source.sequence_items(beat, items))
-            except ValueError as exc:
+                value, recovery = pauses.repair(proposal, context, evaluator, repair_key, warnings)
+            except ModelAnchorError as exc:
                 evaluator.report(f"Repairing one scene edit ({beat['id']}); other verified edits are saved.")
+                schema = pauses.schema([entry], contexts)
+                def validate(batch):
+                    if len(batch.scenes)!=1 or batch.scenes[0].id != beat["id"]:
+                        raise ModelAnchorError("Return this scene exactly once.")
+                    candidate = pauses.convert(batch.scenes[0], context)
+                    episode_edit = SceneEdit(spans=candidate.spans, gaps=[], value=candidate.value, reason=candidate.reason)
+                    compile_scene(episode_edit, context)
                 try:
-                    value = compact(beat, items, evaluator, f"{key}-repair-{beat['id']}",
-                                    guidance+"\nCorrect this edit problem: "+str(exc), card["previous_edit"], warnings)
+                    batch = source.request(evaluator, pauses.RULES, {"scenes": [entry], "guidance": guidance,
+                        "invalid_proposal": proposal.model_dump() if proposal is not None else None,
+                        "correction_needed": str(exc)}, schema, repair_key, validate, retry_delays=(5, 15))
+                    value, recovery = pauses.repair(batch.scenes[0], context, evaluator, repair_key, warnings)
                 except ModelOutputError:
-                    # Pause instead of silently producing a technically depleted episode.
                     failures.append(beat["id"])
-                    if len(failures) >= 3:
+                    if len(failures)>=3:
                         raise ModelOutputError("Several scene edits could not be verified. Processing is paused to avoid losing useful scenes. Completed requests are saved.") from None
                     continue
-            result.append({"beat": beat, "edit": value.model_dump()})
+            scene = {"beat": beat, "edit": value.model_dump()}
+            if recovery:
+                scene["pause_recovery"] = recovery
+            result.append(scene)
+        return result, failures
+
+    result, failures = {}, []
+    for batch, failed in source.parallel_requests(evaluator, edit_pack, list(enumerate(packs)), ordered=False):
+        result.update({s["beat"]["id"]: s for s in batch})
+        failures.extend(failed)
+        if len(failures)>=3:
+            raise ModelOutputError("Several scene edits could not be verified. Processing is paused to avoid losing useful scenes. Completed requests are saved.")
     if failures:
         raise ModelOutputError(f"An edit for scene {', '.join(failures)} could not be verified. Processing is paused; other edits are saved. Resume to retry the affected scene.")
-    return result
+    return [result[b["id"]] for b in beats]
 
 
 def rank_scenes(pool, items, evaluator, warnings):

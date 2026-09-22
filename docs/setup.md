@@ -112,7 +112,7 @@ Existing process environment variables take precedence, including empty values. 
 |---|---|
 | Local · Gemma 4 | None |
 | Gemini 3.8 Flash | `GEMINI_API_KEY` |
-| GPT-5.6 Luna | `OPENAI_API_KEY` |
+| GPT-6 Luna | `OPENAI_API_KEY` |
 | Codex · gpt-5.6-luna | No Platform key; optional `CODEX_API_KEY` for a protected local bridge |
 | GLM-5.3-Flash | `ZAI_API_KEY` |
 | DeepSeek V4 Flash | `DEEPSEEK_API_KEY` |

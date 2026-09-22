@@ -91,3 +91,39 @@ function paintHighlightSources(){
   });
   updateHighlightSourceSummary();
 }
+
+let highlightSavedSourcesKey=null;
+function paintSavedHighlightSources(run,model=null){
+  const key=JSON.stringify([run?.id,run?.revision,run?.sources,run?.has_draft,Boolean(model)]);
+  if(key===highlightSavedSourcesKey)return;
+  highlightSavedSourcesKey=key;
+  const box=$("highlight-saved-sources");box.replaceChildren();
+  if(!run)return;
+  if(!(run.sources||[]).length){box.append(text("p","No source recordings were saved for this project.","muted"));return;}
+  for(const [index,source] of run.sources.entries()){
+    const start=(source.selection_start_us??0)/1e6,end=(source.selection_end_us??source.duration*1e6)/1e6;
+    const card=text("article","","highlight-source-card");
+    card.append(text("h4",`${index+1}. ${source.title||source.asset}`));
+    card.append(text("p",`Input range: ${highlightSourceTime(start)}–${highlightSourceTime(end)} · ${highlightSourceTime(end-start)} selected`));
+    card.append(text("p",`Full recording: ${highlightSourceTime(source.duration)}`,"muted"));
+    if(source.url){const link=text("a","Open original recording");link.href=source.url;link.target="_blank";link.rel="noopener noreferrer";card.append(link);}
+    if(model){
+      const ranges=model.ranges.filter(r=>r.asset===source.asset);
+      const kept=ranges.reduce((sum,r)=>sum+r.outputEnd-r.outputStart,0);
+      card.append(text("p",`In this revision: ${highlightSourceTime(kept)} · ${ranges.length} retained sections`));
+      if(ranges.length){
+        const details=text("details","","highlight-disclosure");details.append(text("summary","Show retained sections"));
+        const list=text("div","","highlight-retained-sections");
+        for(const range of ranges){
+          const row=text("div","","actions");
+          row.append(text("span",`Source ${highlightSourceTime(range.sourceStart)}–${highlightSourceTime(range.sourceEnd)}`));
+          row.append(action(`Watch at ${highlightSourceTime(range.outputStart)}`,()=>{
+            $("highlight-player").currentTime=range.outputStart;updateHighlightPlayhead();$("highlight-player").focus();
+          }));list.append(row);
+        }
+        details.append(list);card.append(details);
+      }
+    }else card.append(text("p",run.has_draft?"Retained sections appear when the saved timeline loads. If it fails, use Retry timeline in Review & edit.":"Retained sections will appear when the draft is ready.","muted"));
+    box.append(card);
+  }
+}

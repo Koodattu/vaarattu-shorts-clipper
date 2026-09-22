@@ -1,3 +1,4 @@
+from vaarattu_shorts import highlight_pauses as pauses
 import json
 
 import httpx
@@ -141,8 +142,8 @@ class Evaluator:
             value = schema(title="A specific story", caption="A short description.")
         elif schema is edit.Scan:
             value = edit.Scan(beats=[edit.Beat(first="u1", last="u7", value=4, reason="Developed story", continuation="")])
-        elif schema is episode.EditBatch:
-            value = episode.EditBatch(scenes=[episode.NamedProposal(id=c["scene"]["id"],
+        elif issubclass(schema, (episode.EditBatch, pauses.Batch)):
+            value = schema(scenes=[dict(id=c["scene"]["id"],
                 spans=[edit.Span(first="u1", last="u7")], pauses=[], value=3, reason="Complete story") for c in payload["scenes"]])
         elif schema is episode.Proposal:
             value = episode.Proposal(spans=[edit.Span(first="u1", last="u7")], pauses=[], value=3, reason="Complete story")
@@ -566,19 +567,32 @@ def test_resume_repairs_one_scene_without_regenerating_verified_batch_neighbors(
              "speech_end_us": i*10000000+2000000, "unsafe": False, "text": "A thought."} for i in range(4)]
     beats = [{"id": "a", "first": "u0", "last": "u1"}, {"id": "b", "first": "u2", "last": "u3"}]
     good = {"spans": [{"first": "u0", "last": "u1"}], "pauses": [], "value": 3, "reason": "Enjoyable exchange"}
-    bad = {"spans": [{"first": "u2", "last": "u3"}], "pauses": [
-        {"id": "gu2:u3", "action": "keep", "evidence": "A thought.", "reason": "Comic timing"}],
-        "value": 3, "reason": "Enjoyable exchange"}
-    replies.extend([{"scenes": [{"id": "a", **good}, {"id": "b", **bad}]}, bad, bad, bad])
-    with pytest.raises(ModelOutputError, match="scene b"):
-        episode.edit_scenes(beats, rows, evaluator, "edit", "", [])
-    corrected = json.loads(json.dumps(bad))
-    corrected["pauses"][0]["evidence"] = "u3"
-    replies.append(corrected)
+    # The ID exists in the supplied context, but its speech is not retained in scene b.
+    bad_pause = {"gap_ref": "g3", "action": "keep", "evidence_passage_id": "u0", "reason": "Comic timing"}
+    bad = {"spans": [{"first": "u2", "last": "u3"}], "pauses": [bad_pause], "value": 3, "reason": "Enjoyable exchange"}
+    replies.extend([{"scenes": [{"id": "a", **good}, {"id": "b", **bad}]},
+                    {"repairs": [{"slot": 0, "pause": bad_pause}]}])
+    warnings = []
+    first = episode.edit_scenes(beats, rows, evaluator, "edit", "", warnings)
+    assert len(requests) == 2 and not waits
+    assert warnings and first[1]["pause_recovery"]["fallback_gaps"] == ["gu2:u3"]
+    assert first[0]["edit"]["spans"] == good["spans"]
+    assert first[1]["edit"]["spans"] == bad["spans"]
+    retained = episode.compiled(first[1], rows)
+    assert any(s["start_us"] <= rows[2]["speech_end_us"] < rows[3]["speech_start_us"] <= s["end_us"] for s in retained)
+    for candidate in first:
+        for u in edit.sequence_items(candidate["beat"], rows):
+            if candidate["beat"]["first"] <= u["id"] <= candidate["beat"]["last"]:
+                assert any(s["start_us"] <= u["speech_start_us"] < u["speech_end_us"] <= s["end_us"] for s in episode.compiled(candidate, rows))
+    corrected = {**bad_pause, "evidence_passage_id": "u3"}
+    replies.append({"repairs": [{"slot": 0, "pause": corrected}]})
     result = episode.edit_scenes(beats, rows, evaluator, "edit", "", [])
     assert [s["beat"]["id"] for s in result] == ["a", "b"]
-    assert len(requests) == 5
-    assert json.loads(requests[-1]["input"])["scene"]["id"] == "b"
+    assert result[0] == first[0]
+    assert result[1]["edit"]["spans"] == bad["spans"]
+    assert result[1]["pause_recovery"] == {"repaired_instructions": 1, "fallback_gaps": []}
+    assert len(requests) == 3
+    assert json.loads(requests[-1]["input"])["original_proposal"]["spans"] == bad["spans"]
 
 
 @pytest.mark.parametrize("passages", [(16, 17, 18), (735, 736, 737), (2397, 2398, 2399)])
@@ -627,3 +641,28 @@ def test_scene_repair_allows_second_delayed_retry_without_accepting_bad_evidence
     assert len(requests) == 3
     episode.compact({"first": "u0", "last": "u1"}, rows, evaluator, "repair-second")
     assert len(requests) == 3
+
+
+def test_upgrade_reuses_legacy_batch_and_targets_only_invalid_pause(model_replies):
+    evaluator, replies, requests, waits = model_replies
+    rows = [{"id": f"u{i}", "asset": "s0", "start_us": i*10000000,
+             "end_us": i*10000000+2000000, "speech_start_us": i*10000000,
+             "speech_end_us": i*10000000+2000000, "unsafe": False, "text": "A thought."} for i in range(4)]
+    beats = [{"id": "a", "first": "u0", "last": "u1"}, {"id": "b", "first": "u2", "last": "u3"}]
+    good = {"spans": [{"first": "u0", "last": "u1"}], "pauses": [], "value": 3, "reason": "Enjoyable exchange"}
+    bad = {"spans": [{"first": "u2", "last": "u3"}], "pauses": [
+        {"id": "gu2:u3", "action": "keep", "evidence": "A thought.", "reason": "Comic timing"}],
+        "value": 3, "reason": "Enjoyable exchange"}
+    replies.append({"scenes": [{"id": "a", **good}, {"id": "b", **bad}]})
+    legacy = [{"scene": b, "speech": edit.speech_rows(edit.sequence_items(b, rows)), "previous_edit": None} for b in beats]
+    edit.request(evaluator, episode.EDIT_RULES, {"scenes": legacy, "guidance": ""}, episode.EditBatch, "edit-0")
+    replies.append({"repairs": [{"slot": 0, "pause": {"gap_ref": "g3", "action": "keep", "evidence_passage_id": "u3", "reason": "Comic timing"}}]})
+    result = episode.edit_scenes(beats, rows, evaluator, "edit", "", [])
+    assert [s["beat"]["id"] for s in result] == ["a", "b"]
+    assert result[0]["edit"]["spans"] == good["spans"]
+    assert result[1]["edit"]["spans"] == bad["spans"]
+    assert result[1]["edit"]["gaps"][0]["evidence"] == "u3"
+    assert len(requests) == 2 and not waits
+    assert json.loads(requests[-1]["input"])["original_proposal"]["pauses"] == bad["pauses"]
+    assert episode.edit_scenes(beats, rows, evaluator, "edit", "", []) == result
+    assert len(requests) == 2

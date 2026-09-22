@@ -194,3 +194,7 @@ kbd{font-family:inherit;font-size:.85em;font-weight:400;opacity:.8;border:1px so
 #publishing-connections>.form-surface{padding-block:var(--space-lg)}
 #publishing-connection-status{color:var(--muted);margin-block:var(--space-md)}
 #publishing-manual-plan[open]>summary,#publishing-connections[open]>summary,#cleanup-pending[open]>summary{margin-bottom:var(--space-lg)}
+
+#highlight-saved-sources{display:grid;gap:var(--space-lg);margin-top:var(--space-lg)}
+#highlight-saved-sources p{margin-block:var(--space-sm)}
+.highlight-retained-sections{max-height:24rem;overflow:auto}.highlight-retained-sections>div{padding-block:var(--space-sm);border-bottom:1px solid var(--line)}

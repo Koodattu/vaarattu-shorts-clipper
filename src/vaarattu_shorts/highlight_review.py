@@ -154,6 +154,7 @@ def cards_for(selected, items, targets, records):
                 neighbors.append({"sequence": selected[j]["beat"]["id"], "side": "before" if j<i else "after",
                                   "speech": (other[-1]["speech"][-600:] if j<i else other[0]["speech"][:600])})
         cards.append({"sequence": ident, "output_ranges": evidence, "neighbors": neighbors,
+                      "pause_recovery": scene.get("pause_recovery"),
                       "pause_overrides": [{k: v for k, v in gap.items() if k != "reason"} for gap in scene["edit"]["gaps"]], "protected_passages": scene.get("protected_passages", []),
                       "previous_decisions": [{k: v for k, v in r.items() if k != "before_scene"} for r in records if r["sequence"] == ident][-2:]})
     return cards
@@ -164,6 +165,8 @@ Review each supplied scene exactly once. Judge the actual output clock and retai
 source time gaps. Reference-only speech is excluded. Neighbors are context, not editable here.
 Judge long retained pauses independently of the previous editor. A following reaction alone does not
 justify a long wait: require speech-supported anticipation or comic timing, otherwise shorten the gap.
+Check pause_recovery fallback_gaps explicitly: these pauses were kept because instructions could not
+be verified, not because an editor established their value.
 Check that a reaction still has its necessary question/setup; do not assume a missing setup is intentional.
 Return acceptable when the scene works. Do not invent objections or remove purposeful repetition,
 emotional emphasis or natural short pauses. Return change only for a concrete improvement:

@@ -6,6 +6,7 @@ import re
 import shutil
 import time
 from contextlib import nullcontext
+from fractions import Fraction
 from pathlib import Path
 from typing import Literal
 
@@ -140,6 +141,30 @@ def public(settings, store, run):
             "usage": {k: v for k, v in usage.items() if k != "requests"}}
 
 
+def validate_render(info, width, height, total_frames, segments):
+    """Verify the frame budget, allowing only sub-millisecond concat clock rounding."""
+    streams = {s["codec_type"]: s for s in info["streams"]}
+    v, a = streams.get("video", {}), streams.get("audio", {})
+    if (v.get("width"), v.get("height"), v.get("pix_fmt")) != (width, height, "yuv420p") or not a:
+        raise ValueError("The highlight render does not match the requested picture and audio format.")
+    duration = total_frames/30
+    try:
+        rate = Fraction(v["avg_frame_rate"])
+        nominal = Fraction(v["r_frame_rate"])
+        frames = int(v["nb_frames"])
+        # Each join may round to a 1/30000-second video tick. Cap the total at one millisecond, well below a frame.
+        rounding = min(Fraction(max(1, segments), 30000), Fraction(1, 1000))
+        valid = (frames == total_frames and nominal == 30 and rate > 0
+                 and abs(Fraction(frames, 1)/rate-Fraction(total_frames, 30)) <= rounding)
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        valid = False
+    if not valid:
+        raise ValueError("The highlight video does not have the expected frame count and 30 fps timing.")
+    if (abs(float(info["format"]["duration"])-duration) > 0.15
+            or abs(float(v.get("duration", duration))-float(a.get("duration", duration))) > 0.1
+            or abs(float(v.get("start_time", 0))-float(a.get("start_time", 0))) > 0.05):
+        raise ValueError("The highlight picture and sound do not match the edit timing.")
+
 def render_video(settings, plan, media, output, encoder, check, progress):
     """Encode pieces with PCM audio, then encode AAC once to avoid seam padding accumulation."""
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -187,17 +212,8 @@ def render_video(settings, plan, media, output, encoder, check, progress):
     run_tool([settings.ffmpeg, "-nostdin", "-v", "error", "-xerror", "-i", temporary, "-f", "null", "-"],
              settings, work, "decode-check", check, timeout=7200)
     info = youtube.probe(settings, temporary, work, check)
-    streams = {s["codec_type"]: s for s in info["streams"]}
-    v, a = streams.get("video", {}), streams.get("audio", {})
-    if (v.get("width"), v.get("height"), v.get("pix_fmt")) != (width, height, "yuv420p") or not a:
-        raise ValueError("The highlight render does not match the requested picture and audio format.")
-    if v.get("avg_frame_rate") not in {"30/1", "30"}:
-        raise ValueError("The highlight video is not 30 frames per second.")
+    validate_render(info, width, height, total_frames, len(pieces))
     duration = total_frames/30
-    if (abs(float(info["format"]["duration"])-duration) > 0.15
-            or abs(float(v.get("duration", duration))-float(a.get("duration", duration))) > 0.1
-            or abs(float(v.get("start_time", 0))-float(a.get("start_time", 0))) > 0.05):
-        raise ValueError("The highlight picture and sound do not match the edit timing.")
     check()
     temporary.replace(output)
     for piece in pieces:

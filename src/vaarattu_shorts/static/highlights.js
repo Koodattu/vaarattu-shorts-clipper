@@ -1,7 +1,7 @@
 "use strict";
 let highlightRuns=[],highlightSelected=null,highlightManifest=null,highlightTimer=null,highlightBusy=false,highlightProviders=false,highlightStartKey=null;
 let highlightPanel="review",highlightUIKey=null,highlightRecordingsKey=null,highlightCreateInitialized=false;
-const highlightPanels=["review","publish","details"];
+const highlightPanels=["review","publish","details","sources"];
 function showHighlightPanel(panel,focus=false){
   if(!highlightPanels.includes(panel))return;
   if(panel==="publish"&&$("highlight-tab-publish").disabled)return;
@@ -82,7 +82,7 @@ function paintHighlights(){
   $("highlight-recording-count").textContent=`${highlightRuns.length} ${highlightRuns.length===1?"recording":"recordings"}`;
   if(!highlightCreateInitialized){$("highlight-create").open=!highlightRuns.length||Boolean($("highlight-urls").value.trim());highlightCreateInitialized=true;}
   const run=highlightRuns.find(r=>r.id===highlightSelected);
-  $("highlight-review").hidden=!run;const timeline=Promise.all([loadHighlightTimeline(run),loadHighlightSelection(run)]);paintHighlightCopy(run);paintHighlightThumbnails(run);if(!run)return timeline;
+  $("highlight-review").hidden=!run;paintSavedHighlightSources(run,highlightTimeline.key===`${run?.id}/${run?.revision}`?highlightTimeline.model:null);const timeline=Promise.all([loadHighlightTimeline(run),loadHighlightSelection(run)]);paintHighlightCopy(run);paintHighlightThumbnails(run);if(!run)return timeline;
   const uiKey=`${run.id}/${run.revision}`;
   $("highlight-tab-publish").disabled=!run.has_draft;
   if(highlightUIKey!==uiKey){highlightUIKey=uiKey;showHighlightPanel(run.has_draft?"review":"details");$("highlight-guidance").value="";$("highlight-edit-actions").open=false;}

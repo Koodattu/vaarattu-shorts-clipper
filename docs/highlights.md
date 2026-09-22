@@ -355,3 +355,37 @@ Alignment keeps its original coarse drift probes and confidence/separation check
 skips positions too close to an established anchor, rejects silent query samples before decoding
 reference audio, and reuses a bounded decoded reference buffer. This is only audio clock alignment;
 editorial silence decisions continue to use transcript timestamps, not a dB detector.
+
+### Pause instruction reliability
+
+New scene-edit requests use short scene-local gap references (`g1`, `g2`, …). The response schema
+lists the allowed gap references and passage IDs for each scene. The model copies
+`evidence_passage_id`; it does not recreate compound timing references or quote supporting speech
+into an ID field. The application translates these references back into the existing saved edit
+format. Exact pre-upgrade batch responses can still be read from their original cache keys.
+
+Speech ranges are validated separately from pause annotations. A pause-only repair receives the
+original proposal, every detected pause problem, and the supplied choices. Its response can replace
+only the invalid pause slots; valid speech ranges, scene quality, and independent valid pauses are
+not regenerated. Identical duplicate annotations are removed without a model request.
+
+Each set of invalid pause annotations gets one targeted repair request. If its output still cannot
+be verified, the affected pause is retained. If the gap reference itself is unknown, all retained
+pauses in that scene are preserved rather than guessing which one was intended. This fallback keeps
+speech selections unchanged, records `pause_recovery` in the scene, adds a visible warning, and
+explicitly asks final editorial review to check the retained pauses. Invalid speech anchors continue
+to require a verified repair; cancellation and service failures never become editorial fallbacks.
+
+Batch workers perform their own targeted repairs within the two-request concurrency limit. A ready
+batch can release its worker to subsequent work while another worker repairs a scene. Final results
+are restored to source order before ranking. Local models remain serial. Request records distinguish
+pause repairs with an `-repair-…-pauses` step and retain normal elapsed-time and token accounting.
+
+### Render frame-rate verification
+
+The final MP4 must contain exactly the planned number of frames and report nominal 30 fps.
+Average frame rate is checked numerically against the planned duration, allowing at most one
+1/30000-second clock tick per retained range, capped at one millisecond for the entire video.
+This accepts tiny concatenation timestamp rounding without accepting missing frames, different
+nominal rates, or material timing drift. Picture format, audio synchronization, and full-file
+decoding checks remain required.

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from collections import deque
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from typing import Literal
 
 from pydantic import Field
@@ -150,8 +150,8 @@ def compile_edit(edit, items, allowance=1200):
     return retained
 
 
-def parallel_requests(evaluator, function, jobs):
-    """At most two cloud calls in flight, with ordered results and no queued backlog."""
+def parallel_requests(evaluator, function, jobs, *, ordered=True):
+    """At most two cloud jobs in flight; optionally consume ready results first."""
     if getattr(evaluator, "provider", None) != "codex" or len(jobs) < 2:
         for job in jobs:
             evaluator.check()
@@ -165,7 +165,13 @@ def parallel_requests(evaluator, function, jobs):
                 pending.append(pool.submit(function, next(remaining)))
             while pending:
                 evaluator.check()
-                yield pending.popleft().result()
+                if ordered:
+                    future = pending.popleft()
+                else:
+                    done, _ = wait(pending, return_when=FIRST_COMPLETED)
+                    future = next(f for f in pending if f in done)
+                    pending.remove(future)
+                yield future.result()
                 job = next(remaining, None)
                 if job is not None:
                     pending.append(pool.submit(function, job))

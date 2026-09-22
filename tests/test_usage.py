@@ -126,11 +126,13 @@ def test_truncated_response_and_repair_are_counted_and_cached(settings, store, m
     assert report["input_tokens"] == 200 and report["output_tokens"] == 60
     assert report["total_tokens"] == 260
     assert report["cached_input_tokens"] == 80 and report["reasoning_tokens"] == 40
-    assert report["estimated_cost_usd"] == pytest.approx((200 * 0.2 + 60 * 1.2) / 1e6)
+    assert report["estimated_cost_usd"] == pytest.approx((200 * 0.1 + 60 * 0.5) / 1e6)
     assert report["reserved_usd"] == pytest.approx(0)
     assert report["unreported_requests"] == 0
     assert [r["attempt"] for r in report["requests"]] == [1, 2]
     assert calls[0]["service_tier"] == "default"
+    assert all(c["model"] == "gpt-6-luna" for c in calls)
+    assert all(r["model"] == "gpt-6-luna" and r["pricing_checked"] == "2026-09-22" for r in report["requests"])
     assert "test-secret" not in json.dumps(report) and "private prompt" not in json.dumps(report)
     with TestClient(create_app(settings), base_url="http://127.0.0.1:8765") as client:
         response = client.get(f"/api/runs/{run}/usage")

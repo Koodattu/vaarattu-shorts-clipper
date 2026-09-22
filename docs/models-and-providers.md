@@ -66,6 +66,25 @@ The NVIDIA runtime now documents Windows/CUDA support, so test its native path b
 
 All adapters must emit the same canonical source timeline, coverage, raw words and model provenance. Unsupported confidence fields remain null. They may use model-specific chunk/decode settings, but never silently remove gaps or fabricate word times. whisper.cpp's experimental word-timestamp mode needs separate timing validation. A smaller ASR model is acceptable if it wins accuracy/timing on these recordings; the preference for the largest local LLM is not evidence that ASR parameter count predicts Finnish accuracy.
 
+## Direct OpenAI update (2026-09-22)
+
+The OpenAI provider now uses `gpt-6-luna` through Responses with strict structured output.
+Clipping and highlight discovery and review keep their existing low reasoning setting,
+request sizes and output limits. The separate Codex bridge keeps its configured model.
+Select **OpenAI · gpt-6-luna** when starting a run; it uses the existing `OPENAI_API_KEY`.
+Restart the app after updating so the provider picker and worker use the new default.
+
+Standard short-context rates are $0.10 input and $0.50 output per million tokens.
+The application conservatively estimates uncached Standard usage within its existing
+60K-byte request limit; it does not apply cached-input discounts. Previously recorded
+request costs retain their original rate snapshots. These are API charges, separate
+from the Codex subscription. For 500,000 input and 12,000 output tokens split across
+bounded requests, the new illustrative estimate is $0.056.
+
+Sources: [GPT-6 Luna](https://developers.openai.com/api/docs/models/gpt-6-luna),
+[OpenAI pricing](https://developers.openai.com/api/docs/pricing).
+The comparison below is the original September 6 research snapshot.
+
 ## Requested API models: verified facts and limits
 
 Prices below are USD per million tokens, standard synchronous uncached text input/output, checked 2026-09-06. Output includes billable reasoning where applicable. Cache, batch and special access tiers are excluded from the comparable columns. No API was called for inference and no Finnish winner has been established.

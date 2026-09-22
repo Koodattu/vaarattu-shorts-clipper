@@ -41,6 +41,7 @@ async function loadHighlightTimeline(run,force=false){
     if(highlightTimeline!==state)return;
     state.model=highlightTimelineModel(run.sources||[],plan);
     const model=state.model;
+    paintSavedHighlightSources(run,model);
     if(!model.duration||!model.ranges.length){$("highlight-timeline-summary").textContent="This draft has no saved timeline sections.";return;}
     $("highlight-timeline-summary").textContent=`${highlightClock(model.duration)} recording \u2192 ${highlightClock(model.outputDuration)} edited video \u00b7 ${model.ranges.length} retained sections`;
     $("highlight-timeline-viewport").hidden=false;
