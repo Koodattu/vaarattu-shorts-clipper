@@ -11,7 +11,7 @@ from . import highlight_edit as source
 from .contracts import Contract
 from .llm import ModelAnchorError, ModelOutputError
 
-VERSION = "episode-v4"
+VERSION = "episode-v5"
 FINAL_SCORE_FLOOR = 75
 units = source.units
 RULES = source.RULES
@@ -246,11 +246,14 @@ def edit_scenes(beats, items, evaluator, key, guidance, warnings, previous=None)
     if current:
         packs.append(current)
     result, failures = [], []
-    for i, pack in enumerate(packs):
+    def edit_pack(job):
+        i, pack = job
         evaluator.report(f"Editing shortlisted scenes: batch {i+1} of {len(packs)} ({len(pack)} scenes).")
         batch = source.request(evaluator, EDIT_RULES, {"scenes": pack, "guidance": guidance}, EditBatch,
             f"{key}-{i}", recovery=lambda _: EditBatch(scenes=[]), warnings=warnings,
             warning="A scene batch could not be read; its scenes will be checked individually.", retry_delays=(5,))
+        return pack, batch
+    for pack, batch in source.parallel_requests(evaluator, edit_pack, list(enumerate(packs))):
         known = {c["scene"]["id"] for c in pack}
         if any(p.id not in known for p in batch.scenes):
             warnings.append("An edit referenced an unknown scene; that extra suggestion was ignored.")
@@ -313,7 +316,8 @@ def rate_cards(cards, evaluator, system, key, label, warnings):
         current.append(card)
     if current:
         packs.append(current)
-    for i, pack in enumerate(packs):
+    def rate_pack(job):
+        i, pack = job
         ids = {c["id"] for c in pack}
         def validate(result):
             actual = [r.id for r in result.scenes]
@@ -327,7 +331,9 @@ def rate_cards(cards, evaluator, system, key, label, warnings):
         evaluator.report(f"{label}: batch {i+1} of {len(packs)}.")
         result = source.request(evaluator, system, {"scenes": pack}, Ratings, f"{key}-{i}", validate,
             recovery=recovery, warnings=warnings, warning="Scene ranking needed recovery; only supplied scene IDs were retained.")
-        rankings.extend(r.model_dump() for r in result.scenes)
+        return [r.model_dump() for r in result.scenes]
+    for batch in source.parallel_requests(evaluator, rate_pack, list(enumerate(packs))):
+        rankings.extend(batch)
     return rankings
 
 
@@ -499,7 +505,7 @@ def plan(items, evaluator, progress, previous=None, guidance="", final_score_flo
     if not 0 <= final_score_floor <= 100:
         raise ValueError("Choose a final score from 0 to 100.")
     warnings = []
-    reuse = previous and previous.get("version") == VERSION
+    reuse = previous and previous.get("version") in {"episode-v4", VERSION}
     beats = copy.deepcopy(previous["beats"]) if reuse else source.discover(items, evaluator, lambda p: progress(p*0.25), warnings)
     positions = {u["id"]: i for i, u in enumerate(items)}
     for left, right in zip(beats, beats[1:]):
@@ -521,59 +527,10 @@ def plan(items, evaluator, progress, previous=None, guidance="", final_score_flo
         pool = edit_scenes(candidates, items, evaluator, "episode-edit", guidance, warnings)
     progress(0.65)
     rankings = rank_scenes(pool, items, evaluator, warnings)
-    history, seen, issues = [], set(), []
-    for iteration in range(2):
-        selected, decisions = assemble(pool, rankings, items, final_score_floor)
-        retained = timeline(selected, items)
-        fingerprint = json.dumps(retained, sort_keys=True)
-        if fingerprint in seen:
-            break
-        seen.add(fingerprint)
-        evaluator.report(f"Reviewing episode pacing and joins: pass {iteration+1} of 2.")
-        review = critique(selected, items, evaluator, iteration, warnings)
-        issues = [i.model_dump() for i in review.issues]
-        issues.extend({"sequence": a.sequence, "instruction": f"Needed context {a.first}-{a.last}: {a.reason}"} for a in review.context)
-        issues.extend({"sequence": d.drop, "instruction": f"Repeated by {d.keep}: {d.reason}"} for d in review.duplicates)
-        history.append({"iteration": iteration, "issues": issues, "selected": [s["beat"]["id"] for s in selected],
-                        "edits": [copy.deepcopy(s["edit"]) for s in selected], "duration": seconds(retained),
-                        "context": [a.model_dump() for a in review.context], "duplicates": [d.model_dump() for d in review.duplicates]})
-        if not issues or iteration == 1:
-            break
-        revised = []
-        for i, seq in enumerate(selected):
-            ident = seq["beat"]["id"]
-            if any(d.drop == ident for d in review.duplicates):
-                continue
-            notes = [x.instruction for x in review.issues if x.sequence == ident]
-            additions = [a for a in review.context if a.sequence == ident]
-            before = copy.deepcopy(seq)
-            if notes:
-                try:
-                    seq["edit"] = compact(seq["beat"], items, evaluator, f"episode-revise-{i}",
-                        guidance+"\n"+"\n".join(notes), seq["edit"], warnings).model_dump()
-                except ModelOutputError:
-                    warnings.append(f"Scene {seq['beat']['id']} kept its last verified edit; the pacing change could not be verified.")
-            if additions and seq["edit"]["spans"]:
-                try:
-                    seq.update(add_context(seq, additions, items, selected, reference=before))
-                except ModelAnchorError:
-                    warnings.append(f"Scene {ident} needs a context check; its requested addition conflicted with another retained scene.")
-            if notes or additions:
-                revised.append(seq)
-        if revised:
-            ids = {s["beat"]["id"] for s in revised}
-            rankings = [r for r in rankings if r["id"] not in ids]+rank_scenes(revised, items, evaluator, warnings)
-        scores = {r["id"]: r["score"] for r in rankings}
-        lookup = {s["beat"]["id"]: s for s in pool}
-        for duplicate in review.duplicates:
-            keep = lookup[duplicate.keep]
-            if scores[duplicate.keep] >= final_score_floor and keep["edit"]["value"] >= 2 and compiled(keep, items):
-                lookup[duplicate.drop]["edit"].update(spans=[], gaps=[], value=1)
-                lookup[duplicate.drop]["excluded_as_duplicate_of"] = duplicate.keep
-                for rating in rankings:
-                    if rating["id"] == duplicate.drop:
-                        rating.update(score=0, reason=duplicate.reason)
-        progress(0.85)
+    from . import highlight_review
+    selected, decisions, rankings, history, issues = highlight_review.finish(
+        pool, rankings, items, evaluator, final_score_floor, warnings, progress)
+    retained = timeline(selected, items)
     if not retained and warnings:
         raise ModelOutputError("No verified episode edit could be produced. Completed work is saved; resume to try again.")
     progress(1)

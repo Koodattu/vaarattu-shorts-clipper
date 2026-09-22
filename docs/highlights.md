@@ -317,3 +317,41 @@ when no recordings exist; model, initial score and encoder options are under **M
 Approve, reject and download controls stay below the player. Completed videos show their revision,
 length, quality and review state; running jobs show progress and pause/resume controls. Editing notes
 remain signposted above the tools. Tool tabs support arrow keys, Home and End.
+
+
+### Editorial corrections and processing efficiency
+
+New analysis uses episode-v5. Discovery, first screening and scene editing keep their existing
+request identities, so paused runs can reuse verified model responses. The completed edit stage is
+versioned separately. Already rendered revisions and final approvals are never rebuilt implicitly.
+
+After independent scoring and the chosen final floor, the reviewer returns one verdict per scene:
+acceptable, a structured correction, or unresolved. Corrections remove whole retained passage
+ranges, restore only offered surrounding context, or change a verified retained gap. Protected
+setup/payoff and necessary restored context survive subsequent corrections. The compiler applies
+changes atomically and checks anchors, word boundaries, overlap and pause evidence.
+
+Each scene permits at most two correction attempts. Changed scenes and affected joins are checked;
+unchanged scenes are not routinely rewritten. A final verification cannot propose another edit.
+Reversals and no-op edits stop with an explicit note rather than causing a loop. Review records in
+plan.json include before/after fingerprints, the correction and its resolution. Processing & history
+shows verified, unresolved and unreviewed scene counts separately from technical warnings. Lowering
+the score floor can include scenes that have not had the final editorial check; this is shown honestly.
+
+Episode-wide repetition uses a compact overview once, then full edited evidence for proposed pairs.
+Local review sees only its scene and neighboring joins. Independent Codex score, edit and review
+batches use at most two concurrent requests; local model calls remain serial. Displayed model time
+is the sum of response times, not elapsed wall time when requests overlap. No new prompt-cache API
+options are assumed for the user's bridge; existing response caches remain in use.
+
+Highlight footage acquisition first tries packet copying with padded source windows. The actual audio
+origin is still measured, every required cut must fit, and video/audio decoding is checked before the
+section is accepted. A failed copy attempt falls back once to the existing encoded acquisition in a
+separate folder. Cancellation never triggers fallback. Final cuts still use the verified source clock
+and the selected renderer. acquisition.json records acquisition and verification timings per attempt.
+The clipping acquisition defaults are unchanged.
+
+Alignment keeps its original coarse drift probes and confidence/separation checks. Dense fallback
+skips positions too close to an established anchor, rejects silent query samples before decoding
+reference audio, and reuses a bounded decoded reference buffer. This is only audio clock alignment;
+editorial silence decisions continue to use transcript timestamps, not a dB detector.

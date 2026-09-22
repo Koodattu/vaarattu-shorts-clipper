@@ -11,7 +11,7 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
-from . import highlight_copy, highlight_episode as editing, highlight_sources as sources, render, transcribe, youtube
+from . import highlight_copy, highlight_episode as editing, highlight_sources as sources, transcribe, youtube
 from .contracts import Contract
 from .llm import Evaluator, ModelOutputError
 from .pipeline import Pipeline, check_space
@@ -116,7 +116,7 @@ def public(settings, store, run):
         step = request.get("step", "")
         label = ("Discovery" if step.startswith("scan-") else "First ranking" if step.startswith("episode-screen")
                  else "Title and description" if step.startswith("highlight-copy")
-                 else "Edited ranking" if step.startswith("episode-rank") else "Pacing review" if step.startswith("episode-critic")
+                 else "Edited ranking" if step.startswith("episode-rank") else "Pacing review" if step.startswith(("episode-critic", "episode-polish", "episode-verify", "episode-joins", "episode-duplicate"))
                  else "Scene editing")
         phase = phases.setdefault(label, {"requests": 0, "retries": 0, "seconds": 0})
         phase["requests"] += 1
@@ -130,6 +130,7 @@ def public(settings, store, run):
             "has_final": bool(result.get("has_final") and (folder / "final.mp4").is_file()),
             "duration": result.get("duration", 0), "issues": result.get("issues", []),
             "warnings": result.get("warnings", []), "metrics": result.get("metrics", {}),
+            "editorial": result.get("editorial"),
             "review": result.get("review"), "history": result.get("history", []),
             "selection_preview": result.get("selection_preview"),
             "publishing_copy": highlight_copy.get(settings, run),
@@ -334,9 +335,8 @@ class Highlights(Pipeline):
                         audio[asset] = saved_audio["result"]
                     audio_path = audio[asset]["path"]
                     where = self.folder / "sections" / f"{asset}-{start:.3f}-{end:.3f}"
-                    path = sources.acquire(self.settings, source, where, self.check, (start, end))
-                    mapping = render.align(self.settings, Path(audio_path), path, start, where,
-                                           self.check, clip_duration=max(6, end-start-40))
+                    path, mapping = sources.acquire_aligned(self.settings, source, where, self.check,
+                                                            (start, end), Path(audio_path), spans)
                     record = {"asset": asset, "path": str(path), "start_us": round(start*1e6),
                               "end_us": round(end*1e6), "mapping": mapping}
                     return record, [path]
@@ -400,10 +400,12 @@ class Highlights(Pipeline):
     def finish(self, result, plan, rendered, mode):
         revision = result.get("revision", 1)
         folder = revision_folder(self.settings, self.run_id, revision)
+        from .highlight_review import summary
         history = [h for h in result.get("history", []) if h["revision"] != revision]
         current = {"revision": revision, "final_score_floor": plan.get("final_score_floor", 60), "duration": rendered.get("duration", plan["duration"]),
                    "has_draft": bool(plan["retained"]), "has_final": mode == "final" and bool(rendered),
                    "issues": plan["issues"], "warnings": plan.get("warnings", []), "metrics": plan.get("metrics", {}),
+                   "editorial": summary(plan),
                    "parent_revision": result.get("parent_revision"), "guidance": result.get("guidance", ""),
                    "selection_preview": {"score_floor": plan.get("final_score_floor", 60), "scenes": len(plan["sequences"]), "duration": plan["duration"]},
                    "plan_sha256": digest(folder / "plan.json"), "media_sha256": digest(folder / "media.json")}

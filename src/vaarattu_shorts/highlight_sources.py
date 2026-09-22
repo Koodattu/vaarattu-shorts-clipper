@@ -150,7 +150,7 @@ def validate_selection(plan, sources):
             raise ValueError("The edit reaches outside a selected recording range. Rebuild this draft.")
 
 
-def acquire(settings, source, folder, check, interval=None):
+def acquire(settings, source, folder, check, interval=None, *, stream_copy=False):
     folder.mkdir(parents=True, exist_ok=True)
     args = [*youtube.yt_args(), "--ffmpeg-location",
             str(Path(shutil.which(settings.ffmpeg) or settings.ffmpeg).resolve()),
@@ -162,9 +162,13 @@ def acquire(settings, source, folder, check, interval=None):
     else:
         start, end = interval
         args += ["-f", "bestvideo[height<=1080]+bestaudio/best[height<=1080]",
-                 "--download-sections", f"*{start:.6f}-{end:.6f}", "--force-keyframes-at-cuts",
-                 "--downloader-args", "ffmpeg_o:-c:v libx264 -preset fast -crf 18 -c:a aac -b:a 192k -f matroska",
-                 "--merge-output-format", "mkv", "--remux-video", "mkv"]
+                 "--download-sections", f"*{start:.6f}-{end:.6f}"]
+        if stream_copy:
+            args += ["--no-force-keyframes-at-cuts", "--downloader-args", "ffmpeg_o:-c copy -f matroska"]
+        else:
+            args += ["--force-keyframes-at-cuts", "--downloader-args",
+                     "ffmpeg_o:-c:v libx264 -preset fast -crf 18 -c:a aac -b:a 192k -f matroska"]
+        args += ["--merge-output-format", "mkv", "--remux-video", "mkv"]
     run_tool([*args, source["url"]], settings, folder, "download", check, timeout=14400,
              byte_limit=int(settings.max_download_gb * 1e9), watch=folder)
     report = folder / "download.txt"
@@ -178,6 +182,47 @@ def acquire(settings, source, folder, check, interval=None):
     if "audio" not in streams or (interval is not None and "video" not in streams):
         raise ValueError("The recording is missing the required picture or audio.")
     return path
+
+
+def acquire_aligned(settings, source, folder, check, interval, audio, spans):
+    """Try packet-copy acquisition; encode only when its timing or decoding fails."""
+    from . import render
+    from .processes import ToolError
+    from .storage import atomic_json
+    import time
+
+    start, end = interval
+    timings = []
+    for copy_media in (True, False):
+        where = folder / ("copy" if copy_media else "encoded")
+        started = time.monotonic()
+        try:
+            path = acquire(settings, source, where, check, interval, stream_copy=copy_media)
+            acquired = time.monotonic()
+            mapping = render.align(settings, Path(audio), path, start, where, check,
+                                   clip_duration=max(6, end-start-40))
+            # Acquisition boundaries can move to an earlier keyframe. The verified clock
+            # must cover every retained cut; padding itself need not be frame-exact.
+            origin = mapping["origin_us"]
+            limit = origin+round(mapping["section_duration"]*1e6)
+            needed = [s for s in spans if round(start*1e6) <= s["start_us"] and s["end_us"] <= round(end*1e6)]
+            if not needed or any(s["start_us"] < origin or s["end_us"] > limit for s in needed):
+                raise ValueError("The acquired footage does not cover the required cuts.")
+            # Copying packets is fast but may retain a broken keyframe boundary.
+            run_tool([settings.ffmpeg, "-nostdin", "-v", "error", "-xerror", "-i", path,
+                      "-map", "0:v:0", "-map", "0:a:0", "-f", "null", "-"],
+                     settings, where, "decode-check", check, timeout=7200)
+            timings.append({"mode": "copy" if copy_media else "encoded", "download_seconds": round(acquired-started, 3),
+                            "verification_seconds": round(time.monotonic()-acquired, 3), "status": "verified"})
+            atomic_json(folder / "acquisition.json", {"attempts": timings})
+            return path, mapping
+        except (ToolError, ValueError):
+            check()
+            timings.append({"mode": "copy" if copy_media else "encoded", "elapsed_seconds": round(time.monotonic()-started, 3),
+                            "status": "failed"})
+            atomic_json(folder / "acquisition.json", {"attempts": timings})
+            if not copy_media:
+                raise
 
 
 def _shorts_transcript(settings, source, manifests):

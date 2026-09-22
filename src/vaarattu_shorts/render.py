@@ -60,6 +60,7 @@ def align(settings, source_audio, section, requested_start, folder, check, clip_
     # Six seconds keeps the two query windows independent, even for a very short clip.
     required_separation = max(6, (duration if clip_duration is None else clip_duration) * 0.35)
     origins, samples, failures = [], [], []
+    reference_buffer, buffer_start = None, 0
     positions = [2.0, duration - 8.0, duration * 0.25, duration * 0.5, duration * 0.75]
     # Quiet padding can hide usable, well-separated speech between the coarse samples.
     # Try these only if the usual samples have not already established alignment.
@@ -68,13 +69,22 @@ def align(settings, source_audio, section, requested_start, folder, check, clip_
         check()
         if not 0 <= position <= duration - 6:
             continue
+        if i >= 5 and samples and max(abs(position-s["section_seconds"]) for s in samples) < required_separation:
+            continue
+        query = waveform[round(position * 2000) : round((position + 6) * 2000)]
+        centered = query-query.mean()
+        if float(np.dot(centered, centered)) < len(query)*100:
+            failures.append({"section_seconds": position, "reason": "Audio timing could not be verified from a silent or short sample."})
+            continue
         expected = requested_start + position
         reference_start = max(0, expected - 30)
-        ref = folder / f"reference-{i}.wav"
-        pcm(settings, source_audio, ref, reference_start, 66, check, rate=2000)
-        reference = read_wave(ref)
-        ref.unlink()
-        query = waveform[round(position * 2000) : round((position + 6) * 2000)]
+        if reference_buffer is None or reference_start < buffer_start or reference_start+66 > buffer_start+len(reference_buffer)/2000:
+            ref = folder / f"reference-{i}.wav"
+            pcm(settings, source_audio, ref, reference_start, 126, check, rate=2000)
+            reference_buffer, buffer_start = read_wave(ref), reference_start
+            ref.unlink()
+        begin = round((reference_start-buffer_start)*2000)
+        reference = reference_buffer[begin:begin+66*2000]
         try:
             offset, score = correlate(reference, query)
         except ValueError as exc:

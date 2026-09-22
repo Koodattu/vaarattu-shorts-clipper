@@ -2,6 +2,8 @@ import json
 
 import pytest
 
+from vaarattu_shorts import highlight_review as review
+
 from vaarattu_shorts import highlight_edit as source, highlight_episode as episode, highlights
 from vaarattu_shorts.llm import ModelAnchorError
 
@@ -131,6 +133,18 @@ class Evaluator:
             value = episode.Proposal(spans=[source.Span(first=beat["first"], last=beat["last"])], pauses=[], value=3, reason="Enjoyable commentary")
             if key.startswith("episode-revise"):
                 value.spans, value.value = [], 1
+        elif schema is review.Duplicates:
+            value = review.Duplicates(duplicates=[])
+        elif schema is review.Decisions:
+            value = review.Decisions(scenes=[review.Decision(sequence=c["sequence"], verdict="acceptable",
+                remove=[], restore=[], pauses=[], protect=[], reason="The scene works.") for c in payload["scenes"]])
+            if self.revise and key.startswith("episode-polish-0"):
+                target = next(c for c in value.scenes if c.sequence == "b0")
+                target.verdict = "change"
+                target.remove = [source.Span(first="u0", last="u1")]
+                target.reason = "This whole scene repeats the other exchange."
+        elif schema is review.Checks:
+            value = review.Checks(scenes=[review.Check(sequence=c["sequence"], verdict="resolved", reason="The change preserves context.") for c in payload["scenes"]])
         elif schema is episode.Ratings:
             value = episode.Ratings(scenes=[episode.Rating(id=c["id"], score=90-int(c["id"][1:]), reason="Grounded personality moment") for c in payload["scenes"]])
         else:
@@ -148,8 +162,8 @@ def test_screening_precedes_batched_editing_and_review_removes_repetition():
     assert len(next(p["scenes"] for k, p, _ in evaluator.calls if k == "episode-edit-0")) == 3
     assert result["metrics"]["edited_scenes"] == 3
     assert [s["beat"]["id"] for s in result["sequences"]] == ["b1", "b2"]
-    assert len(result["review_history"]) == 2
-    assert result["review_history"][0]["selected"] == ["b0", "b1", "b2"]
+    assert any(r["sequence"] == "b0" and r["status"] == "applied" for r in result["review_history"])
+    assert not result["issues"]
     assert result["duration"] <= 12
     assert evaluator.calls[0][2]["reasoning_effort"] == "low"
     assert all(kw["reasoning_effort"] == "low" for k, _, kw in evaluator.calls if not k.startswith("scan-"))
@@ -411,16 +425,18 @@ def test_context_cannot_invent_anchors_restore_arbitrary_scenes_or_duplicate_foo
 def test_duplicate_review_removes_only_repeated_scene_and_preserves_named_keep(monkeypatch):
     real = Evaluator.call
     def call(self, system, prompt, schema, key, **kwargs):
-        if schema is episode.EpisodeReview:
+        if schema is review.Duplicates:
             self.calls.append((key, json.loads(prompt), kwargs))
-            result = episode.EpisodeReview(issues=[], context=[], duplicates=[episode.Duplicate(drop="b1", keep="b0", reason="Same point already made")] if key=="episode-critic-0-0" else [])
+            result = review.Duplicates(duplicates=[episode.Duplicate(drop="b1", keep="b0", reason="Same point already made")])
             kwargs["validate"](result)
             return result
         return real(self, system, prompt, schema, key, **kwargs)
     monkeypatch.setattr(Evaluator, "call", call)
-    result = episode.plan(items(), Evaluator(), lambda _: None)
+    evaluator = Evaluator()
+    result = episode.plan(items(), evaluator, lambda _: None)
     assert [s["beat"]["id"] for s in result["sequences"]] == ["b0", "b2"]
-    assert result["review_history"][0]["duplicates"][0]["keep"] == "b0"
+    assert result["review_history"][0]["duplicate_of"] == "b0"
+    assert any(k.startswith("episode-duplicate-check") for k, _, _ in evaluator.calls)
 
 
 def test_context_request_is_applied_before_rescoring_without_promoting_weak_scene(monkeypatch):
@@ -429,18 +445,21 @@ def test_context_request_is_applied_before_rescoring_without_promoting_weak_scen
     monkeypatch.setattr(source, "discover", lambda *a: beats)
     real = Evaluator.call
     def call(self, system, prompt, schema, key, **kwargs):
-        if schema is episode.EpisodeReview:
-            self.calls.append((key, json.loads(prompt), kwargs))
-            result = episode.EpisodeReview(issues=[], duplicates=[], context=[episode.ContextAddition(sequence="b0", first="u2", last="u2", reason="The question is needed")] if key=="episode-critic-0-0" else [])
-            kwargs["validate"](result)
-            return result
-        return real(self, system, prompt, schema, key, **kwargs)
+        value = real(self, system, prompt, schema, key, **kwargs)
+        if schema is review.Decisions and key.startswith("episode-polish-0"):
+            decision = next(c for c in value.scenes if c.sequence == "b0")
+            decision.verdict = "change"
+            decision.restore = [source.Span(first="u2", last="u2")]
+            decision.protect = [source.Span(first="u2", last="u2")]
+            kwargs["validate"](value)
+        return value
     monkeypatch.setattr(Evaluator, "call", call)
     evaluator = Evaluator()
     result = episode.plan(rows, evaluator, lambda _: None)
     assert result["sequences"][0]["edit"]["spans"] == [{"first": "u2", "last": "u4"}]
     assert len(result["sequences"]) == 2
     assert result["final_score_floor"] == 75
+    assert "u2" in result["sequences"][0]["protected_passages"]
     assert len([k for k, _, _ in evaluator.calls if k.startswith("episode-rank")]) == 2
 
 

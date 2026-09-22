@@ -178,7 +178,7 @@ def test_newly_included_footage_uses_saved_audio_without_transcribing(settings, 
         output.write_bytes(b"new draft")
         return {"duration": 15, "sha256": digest(output)}
     monkeypatch.setattr(highlights.sources, "acquire", acquire)
-    monkeypatch.setattr(highlights.render, "align", align)
+    monkeypatch.setattr(highlights.sources, "acquire_aligned", lambda settings, source, where, check, window, audio_path, spans: (acquire(settings, source, where, check, window), align(settings, audio_path, None, window[0])))
     monkeypatch.setattr(highlights, "render_video", render)
     monkeypatch.setattr(highlights.transcribe, "transcribe", lambda *a, **kw: pytest.fail("No transcription"))
     store.claim()

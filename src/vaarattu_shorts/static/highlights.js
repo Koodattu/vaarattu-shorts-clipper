@@ -112,11 +112,12 @@ function paintHighlights(){
   const notes=$("highlight-notes");notes.replaceChildren();
   notes.append(text("p",`${run.activity?.request_count??run.usage.request_count} model requests in this revision`,"muted"));
   if(run.activity?.thinking)notes.append(text("p",`Editing thinking: ${run.activity.thinking}.`,"muted"));
-  for(const [label,phase] of Object.entries(run.activity?.phases||{}))notes.append(text("p",`${label}: ${phase.requests} requests, ${phase.retries} retries / repairs, ${highlightDuration(phase.seconds)} waiting for the model.`,"muted"));
+  for(const [label,phase] of Object.entries(run.activity?.phases||{}))notes.append(text("p",`${label}: ${phase.requests} requests, ${phase.retries} retries / repairs, ${highlightDuration(phase.seconds)} total model response time.`,"muted"));
   if(run.stage.startsWith("edit-")&&run.state==="running")notes.append(text("p","Editing is in progress. Selected footage download and rendering come next.","muted"));
   if(run.selection_preview)notes.append(text("p",`Final selection: ${run.selection_preview.scenes} scenes, ${highlightDuration(run.selection_preview.duration)}, minimum score ${run.selection_preview.score_floor}.`,"muted"));
   if(run.metrics?.eligible_scenes!==undefined)notes.append(text("p",`${run.metrics.mapped_scenes} scenes found; ${run.metrics.eligible_scenes} passed the initial quality check. Length follows the selected content.`,"muted"));
   if(run.metrics?.edited_scenes)notes.append(text("p",`${run.metrics.edited_scenes} scenes edited before selection; ${run.metrics.selected_scenes} scenes and ${run.metrics.retained_ranges} retained ranges in this draft.`,"muted"));
+  if(run.editorial)notes.append(text("p",`Editorial checks: ${run.editorial.verified} scenes verified, ${run.editorial.unresolved} with unresolved notes, ${run.editorial.not_reviewed} not yet checked. ${run.editorial.corrections} corrections applied.`,"muted"));
   for(const warning of run.warnings||[])notes.append(text("p",warning));
   for(const issue of run.issues)notes.append(text("p",issue.instruction));
   if(run.has_draft)notes.append(text("p","Editing used the transcript only. Check gameplay pauses and how the cuts sound before approving.","muted"));

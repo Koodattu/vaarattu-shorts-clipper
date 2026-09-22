@@ -2,6 +2,8 @@ import json
 
 import httpx
 import pytest
+
+from vaarattu_shorts import highlight_review as review
 from fastapi.testclient import TestClient
 
 from vaarattu_shorts import highlight_edit as edit, highlight_episode as episode, highlight_sources as sources, highlights
@@ -146,6 +148,13 @@ class Evaluator:
             value = episode.Proposal(spans=[edit.Span(first="u1", last="u7")], pauses=[], value=3, reason="Complete story")
         elif schema is episode.SceneEdit:
             value = episode.SceneEdit(spans=[edit.Span(first="u1", last="u7")], gaps=[], value=3, reason="Complete story")
+        elif schema is review.Duplicates:
+            value = review.Duplicates(duplicates=[])
+        elif schema is review.Decisions:
+            value = review.Decisions(scenes=[review.Decision(sequence=c["sequence"], verdict="acceptable",
+                remove=[], restore=[], pauses=[], protect=[], reason="The scene works.") for c in payload["scenes"]])
+        elif schema is review.Checks:
+            value = review.Checks(scenes=[review.Check(sequence=c["sequence"], verdict="resolved", reason="The change preserves context.") for c in payload["scenes"]])
         elif schema is episode.Ratings:
             value = episode.Ratings(scenes=[episode.Rating(id=c["id"], score=80, reason="Enjoyable scene") for c in payload["scenes"]])
         elif schema is episode.EpisodeReview:
@@ -261,10 +270,10 @@ def test_pipeline_resume_final_and_revision(settings, store, monkeypatch, critic
     monkeypatch.setattr(sources, "reusable_transcript", lambda *args: None)
     monkeypatch.setattr(highlights.youtube, "probe", lambda *args: {"format": {"duration": "120"}})
     monkeypatch.setattr(highlights.transcribe, "transcribe", transcribe)
-    monkeypatch.setattr(highlights.render, "align", lambda *args, **kw: {"origin_us": 0, "section_duration": 120})
+    monkeypatch.setattr(sources, "acquire_aligned", lambda settings, source, folder, check, interval, audio, spans: (acquire(settings, source, folder, check, interval), {"origin_us": 0, "section_duration": 120}))
     class PipelineEvaluator(Evaluator):
         def call(self, system, prompt, schema, key, **kw):
-            if critic_failure and schema in {edit.Review, episode.EpisodeReview}:
+            if critic_failure and schema in {edit.Review, episode.EpisodeReview, review.Decisions, review.Checks}:
                 raise ModelOutputError("Invalid critique after retries")
             return super().call(system, prompt, schema, key, **kw)
 
@@ -280,7 +289,9 @@ def test_pipeline_resume_final_and_revision(settings, store, monkeypatch, critic
     assert bool(visible["publishing_copy"].get("error")) == copy_failure
     if not copy_failure:
         assert visible["publishing_copy"]["title"] == "A specific story"
-    assert bool(first["warnings"]) == critic_failure
+    assert bool(first["issues"]) == critic_failure
+    if critic_failure:
+        assert "could not be verified" in first["issues"][0]["instruction"]
     assert visible["warnings"] == first["warnings"] == first["history"][0]["warnings"]
     assert events == ["audio", "transcribe", "section", "draft"]
     assert store.runs() == []

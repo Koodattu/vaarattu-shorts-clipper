@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from typing import Literal
 
 from pydantic import Field
@@ -146,6 +148,30 @@ def compile_edit(edit, items, allowance=1200):
     if duration > allowance+0.05:
         raise ModelAnchorError(f"This edit lasts {duration:.1f}s; retain complete passages within {allowance:.1f}s.")
     return retained
+
+
+def parallel_requests(evaluator, function, jobs):
+    """At most two cloud calls in flight, with ordered results and no queued backlog."""
+    if getattr(evaluator, "provider", None) != "codex" or len(jobs) < 2:
+        for job in jobs:
+            evaluator.check()
+            yield function(job)
+        return
+    pending = deque()
+    remaining = iter(jobs)
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="highlight-model") as pool:
+        try:
+            for _ in range(2):
+                pending.append(pool.submit(function, next(remaining)))
+            while pending:
+                evaluator.check()
+                yield pending.popleft().result()
+                job = next(remaining, None)
+                if job is not None:
+                    pending.append(pool.submit(function, job))
+        finally:
+            for future in pending:
+                future.cancel()
 
 
 def request(evaluator, system, value, schema, key, validate=None, *, recovery=None, warnings=None, warning="", retry_delays=(5, 15)):

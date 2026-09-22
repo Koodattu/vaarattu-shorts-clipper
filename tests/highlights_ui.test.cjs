@@ -435,3 +435,12 @@ test('rebuild labels make clear that a partial project keeps its selected ranges
   assert.equal(nodes.get('highlight-rebuild').textContent,'Rebuild from selected ranges');
   assert.ok(nodes.get('highlight-controls').children.some(n=>n.textContent==='Rebuild from selected ranges'));
 });
+
+
+test('editorial results distinguish unresolved work from technical warnings',async()=>{
+  const {nodes,run,context}=fixture();
+  run.editorial={verified:25,unresolved:2,not_reviewed:3,corrections:12};
+  run.warnings=[];
+  await vm.runInContext('loadHighlights()',context);
+  assert.ok(nodes.get('highlight-notes').children.some(n=>n.textContent.includes('25 scenes verified, 2 with unresolved notes, 3 not yet checked. 12 corrections applied.')));
+});
