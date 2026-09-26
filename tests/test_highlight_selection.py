@@ -13,7 +13,8 @@ from vaarattu_shorts.web import create_app
 def saved(settings):
     store = highlights.store_for(settings)
     config = {"manifest": {"title": "Recording", "sources": [{"asset": "s0", "duration": 200}]},
-              "provider": "codex", "video_encoder": "h264_nvenc", "model_manifests": {}}
+              "provider": "codex", "video_encoder": "h264_nvenc", "model_manifests": {},
+              "budget_usd": 0, "context_size": 32768, "discovery_reasoning": "low", "verification_reasoning": "high"}
     run_id = store.admit(config, "score-preview")
     transcript = {"duration_us": 200000000, "words": [
         {"id": f"w{i}", "start_us": i*10000000+1000000, "end_us": i*10000000+3000000,
@@ -77,34 +78,36 @@ def test_saved_cuts_remain_authoritative_across_compiler_changes(settings, saved
     assert all(s["sequence"] == "a" for s in retained)
 
 
-def test_preview_and_render_share_selection_preserve_history_and_use_no_ai(settings, saved, monkeypatch):
+def test_raising_floor_preserves_history_and_cuts_without_editorial_ai(settings, saved, monkeypatch):
     store, run_id, folder, plan, _ = saved
     before = {name: digest(folder / name) for name in ("plan.json", "draft.mp4", "media.json")}
     preview = selection.preview(settings, store, run_id, 1)
-    queued = selection.queue(settings, store, run_id, 1, 65, preview["plan_hash"])
+    queued = selection.queue(settings, store, run_id, 1, 80, preview["plan_hash"])
     assert queued["revision"] == 2 and store.get(run_id)["state"] == "queued"
     next_folder = folder.parent / "2"
     next_plan = json.loads((next_folder / "plan.json").read_text("utf-8"))
-    assert len(next_plan["sequences"]) == preview["previews"][65]["scenes"]
+    assert len(next_plan["sequences"]) == preview["previews"][80]["scenes"]
     def forbidden(*a, **kw):
-        pytest.fail("Score-only render must not call AI or fetch cached footage")
+        pytest.fail("Raising the floor must not call editorial AI or fetch cached footage")
     monkeypatch.setattr(highlights, "Evaluator", forbidden)
     monkeypatch.setattr(highlights.transcribe, "transcribe", forbidden)
-    monkeypatch.setattr(highlights.highlight_copy, "automatic", forbidden)
+    copies = []
+    monkeypatch.setattr(highlights.highlight_copy, "automatic", lambda *args: copies.append(args[-1]))
     monkeypatch.setattr(highlights.sources, "acquire", forbidden)
     def render(settings, plan, media, output, *a):
         output.write_bytes(b"new draft")
         assert plan == next_plan
         assert media
-        return {"duration": preview["previews"][65]["duration"], "sha256": digest(output)}
+        return {"duration": preview["previews"][80]["duration"], "sha256": digest(output)}
     monkeypatch.setattr(highlights, "render_video", render)
     store.claim()
     result = highlights.Highlights(settings, store, run_id).execute()
-    assert result["duration"] == preview["previews"][65]["duration"]
+    assert result["duration"] == preview["previews"][80]["duration"]
     assert result["review"] == "unreviewed" and len(result["history"]) == 2
-    assert result["final_score_floor"] == 65
+    assert result["final_score_floor"] == 80
     assert before == {name: digest(folder / name) for name in before}
-    assert not (next_folder / "publishing-copy.json").exists()
+    assert copies == [2]
+    assert not store.get(run_id)["result"]["selection_review_required"]
 
 
 @pytest.mark.parametrize("fault", ["stale_hash", "stale_revision", "empty", "unchanged", "running"])
@@ -146,7 +149,7 @@ def test_selection_api_preview_is_readonly_and_render_requires_local_token(setti
 def test_selection_fails_if_saved_render_plan_changes(settings, saved, monkeypatch):
     store, run_id, folder, _, _ = saved
     selection.queue(settings, store, run_id, 1, 80, digest(folder / "plan.json"))
-    atomic_json(folder.parent / "2" / "plan.json", {"retained": []})
+    atomic_json(folder.parent / "2" / "selection-input.json", {"retained": []})
     monkeypatch.setattr(highlights, "render_video", lambda *a: pytest.fail("Changed edit"))
     store.claim()
     with pytest.raises(ValueError, match="selected edit changed"):
@@ -164,6 +167,9 @@ def test_newly_included_footage_uses_saved_audio_without_transcribing(settings, 
     if changed_audio:
         audio.write_bytes(b"changed audio")
     selection.queue(settings, store, run_id, 1, 65, digest(folder / "plan.json"))
+    monkeypatch.setattr(highlights, "Evaluator", lambda *a, **kw: object())
+    monkeypatch.setattr(selection, "review_plan", lambda plan, *a: plan)
+    monkeypatch.setattr(highlights.highlight_copy, "automatic", lambda *a: None)
     calls = []
     def acquire(settings, source, where, check, window):
         calls.append(window)
@@ -190,3 +196,123 @@ def test_newly_included_footage_uses_saved_audio_without_transcribing(settings, 
         highlights.Highlights(settings, store, run_id).execute()
         assert calls
         assert store.get(run_id)["state"] == "completed"
+
+
+@pytest.mark.parametrize("empty_parent", [False, True])
+def test_lowering_floor_finishes_review_then_renders_and_generates_copy(settings, saved, monkeypatch, empty_parent):
+    from test_highlight_episode import Evaluator
+    from vaarattu_shorts import highlight_review
+    store, run_id, folder, plan, items = saved
+    if empty_parent:
+        for rating in plan["rankings"]:
+            rating["score"] = min(rating["score"], 72)
+        plan.update(sequences=[], retained=[], duration=0)
+        atomic_json(folder / "plan.json", plan)
+    parent_hash = digest(folder / "plan.json")
+    evaluator = Evaluator()
+    options = []
+    def make_evaluator(*a, **kw):
+        options.append(kw)
+        return evaluator
+    monkeypatch.setattr(highlights, "Evaluator", make_evaluator)
+    def forbidden(*a, **kw):
+        pytest.fail("No discovery, initial scene editing or transcription on floor change")
+    monkeypatch.setattr(episode.source, "discover", forbidden)
+    monkeypatch.setattr(episode, "edit_scenes", forbidden)
+    monkeypatch.setattr(highlights.transcribe, "transcribe", forbidden)
+    copies = []
+    def copy_text(settings, store, run_id, revision):
+        path = highlights.revision_folder(settings, run_id, revision)
+        assert (path / "draft.mp4").is_file()
+        reviewed = json.loads((path / "plan.json").read_text("utf-8"))
+        assert highlight_review.summary(reviewed)["not_reviewed"] == 0
+        copies.append(revision)
+    monkeypatch.setattr(highlights.highlight_copy, "automatic", copy_text)
+    rendered = []
+    def render(settings, plan, media, output, *a):
+        assert highlight_review.summary(plan)["verified"] == len(plan["sequences"])
+        assert media
+        rendered.append(copy.deepcopy(plan))
+        output.write_bytes(b"reviewed draft")
+        return {"duration": episode.seconds(plan["retained"])}
+    monkeypatch.setattr(highlights, "render_video", render)
+    selection.queue(settings, store, run_id, 1, 60, parent_hash)
+    assert store.get(run_id)["result"]["selection_review_required"]
+    store.claim()
+    result = highlights.Highlights(settings, store, run_id).execute()
+    assert copies == [2] and len(rendered) == 1
+    assert result["editorial"]["verified"] == 3
+    assert options[0]["verification_reasoning"] == "high"
+    assert any(key.startswith("episode-duplicates") for key, _, _ in evaluator.calls)
+    assert any(key.startswith("episode-polish") for key, _, _ in evaluator.calls)
+    assert digest(folder / "plan.json") == parent_hash
+    for ident in ["a", "b", "c"]:
+        assert [s for s in rendered[0]["retained"] if s["sequence"] == ident] == [
+            s for s in episode.timeline(rendered[0]["sequences"], items) if s["sequence"] == ident]
+
+
+def test_selection_review_checkpoint_resumes_without_repeating_ai(settings, saved, monkeypatch):
+    from test_highlight_episode import Evaluator
+    from vaarattu_shorts.processes import Interrupted
+    store, run_id, folder, _, _ = saved
+    evaluator = Evaluator()
+    monkeypatch.setattr(highlights, "Evaluator", lambda *a, **kw: evaluator)
+    monkeypatch.setattr(highlights.highlight_copy, "automatic", lambda *a: None)
+    selection.queue(settings, store, run_id, 1, 60, digest(folder / "plan.json"))
+    store.claim()
+    def pause(*a, **kw):
+        raise Interrupted("pause")
+    monkeypatch.setattr(highlights, "render_video", pause)
+    with pytest.raises(Interrupted):
+        highlights.Highlights(settings, store, run_id).execute()
+    reviewed_hash = digest(folder.parent / "2" / "plan.json")
+    assert reviewed_hash != digest(folder.parent / "2" / "selection-input.json")
+    def forbidden(*a, **kw):
+        pytest.fail("The saved final review must be reused")
+    monkeypatch.setattr(highlights, "Evaluator", forbidden)
+    def render(settings, plan, media, output, *a):
+        output.write_bytes(b"resumed draft")
+        return {"duration": plan["duration"]}
+    monkeypatch.setattr(highlights, "render_video", render)
+    result = highlights.Highlights(settings, store, run_id).execute()
+    assert result["has_draft"] and result["editorial"]["verified"] == 3
+    assert result["plan_sha256"] == reviewed_hash
+
+
+def test_review_corrections_are_applied_and_unchanged_saved_cuts_survive(settings, saved, monkeypatch):
+    from test_highlight_episode import Evaluator
+    from vaarattu_shorts import highlight_review
+    store, run_id, _, plan, items = saved
+    selection.queue(settings, store, run_id, 1, 60, digest(highlights.revision_folder(settings, run_id, 1) / "plan.json"))
+    path = highlights.revision_folder(settings, run_id, 2) / "plan.json"
+    pending = json.loads(path.read_text("utf-8"))
+    # Existing rendered cuts remain authoritative even across compiler changes.
+    pending["retained"][0]["end_us"] += 12345
+    saved_boundary = pending["retained"][0]["end_us"]
+    pending["review_history"] = [{"sequence": "a", "status": "verified", "reason": "Earlier review"}]
+    original = copy.deepcopy(pending)
+    real_review = highlight_review.review
+    def review(selected, items, evaluator, targets, records, key, verify=False):
+        results = real_review(selected, items, evaluator, targets, records, key, verify)
+        if key == "episode-polish-0":
+            result = next(r for r in results if r.sequence == "c")
+            result.verdict = "change"
+            result.remove = [episode.source.Span(first="u5", last="u5")]
+        return results
+    monkeypatch.setattr(highlight_review, "review", review)
+    monkeypatch.setattr(episode, "rank_scenes", lambda *a: [{"id": "c", "score": 68, "reason": "Tighter"}])
+    result = selection.review_plan(pending, items, Evaluator(), lambda _: None)
+    assert pending == original
+    assert result["retained"][0]["end_us"] == saved_boundary
+    assert result["review_history"][0] == original["review_history"][0]
+    assert any(r["sequence"] == "c" and r["status"] == "applied" for r in result["review_history"])
+    assert all(s["last"] != "u5" for s in result["retained"])
+    assert highlight_review.summary(result)["not_reviewed"] == 0
+
+
+def test_empty_selection_message_describes_floor_not_content(settings, saved):
+    store, run_id, folder, plan, _ = saved
+    plan.update(sequences=[], retained=[], duration=0)
+    atomic_json(folder / "media.json", [])
+    highlights.Highlights(settings, store, run_id).finish(store.get(run_id)["result"], plan, {}, "draft")
+    assert store.get(run_id)["message"] == "No scenes met the selected score floor. Lower it to include more saved scenes."

@@ -1,5 +1,5 @@
 "use strict";
-let highlightSourceRanges=[];
+let highlightSourceRanges=[],highlightSuggestedTitle="";
 function highlightSourceTime(seconds){
   const total=Math.round(seconds*1000),whole=Math.floor(total/1000),fraction=total%1000;
   return `${Math.floor(whole/3600)}:${String(Math.floor(whole%3600/60)).padStart(2,"0")}:${String(whole%60).padStart(2,"0")}${fraction?"."+String(fraction).padStart(3,"0"):""}`;
@@ -33,7 +33,9 @@ function setHighlightSources(manifest){
     const previous=old.get(`${source.provider}/${source.id}`);
     return {source,included:previous?.included??true,start:previous?Math.min(previous.start,source.duration):0,end:previous?Math.min(previous.end,source.duration):source.duration};
   });
-  if(!$("highlight-project-title").value.trim())$("highlight-project-title").value=manifest.title.slice(0,150);
+  const title=$("highlight-project-title");
+  if(!title.value.trim()||title.value===highlightSuggestedTitle)title.value=manifest.title.slice(0,150);
+  highlightSuggestedTitle=manifest.title.slice(0,150);
   $("highlight-source-setup").hidden=false;paintHighlightSources();
 }
 function paintHighlightSources(){

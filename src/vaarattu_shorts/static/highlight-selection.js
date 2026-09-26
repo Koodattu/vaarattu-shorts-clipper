@@ -26,7 +26,7 @@ function paintHighlightSelection(){
   $("highlight-selection-slider").value=String(state.floor);$("highlight-selection-number").value=String(state.floor);
   $("highlight-selection-slider").disabled=state.busy;$("highlight-selection-number").disabled=state.busy;
   $("highlight-selection-summary").textContent=`${highlightClock(Math.round(preview.duration))} predicted video length · ${preview.scenes} scenes · ${preview.sections} retained sections`;
-  $("highlight-selection-change").textContent=preview.scenes?`${preview.added} scenes added and ${preview.removed} removed compared with this revision. ${state.run.state!=="completed"?"Wait for current processing to finish before rendering another draft.":""}`:"No scenes meet this floor. Lower it to render a video.";
+  $("highlight-selection-change").textContent=preview.scenes?`${preview.added} scenes added and ${preview.removed} removed compared with this revision. ${preview.added?"Final editorial review runs before rendering and may change this length. ":""}${state.run.state!=="completed"?"Wait for current processing to finish before rendering another draft.":""}`:"No scenes meet this floor. Lower it to render a video.";
   $("highlight-selection-render").disabled=state.busy||state.run.state!=="completed"||!preview.scenes||(!preview.added&&!preview.removed);
   $("highlight-selection-render").textContent=state.busy?"Requesting new draft...":"Render new draft with this floor";
 }

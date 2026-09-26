@@ -13,7 +13,9 @@ project. Give the project a name, such as the game you are collecting highlights
 from. Each recording has an embedded preview, start/end timestamps, range sliders,
 and buttons to preview either boundary. Enter times as H:MM:SS, MM:SS or seconds.
 Choose one continuous range per recording, exclude recordings with their checkbox,
-and use **Move earlier / Move later** to set the final source order.
+and use **Move earlier / Move later** to set the final source order. Automatic project
+names follow newly loaded sources; a name you type is preserved while updating that
+project. Opening another recording from the library starts with a fresh name.
 
 For example, select the Diablo portion from three VODs for one project. After
 starting it, reopen the creation form, change the project name and ranges, and
@@ -305,11 +307,20 @@ Duration uses the renderer's per-section 30 fps rounding, including preserved pa
 
 The slider is read-only until **Render new draft with this floor** is pressed after processing finishes.
 The new revision preserves earlier drafts, reuses verified downloaded footage and fetches missing
-sections if needed. It does not rerun transcription, scoring, editing or automatic posting-copy generation.
+sections if needed. It does not rerun transcription, discovery or initial scene editing.
+When the selection adds scenes, final editorial review checks the assembled episode for repetition,
+context, pacing and joins using the saved edits and the run's configured model/reasoning settings.
+Corrections are applied and verified, with changed scenes re-scored; the preview length can therefore
+change. Prior review records and protected passages are retained. Review requests and the completed
+review stage are checkpointed, so pause/resume reuses completed work. The original selection is saved
+separately from the reviewed plan so a pause after review does not invalidate the render input.
+Raising the floor without adding scenes preserves the saved cuts without another editorial pass.
+Both paths generate a title and description from the resulting rendered edit.
 The player and source timeline continue to describe the existing video until the new draft is ready.
-An empty selection or an unchanged edit cannot be rendered. Review the new joins and regenerate title,
-description and thumbnail as needed. New recordings still use the initial score setting and automatic
-first draft; this control previews adjustments once scene analysis exists.
+An empty selection or an unchanged edit cannot be rendered. Review the new joins, posting text and
+thumbnail. New recordings still use the initial score setting and automatic first draft; this control
+previews adjustments once scene analysis exists. An empty result means no scenes met the selected
+floor, not that the source had no worthwhile content.
 
 
 ### Highlights workspace
@@ -344,8 +355,9 @@ Each scene permits at most two correction attempts. Changed scenes and affected 
 unchanged scenes are not routinely rewritten. A final verification cannot propose another edit.
 Reversals and no-op edits stop with an explicit note rather than causing a loop. Review records in
 plan.json include before/after fingerprints, the correction and its resolution. Processing & history
-shows verified, unresolved and unreviewed scene counts separately from technical warnings. Lowering
-the score floor can include scenes that have not had the final editorial check; this is shown honestly.
+shows verified, unresolved and unreviewed scene counts separately from technical warnings. Adding
+scenes through the score-floor control runs this final check before rendering; unresolved findings
+remain visible for human review.
 
 Episode-wide repetition uses a compact overview once, then full edited evidence for proposed pairs.
 Local review sees only its scene and neighboring joins. Independent Codex score, edit and review

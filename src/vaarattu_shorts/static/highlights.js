@@ -50,7 +50,7 @@ async function resolveHighlight(){
 }
 function openHighlights(url){
   $("highlight-create").open=true;highlightCreateInitialized=true;
-  highlightSourceRanges=[];$("highlight-source-setup").hidden=true;
+  highlightSourceRanges=[];highlightSuggestedTitle="";$("highlight-project-title").value="";$("highlight-source-setup").hidden=true;
   $("highlight-urls").value=url;highlightManifest=null;$("highlight-parts").replaceChildren();
   goView("highlights");return resolveHighlight();
 }

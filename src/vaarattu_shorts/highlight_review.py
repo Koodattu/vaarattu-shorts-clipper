@@ -285,8 +285,8 @@ Never drop a scene named as keep. Empty duplicates is valid.
     return list({d.drop: d for d in found if d.keep not in dropped}.values())
 
 
-def finish(pool, rankings, items, evaluator, floor, warnings, progress):
-    records, attempts, reviewed, seen = [], {}, set(), {}
+def finish(pool, rankings, items, evaluator, floor, warnings, progress, previous_records=()):
+    records, attempts, reviewed, seen = copy.deepcopy(list(previous_records)), {}, set(), {}
     selected, decisions = episode.assemble(pool, rankings, items, floor)
     # A single global check avoids resending the whole episode with every local review.
     try:

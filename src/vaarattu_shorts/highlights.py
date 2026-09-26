@@ -368,17 +368,41 @@ class Highlights(Pipeline):
                 atomic_json(folder / f"{mode}.json", record)
                 return record, [folder / f"{mode}.mp4", folder / f"{mode}.json"]
             rendered = self.stage(f"render-{revision}-{mode}", output)
-        if rendered and result.get("mode") != "selection":
+        if rendered:
             self.store.update(self.run_id, message="Preparing the video title and description.")
             highlight_copy.automatic(self.settings, self.store, self.run_id, revision)
         return self.finish(result, plan, rendered, mode)
 
     def render_selection(self, result):
         folder = revision_folder(self.settings, self.run_id, result["revision"])
-        path = folder / "plan.json"
-        if not path.is_file() or digest(path) != result["plan_sha256"]:
+        path = folder / ("selection-input.json" if result.get("selection_input_sha256") else "plan.json")
+        expected = result.get("selection_input_sha256", result["plan_sha256"])
+        if not path.is_file() or digest(path) != expected:
             raise ValueError("The selected edit changed. Restore the previous draft and choose its score floor again.")
         plan = json.loads(path.read_text("utf-8"))
+        if result.get("selection_review_required"):
+            def review_selection():
+                from . import highlight_selection
+                transcripts = {s["asset"]: json.loads((self.folder / s["asset"] / "asr" / "transcript.json").read_text("utf-8"))
+                               for s in self.config["manifest"]["sources"]}
+                inference = folder / "selection-inference"
+                inference.mkdir(exist_ok=True)
+                manager = local_server(self.settings, self.config, inference, self.check) if self.config["provider"] == "local" else nullcontext(None)
+                self.store.update(self.run_id, message="Reviewing the expanded selection for repetition, context and pacing.")
+                with manager as client:
+                    evaluator = Evaluator(self.config["provider"], self.store, self.run_id, inference,
+                        self.config["budget_usd"], self.check, client, self.config["context_size"],
+                        codex_config=self.config.get("codex"),
+                        discovery_reasoning=result.get("editing_reasoning", self.config["discovery_reasoning"]),
+                        verification_reasoning=result.get("editing_reasoning", self.config["verification_reasoning"]))
+                    reviewed = highlight_selection.review_plan(plan, editing.units(transcripts), evaluator, self.progress)
+                sources.validate_selection(reviewed, self.config["manifest"]["sources"])
+                atomic_json(folder / "plan.json", reviewed)
+                return reviewed, [folder / "plan.json"]
+            plan = self.stage(f"selection-review-{result['revision']}", review_selection, expected)
+        else:
+            # Keep the render and publishing copy tied to the validated selection input.
+            atomic_json(folder / "plan.json", plan)
         cached = []
         for old in reversed(result.get("history", [])):
             path = revision_folder(self.settings, self.run_id, old["revision"]) / "media.json"
@@ -430,7 +454,7 @@ class Highlights(Pipeline):
         result = {**result, **current, "history": history, "review": "approved" if mode == "final" else "unreviewed"}
         self.store.update(self.run_id, result=result, state="completed", stage="completed", progress=1,
                           message=("Final video ready." if mode == "final" else "Draft ready for review.")
-                          if rendered else "No worthwhile highlight sequences were found.")
+                          if rendered else "No scenes met the selected score floor. Lower it to include more saved scenes.")
         return result
 
 

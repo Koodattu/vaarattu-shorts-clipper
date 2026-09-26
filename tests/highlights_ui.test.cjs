@@ -518,3 +518,30 @@ test('all reasoning selectors expose the requested range and keep Low as default
     assert.match(select,/<option value="low" selected>/);
   }
 });
+
+
+test('a new library video clears the previous project name without starting a run',async()=>{
+  const {nodes,writes,context}=fixture();
+  await vm.runInContext('openHighlights("https://youtu.be/abc_def-ghI")',context);
+  nodes.get('highlight-project-title').value='Previous project';
+  await vm.runInContext('openHighlights("https://youtu.be/different01")',context);
+  assert.equal(nodes.get('highlight-project-title').value,'Recording');
+  assert.ok(writes.every(w=>w.url==='/api/highlights/resolve'));
+});
+
+test('new metadata replaces an automatic title but preserves a custom title',async()=>{
+  const {nodes,context}=fixture();
+  await vm.runInContext('openHighlights("https://youtu.be/abc_def-ghI")',context);
+  vm.runInContext('setHighlightSources({...highlightManifest,title:"Next recording"})',context);
+  assert.equal(nodes.get('highlight-project-title').value,'Next recording');
+  nodes.get('highlight-project-title').value='My combined project';
+  vm.runInContext('setHighlightSources({...highlightManifest,title:"Third recording"})',context);
+  assert.equal(nodes.get('highlight-project-title').value,'My combined project');
+});
+
+test('adding scenes explains that final review may change the preview length',async()=>{
+  const {nodes,context,writes}=fixture();await vm.runInContext('loadHighlights()',context);
+  vm.runInContext('highlightSelection.data.previews[60].added=2;changeHighlightFloor(60)',context);
+  assert.match(nodes.get('highlight-selection-change').textContent,/Final editorial review.*may change this length/);
+  assert.equal(writes.length,0);
+});

@@ -88,11 +88,40 @@ def queue(settings, store, run_id, revision, floor, expected_hash):
         next_revision = max([revision, *[h["revision"] for h in result.get("history", [])]])+1
         folder = revision_folder(settings, run_id, next_revision)
         atomic_json(folder / "plan.json", new_plan)
+        # Immutable input lets a paused final review resume after updating plan.json.
+        atomic_json(folder / "selection-input.json", new_plan)
         result = {**result, "mode": "selection", "revision": next_revision, "parent_revision": revision,
                   "approved_revision": None, "has_draft": False, "has_final": False, "review": "unreviewed",
                   "revision_started": time.time(), "duration": 0, "warnings": [], "issues": [], "metrics": {},
                   "final_score_floor": floor, "plan_sha256": digest(folder / "plan.json"),
+                  "selection_input_sha256": digest(folder / "selection-input.json"),
+                  "selection_review_required": bool(selected_ids - {s["sequence"] for s in plan["retained"]}),
                   "selection_preview": summary(selected, retained, floor, {s["sequence"] for s in plan["retained"]})}
         db.execute("UPDATE runs SET state='queued',intent='',result=?,stage='selection',progress=0,message=?,updated=? WHERE id=?",
                    (json.dumps(result), "New score floor selected. Waiting to render the saved edit.", time.time(), run_id))
     return {"id": run_id, "revision": next_revision}
+
+
+def review_plan(plan, items, evaluator, progress):
+    """Finish the newly assembled episode without repeating discovery or scene editing."""
+    from . import highlight_review
+    plan = copy.deepcopy(plan)
+    pool = plan["scene_pool"]
+    before = {s["beat"]["id"]: highlight_review.fingerprint(s) for s in pool}
+    spans = {}
+    for span in plan["retained"]:
+        spans.setdefault(span["sequence"], []).append(span)
+    warnings = list(plan.get("warnings", []))
+    selected, decisions, rankings, history, issues = highlight_review.finish(
+        pool, plan["rankings"], items, evaluator, plan["final_score_floor"], warnings, progress,
+        previous_records=plan.get("review_history", []))
+    for scene in pool:
+        ident = scene["beat"]["id"]
+        if ident not in spans or before[ident] != highlight_review.fingerprint(scene):
+            spans[ident] = editing.compiled(scene, items)
+    retained = editing.timeline(selected, items, spans)
+    plan.update(sequences=selected, selection=decisions, rankings=rankings, retained=retained,
+                duration=editing.seconds(retained), review_history=history, issues=issues,
+                warnings=list(dict.fromkeys(warnings)),
+                metrics={**plan.get("metrics", {}), "selected_scenes": len(selected), "retained_ranges": len(retained)})
+    return plan
