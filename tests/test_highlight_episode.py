@@ -311,7 +311,7 @@ def test_episode_longer_than_twenty_minutes_is_not_truncated():
     assert timeline[-1]["output_start_us"]+timeline[-1]["end_us"]-timeline[-1]["start_us"] == 1300000000
 
 
-def test_rebuild_from_paused_uses_new_revision_and_low_without_invalidating_audio(settings):
+def test_rebuild_from_paused_preserves_selected_reasoning_without_invalidating_audio(settings):
     store = highlights.store_for(settings)
     config = {"manifest": {"title": "Recording", "sources": []}, "verification_reasoning": "medium"}
     run = store.admit(config, "paused-rebuild")
@@ -322,7 +322,8 @@ def test_rebuild_from_paused_uses_new_revision_and_low_without_invalidating_audi
     assert current["state"] == "queued" and current["progress"] == 0
     assert current["config"] == config
     assert current["result"]["revision"] == 3 and current["result"]["parent_revision"] is None
-    assert current["result"]["editing_reasoning"] == "low"
+    assert "editing_reasoning" not in current["result"]
+    assert highlights.public(settings, store, current)["activity"]["thinking"] == "medium"
     assert current["result"]["warnings"] == [] and current["result"]["metrics"] == {}
     assert current["result"]["history"] == [{"revision": 1, "has_draft": True}]
 

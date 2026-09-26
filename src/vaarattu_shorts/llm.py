@@ -51,9 +51,9 @@ class ModelRankingError(ValueError):
     """Validation feedback containing only application-supplied candidate IDs."""
 
 
-def codex_settings():
+def codex_settings(model=None):
     base_url = os.environ.get("CODEX_BASE_URL", "http://127.0.0.1:18080/v1").strip().rstrip("/")
-    model = os.environ.get("CODEX_MODEL", PROVIDERS["codex"]["model"]).strip()
+    model = (model if model is not None else os.environ.get("CODEX_MODEL", PROVIDERS["codex"]["model"])).strip()
     try:
         url = urlsplit(base_url)
         valid = (

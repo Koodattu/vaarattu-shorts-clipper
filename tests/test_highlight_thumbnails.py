@@ -61,7 +61,7 @@ def test_generator_keeps_candidates_and_is_idempotent(settings, finished, monkey
     calls = []
     def image(key, image, prompt, quality):
         calls.append((image, prompt, quality))
-        assert image.read_bytes() == JPEG
+        assert [p.read_bytes() for p in image] == [JPEG]
         return JPEG, {"total_tokens": 42}
     monkeypatch.setattr(thumbs, "request_image", image)
     first = thumbs.generate(settings, store, run_id, 1, frame["id"], "a"*32, "No text", "high")
@@ -123,12 +123,12 @@ def test_edits_api_uploads_reference_and_returns_jpeg(tmp_path, monkeypatch):
         body = request.read()
         assert request.url == "https://api.openai.com/v1/images/edits"
         assert request.headers["authorization"] == "Bearer test-key"
-        for value in (JPEG, b'gpt-image-2.5-sunburst', b'1536x864', b'name="image"', b'name="output_format"', b'jpeg'):
+        for value in (JPEG, b'gpt-image-2.5-sunburst', b'1536x864', b'name="image[]"', b'name="output_format"', b'jpeg'):
             assert value in body
         return httpx.Response(200, json={"data": [{"b64_json": base64.b64encode(JPEG).decode()}], "usage": {"total_tokens": 10}})
     original = httpx.Client
     monkeypatch.setattr(thumbs.httpx, "Client", lambda **kw: original(transport=httpx.MockTransport(handle), **kw))
-    assert thumbs.request_image("test-key", frame, "Prompt", "medium") == (JPEG, {"total_tokens": 10})
+    assert thumbs.request_image("test-key", [frame], "Prompt", "medium") == (JPEG, {"total_tokens": 10})
     assert len(calls) == 1
 
 
@@ -143,7 +143,7 @@ def test_service_errors_are_sanitized_and_not_retried(tmp_path, monkeypatch, sta
     original = httpx.Client
     monkeypatch.setattr(thumbs.httpx, "Client", lambda **kw: original(transport=httpx.MockTransport(handle), **kw))
     with pytest.raises(ValueError) as error:
-        thumbs.request_image("secret", frame, "Prompt", "medium")
+        thumbs.request_image("secret", [frame], "Prompt", "medium")
     assert "upstream-private-details" not in str(error.value)
     assert len(calls) == 1
 
@@ -167,3 +167,87 @@ def test_thumbnail_routes_local_token_validation_and_download(settings, finished
         assert client.post(url+"/generate", headers=headers, json={**body, "frame_id": "../bad"}).status_code == 422
         assert client.post(url+"/generate", headers=headers, json={**body, "revision": 2, "request_id": "b"*32}).status_code == 400
         assert client.get("/api/highlights").json()[0]["thumbnails"]["configured"] is True
+
+
+
+def test_multiple_references_preserve_order_and_retry_identity(settings, finished, monkeypatch):
+    store, run_id, _ = finished
+    frames = [thumbs.capture(settings, store, run_id, 1, seconds) for seconds in (1.25, 15.5)]
+    calls = []
+    def image(key, paths, prompt, quality):
+        calls.append(paths)
+        assert [path.parent.name for path in paths] == [f["id"] for f in reversed(frames)]
+        assert [path.read_bytes() for path in paths] == [JPEG, JPEG]
+        assert '"image": 1, "video_seconds": 15.5' in prompt
+        return JPEG, None
+    monkeypatch.setattr(thumbs, "request_image", image)
+    ids = [f["id"] for f in reversed(frames)]
+    result = thumbs.generate(settings, store, run_id, 1, ids, "a"*32)
+    assert result["status"] == "completed"
+    assert result["frame_ids"] == ids and result["frame_seconds"] == [15.5, 1.25]
+    assert thumbs.generate(settings, store, run_id, 1, ids, "a"*32) == result
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("invalid", [None, [], ["x"], ["../outside"], ["a"*32]*2, [f"{i:032x}" for i in range(17)]])
+def test_invalid_frame_lists_never_call_image_api(settings, finished, monkeypatch, invalid):
+    store, run_id, _ = finished
+    monkeypatch.setattr(thumbs, "request_image", lambda *a: pytest.fail("Invalid references"))
+    with pytest.raises(ValueError, match="different frames"):
+        thumbs.generate(settings, store, run_id, 1, invalid, "f"*32)
+
+
+@pytest.mark.parametrize("problem", ["stale", "missing_image", "missing_record", "wrong_kind"])
+def test_every_reference_is_validated_before_payment(settings, finished, monkeypatch, problem):
+    store, run_id, _ = finished
+    frames = [thumbs.capture(settings, store, run_id, 1, seconds) for seconds in (1, 2)]
+    folder = thumbs.item_folder(settings, run_id, 1, frames[1]["id"])
+    if problem == "missing_image":
+        (folder / "frame.jpg").unlink()
+    elif problem == "missing_record":
+        (folder / "item.json").unlink()
+    else:
+        frames[1].update(identity=[2, "different"] if problem == "stale" else frames[1]["identity"],
+                         kind="thumbnail" if problem == "wrong_kind" else "frame")
+        atomic_json(folder / "item.json", frames[1])
+    monkeypatch.setattr(thumbs, "request_image", lambda *a: pytest.fail("Invalid reference reached paid API"))
+    with pytest.raises(ValueError):
+        thumbs.generate(settings, store, run_id, 1, [f["id"] for f in frames], "a"*32)
+    assert not (thumbs.item_folder(settings, run_id, 1, "a"*32) / "item.json").exists()
+
+
+def test_multipart_upload_contains_every_selected_image_in_order(tmp_path, monkeypatch):
+    frames = [tmp_path / f"frame-{i}.jpg" for i in range(2)]
+    for i, frame in enumerate(frames):
+        frame.write_bytes(JPEG+str(i).encode())
+    calls = []
+    def handle(request):
+        body = request.read()
+        calls.append(body)
+        assert body.count(b'name="image[]"') == 2
+        assert body.index(JPEG+b"0") < body.index(JPEG+b"1")
+        return httpx.Response(200, json={"data": [{"b64_json": base64.b64encode(JPEG).decode()}]})
+    original = httpx.Client
+    monkeypatch.setattr(thumbs.httpx, "Client", lambda **kw: original(transport=httpx.MockTransport(handle), **kw))
+    assert thumbs.request_image("test-key", frames, "Prompt", "medium") == (JPEG, None)
+    assert len(calls) == 1
+
+
+def test_multi_frame_route_and_ambiguous_selection(settings, finished, monkeypatch):
+    store, run_id, _ = finished
+    frames = [thumbs.capture(settings, store, run_id, 1, s) for s in (1, 2)]
+    calls = []
+    def image(key, paths, *args):
+        calls.append(paths)
+        return JPEG, None
+    monkeypatch.setattr(thumbs, "request_image", image)
+    with TestClient(create_app(settings), base_url="http://localhost") as client:
+        headers = {"X-Local-Token": client.get("/api/status").json()["token"]}
+        url = f"/api/highlights/{run_id}/thumbnail/generate"
+        body = {"revision": 1, "frame_ids": [f["id"] for f in frames], "request_id": "a"*32}
+        response = client.post(url, headers=headers, json=body)
+        assert response.status_code == 200 and response.json()["frame_ids"] == body["frame_ids"]
+        assert len(calls) == 1 and len(calls[0]) == 2
+        assert client.post(url, headers=headers, json={**body, "frame_id": frames[0]["id"]}).status_code == 400
+        assert client.post(url, headers=headers, json={**body, "frame_ids": []}).status_code == 422
+        assert len(calls) == 1

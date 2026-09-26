@@ -648,6 +648,13 @@ test("Codex selection disables dollar cap and renders unknown costs", async()=>{
   assert.equal(submitted.final_transcription,true);
   assert.ok(find(nodes.get("run-detail"),"Final clip captions: large-v3 · selected sections only."));
   assert.equal(submitted.budget_usd,0);
+  assert.ok(find(nodes.get("provider"),"Codex · gpt-6-luna"));
+  nodes.get("provider").value="codex-gpt-6-luna";nodes.get("provider").onchange();
+  assert.equal(nodes.get("budget-field").hidden,true);
+  assert.equal(nodes.get("codex-note").hidden,false);
+  await nodes.get("run-form").onsubmit({preventDefault(){}});
+  assert.equal(submitted.provider,"codex");assert.equal(submitted.codex_model,"gpt-6-luna");
+  assert.equal(submitted.budget_usd,0);
   assert.equal(nodes.get("error").textContent,"");
   assert.equal(nodes.get("view-results").hidden,false);
   assert.equal(nodes.get("view-process").hidden,true);

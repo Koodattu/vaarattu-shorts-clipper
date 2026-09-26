@@ -238,7 +238,7 @@ def create_app(settings):
         config = {**body.model_dump(), "manifest": manifest, "model_manifests": manifests,
                   "channel_id": settings.youtube_channel_id, "asr_batch_size": settings.asr_batch_size,
                   "asr_flash_attention": settings.asr_flash_attention,
-                  **({"codex": codex_settings()} if body.provider == "codex" else {})}
+                  **({"codex": codex_settings(body.codex_model)} if body.provider == "codex" else {})}
         return {"id": highlights_store.admit(config, idempotency_key)}
 
     @app.get("/api/highlights")
@@ -299,13 +299,16 @@ def create_app(settings):
 
     @app.post("/api/highlights/{run_id}/thumbnail/generate")
     def generate_highlight_thumbnail(run_id: str, revision: int = Body(ge=1),
-                                      frame_id: str = Body(pattern=r"^[a-f0-9]{32}$"),
+                                      frame_id: str | None = Body(default=None, pattern=r"^[a-f0-9]{32}$"),
+                                      frame_ids: list[str] | None = Body(default=None, min_length=1, max_length=16),
                                       request_id: str = Body(pattern=r"^[a-f0-9]{32}$"),
                                       note: str = Body(default="", max_length=2000),
                                       quality: Literal["low", "medium", "high"] = Body(default="medium")):
         from . import highlight_thumbnails
+        if frame_id is not None and frame_ids is not None:
+            raise ValueError("Choose one frame selection for this thumbnail.")
         return highlight_thumbnails.generate(settings, highlights_store, run_id, revision,
-                                             frame_id, request_id, note, quality)
+                                             frame_ids if frame_ids is not None else frame_id, request_id, note, quality)
 
     @app.get("/api/highlights/{run_id}/thumbnail/{item_id}")
     def highlight_thumbnail(run_id: str, item_id: str, revision: int, download: bool = False):
@@ -362,7 +365,7 @@ def create_app(settings):
             "channel_id": settings.youtube_channel_id,
             "asr_batch_size": settings.asr_batch_size,
             "asr_flash_attention": settings.asr_flash_attention,
-            **({"codex": codex_settings()} if body.provider == "codex" else {}),
+            **({"codex": codex_settings(body.codex_model)} if body.provider == "codex" else {}),
         }
         return {"id": store.admit(config, idempotency_key)}
 

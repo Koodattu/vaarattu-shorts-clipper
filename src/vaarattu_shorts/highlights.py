@@ -33,11 +33,12 @@ class Start(Contract):
     segments: list[SourceRange] | None = Field(default=None, min_length=1, max_length=30)
     target_minutes: int | None = Field(default=None, exclude=True, description="Legacy setting; ignored. Length follows the selected content.")
     provider: Literal["local", "gemini", "openai", "codex", "zai", "deepseek", "meta"] = "codex"
+    codex_model: Literal["gpt-5.6-luna", "gpt-6-luna"] | None = None
     local_model: Literal["gemma4-31b", "gemma4-26b-a4b"] = "gemma4-31b"
     context_size: Literal[16384, 32768] = 32768
     budget_usd: float = Field(default=0, ge=0, le=100)
-    discovery_reasoning: Literal["low", "medium"] = "low"
-    verification_reasoning: Literal["low", "medium"] = "low"
+    discovery_reasoning: Literal["none", "low", "medium", "high", "xhigh"] = "low"
+    verification_reasoning: Literal["none", "low", "medium", "high", "xhigh"] = "low"
     video_encoder: Literal["h264_nvenc", "libx264"] = "h264_nvenc"
     final_transcription: Literal[False] = False
     final_score_floor: int = Field(default=editing.FINAL_SCORE_FLOOR, ge=0, le=100)
@@ -88,7 +89,7 @@ def control(store, run_id, action, revision, guidance="", restore=None):
                 raise ValueError("Describe the changes in 1-2000 characters.")
             result.update(mode="draft", revision=max([revision, *[h["revision"] for h in result.get("history", [])]])+1, parent_revision=revision if action == "revise" else None,
                           guidance=guidance.strip(), approved_revision=None, has_draft=False, has_final=False, review="unreviewed",
-                          revision_started=time.time(), editing_reasoning="low", warnings=[], issues=[], metrics={}, duration=0, selection_preview=None)
+                          revision_started=time.time(), warnings=[], issues=[], metrics={}, duration=0, selection_preview=None)
             state = "queued"
         elif action == "restore":
             saved = next((r for r in result.get("history", []) if r["revision"] == restore), None)

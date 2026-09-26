@@ -169,8 +169,13 @@ def acquire(settings, source, folder, check, interval=None, *, stream_copy=False
             args += ["--force-keyframes-at-cuts", "--downloader-args",
                      "ffmpeg_o:-c:v libx264 -preset fast -crf 18 -c:a aac -b:a 192k -f matroska"]
         args += ["--merge-output-format", "mkv", "--remux-video", "mkv"]
-    run_tool([*args, source["url"]], settings, folder, "download", check, timeout=14400,
-             byte_limit=int(settings.max_download_gb * 1e9), watch=folder)
+    if source_url(source["url"])[0] == "youtube":
+        youtube.download([*args, source["url"]], settings, folder, check, audio_only=interval is None,
+                         runner=run_tool, timeout=14400,
+                         byte_limit=int(settings.max_download_gb * 1e9), watch=folder)
+    else:
+        run_tool([*args, source["url"]], settings, folder, "download", check, timeout=14400,
+                 byte_limit=int(settings.max_download_gb * 1e9), watch=folder)
     report = folder / "download.txt"
     if not report.is_file():
         raise ValueError("The downloader did not produce a media file.")

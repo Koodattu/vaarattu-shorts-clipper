@@ -32,7 +32,12 @@ Only completed recordings are accepted. YouTube channel validation remains in
 place. Twitch public VOD URLs use yt-dlp without browser cookies. Protected or
 unavailable sources can fail acquisition; access restrictions are not bypassed.
 
-Choose a model provider and encoder, then **Create highlight video**. Length
+Choose a model provider and encoder, then **Create highlight video**.
+For Codex and OpenAI, **Model, score & encoding** also offers separate discovery
+and editing/review reasoning settings: None, Low, Medium, High, and Extra high.
+Both default to Low. Editing/review covers scene editing, ranking, and editorial
+review. New revisions keep the selected settings; existing revisions with a saved
+Low override retain it. Length
 follows the worthwhile content. There is no runtime floor, ceiling, or scene
 quota; weak material is not used to fill time.
 Codex uses the configured bridge/model and account allowance; paid API providers
@@ -266,10 +271,14 @@ rejected. No upload or publishing action is triggered by preparing this text.
 
 ### Frame-based YouTube thumbnails
 
-After a draft or final video completes, pause its player and choose **Use current frame for thumbnail**.
-Review the captured frame, optionally describe the composition/style or exact text, choose low/medium/high
+After a draft or final video completes, pause its player and choose **Add current frame**.
+Repeat at other moments to collect references, then check the frames to include (up to 16).
+Uncheck a frame to leave it out; captured frames remain available for reuse in that revision.
+Frames are numbered in selection order so instructions can refer to Reference 1, Reference 2, etc.
+A newly opened page starts with the latest captured frame selected; check any others you want to use.
+Optionally describe the composition/style or exact text, choose low/medium/high
 quality and click **Generate thumbnail**. The generator uses `gpt-image-2.5-sunburst` through OpenAI's
-Images edits API at 1536x864 (16:9), returning a downloadable JPEG. It sends the captured frame, saved
+Images edits API at 1536x864 (16:9), returning a downloadable JPEG. It sends all selected frames together, saved
 title/description and instructions; no full video or public hosting is required. Save posting text first.
 
 Set `OPENAI_API_KEY` in the local ignored `.env` and restart normally. Image API billing and model access

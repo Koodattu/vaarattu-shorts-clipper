@@ -224,7 +224,7 @@ def test_jobs_are_isolated_and_controls_guard_revisions(settings, store):
 
 def test_highlights_api_local_boundary_and_final_approval(settings, monkeypatch):
     monkeypatch.setattr("vaarattu_shorts.web.preflight", lambda *args: {})
-    monkeypatch.setattr("vaarattu_shorts.web.codex_settings", lambda: {"model": "test"})
+    monkeypatch.setattr("vaarattu_shorts.web.codex_settings", lambda model=None: {"model": model or "test"})
     monkeypatch.setattr(sources, "resolve", lambda *args, **kwargs: config()["manifest"])
     app = create_app(settings)
     with TestClient(app, base_url="http://localhost") as client:
@@ -246,7 +246,7 @@ def test_highlights_api_local_boundary_and_final_approval(settings, monkeypatch)
 @pytest.mark.parametrize("copy_failure", [False, True])
 def test_pipeline_resume_final_and_revision(settings, store, monkeypatch, critic_failure, copy_failure):
     separate = highlights.store_for(settings)
-    run_id = separate.admit(config(), "pipeline")
+    run_id = separate.admit({**config(), "discovery_reasoning": "none", "verification_reasoning": "xhigh"}, "pipeline")
     events = []
 
     def acquire(settings, source, folder, check, interval=None):
@@ -278,7 +278,16 @@ def test_pipeline_resume_final_and_revision(settings, store, monkeypatch, critic
                 raise ModelOutputError("Invalid critique after retries")
             return super().call(system, prompt, schema, key, **kw)
 
-    monkeypatch.setattr(highlights, "Evaluator", lambda *args, **kw: PipelineEvaluator())
+    reasoning = []
+    def evaluator(*args, **kw):
+        efforts = (kw["discovery_reasoning"], kw["verification_reasoning"])
+        if args[3].name == "inference":
+            reasoning.append(efforts)
+        result = PipelineEvaluator()
+        result.discovery_reasoning, result.verification_reasoning = efforts
+        return result
+
+    monkeypatch.setattr(highlights, "Evaluator", evaluator)
     monkeypatch.setattr(highlights, "render_video", render)
     if copy_failure:
         monkeypatch.setattr(highlights.highlight_copy, "propose", lambda *a: (_ for _ in ()).throw(RuntimeError("copy service failure")))
@@ -306,6 +315,7 @@ def test_pipeline_resume_final_and_revision(settings, store, monkeypatch, critic
     separate.claim()
     result = highlights.Highlights(settings, separate, run_id).execute()
     assert result["revision"] == 2
+    assert reasoning == [("none", "xhigh"), ("none", "xhigh")]
     assert events.count("audio") == events.count("transcribe") == 1
     assert len(result["history"]) == 2
     assert (highlights.revision_folder(settings, run_id, 1) / "final.mp4").exists()

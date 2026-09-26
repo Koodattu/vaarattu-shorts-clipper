@@ -39,3 +39,8 @@ Codex reports use `pricing_basis=codex_subscription`. Monetary estimates, reserv
 Offline tests cover Responses shape, low reasoning, optional bearer auth, absence of Platform-key forwarding, missing usage, cache reuse, endpoint/model snapshots, HTTP failures without paid fallback, configuration validation and UI rendering of unavailable costs. Direct API tests remain in the suite. No new production dependency was added.
 
 This integration was not tested against the running bridge with inference. The bridge's current published contract was inspected; the user's installed bridge version, account/model access and actual Finnish selection quality remain for the next manually initiated video run. No app or pipeline was started by the assistant.
+
+Both new-run menus also offer **Codex · gpt-6-luna** as a separate choice. This uses
+the same local bridge and saves the chosen model with the run. The original Codex
+option still uses `CODEX_MODEL` (default `gpt-5.6-luna`); existing runs keep their
+saved model. Both choices use Codex allowance rather than the direct OpenAI API key.

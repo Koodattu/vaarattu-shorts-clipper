@@ -21,6 +21,10 @@ class ToolError(Exception):
     pass
 
 
+class ToolExitError(ToolError):
+    """A tool exited unsuccessfully, rather than being interrupted or limited."""
+
+
 class LockBusyError(ToolError):
     pass
 
@@ -157,7 +161,7 @@ class OwnedProcess:
             time.sleep(0.2)
         check()
         if self.proc.returncode:
-            raise ToolError("An external tool failed. See the run's local diagnostic log.")
+            raise ToolExitError("An external tool failed. See the run's local diagnostic log.")
 
     def __enter__(self):
         return self

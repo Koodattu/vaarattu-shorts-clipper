@@ -222,11 +222,11 @@ test('thumbnail capture and generation are explicit and use the paused output ti
   const player=nodes.get('highlight-player');player.readyState=2;player.currentTime=12.5;
   await nodes.get('highlight-thumbnail-capture').onclick();
   assert.equal(writes[0].body.seconds,12.5);assert.equal(writes[0].body.revision,1);
-  assert.equal(nodes.get('highlight-thumbnail-frame').hidden,false);
+  assert.equal(nodes.get('highlight-thumbnail-frames').children.length,1);
   assert.equal(nodes.get('highlight-thumbnail-generate').disabled,false);
   nodes.get('highlight-thumbnail-note').value='Keep my face recognizable';
   await nodes.get('highlight-thumbnail-generate').onclick();
-  assert.equal(writes[1].body.frame_id,'c'.repeat(32));
+  assert.deepEqual(writes[1].body.frame_ids,['c'.repeat(32)]);
   assert.equal(writes[1].body.note,'Keep my face recognizable');
   assert.equal(writes[1].body.quality,'medium');
   assert.equal(nodes.get('highlight-thumbnail-results').children.length,1);
@@ -241,7 +241,7 @@ test('thumbnail generation blocks unsaved copy and resets references on a new re
   await nodes.get('highlight-thumbnail-generate').onclick();
   assert.equal(writes.length,0);assert.match(errors[0],/Save the title/);
   run.revision=2;run.thumbnails={configured:true,items:[]};await vm.runInContext('loadHighlights()',context);
-  assert.equal(nodes.get('highlight-thumbnail-frame').hidden,true);
+  assert.equal(nodes.get('highlight-thumbnail-frames').children.length,0);
   assert.equal(nodes.get('highlight-thumbnail-generate').disabled,true);
 });
 
@@ -254,7 +254,7 @@ test('late thumbnail capture does not replace another revision reference',async(
   const replacement={...run,revision:2,thumbnails:{configured:true,items:[]}};
   context.nextRun=replacement;vm.runInContext('highlightRuns=[nextRun];paintHighlightThumbnails(nextRun)',context);
   finish({id:'c'.repeat(32),kind:'frame',seconds:0,quality:'draft'});await pending;
-  assert.equal(nodes.get('highlight-thumbnail-frame').hidden,true);
+  assert.equal(nodes.get('highlight-thumbnail-frames').children.length,0);
   assert.equal(replacement.thumbnails.items.length,0);
 });
 
@@ -443,4 +443,78 @@ test('editorial results distinguish unresolved work from technical warnings',asy
   run.warnings=[];
   await vm.runInContext('loadHighlights()',context);
   assert.ok(nodes.get('highlight-notes').children.some(n=>n.textContent.includes('25 scenes verified, 2 with unresolved notes, 3 not yet checked. 12 corrections applied.')));
+});
+
+
+test('thumbnail references accumulate, can be deselected, and retain selection during polling',async()=>{
+  const {nodes,run,context,writes}=fixture();
+  run.thumbnails={configured:true,items:[{id:'d'.repeat(32),kind:'frame',seconds:3,quality:'draft'}]};
+  await vm.runInContext('loadHighlights()',context);
+  nodes.get('highlight-player').readyState=2;nodes.get('highlight-player').currentTime=12.5;
+  await nodes.get('highlight-thumbnail-capture').onclick();
+  assert.equal(nodes.get('highlight-thumbnail-frames').children.length,2);
+  await nodes.get('highlight-thumbnail-generate').onclick();
+  assert.deepEqual(writes[1].body.frame_ids,['d'.repeat(32),'c'.repeat(32)]);
+  const checkbox=nodes.get('highlight-thumbnail-frames').children[1].children[1];
+  checkbox.checked=false;checkbox.onchange();
+  await vm.runInContext('loadHighlights()',context);
+  await nodes.get('highlight-thumbnail-generate').onclick();
+  assert.deepEqual(writes[2].body.frame_ids,['c'.repeat(32)]);
+  const remaining=nodes.get('highlight-thumbnail-frames').children[0].children[1];
+  remaining.checked=false;remaining.onchange();
+  await vm.runInContext('loadHighlights()',context);
+  assert.equal(nodes.get('highlight-thumbnail-generate').disabled,true);
+  assert.match(nodes.get('highlight-thumbnail-frame-label').textContent,/0 of 16/);
+});
+
+test('thumbnail reference limit permits removing a selection without starting generation',async()=>{
+  const {nodes,run,context,writes}=fixture();
+  run.thumbnails={configured:true,items:Array.from({length:17},(_,i)=>({id:i.toString(16).padStart(32,'0'),kind:'frame',seconds:i,quality:'draft'}))};
+  await vm.runInContext('loadHighlights()',context);
+  for(let i=1;i<16;i++){
+    const checkbox=nodes.get('highlight-thumbnail-frames').children[i].children[1];checkbox.checked=true;checkbox.onchange();
+  }
+  assert.equal(nodes.get('highlight-thumbnail-capture').disabled,true);
+  assert.equal(nodes.get('highlight-thumbnail-frames').children[16].children[1].disabled,true);
+  assert.equal(nodes.get('highlight-thumbnail-frames').children[0].children[1].disabled,false);
+  assert.equal(writes.length,0);
+});
+
+
+test('additional Codex Luna model is submitted separately from its provider',async()=>{
+  const {nodes,context,writes}=fixture();
+  await vm.runInContext('loadHighlights()',context);
+  assert.ok(nodes.get('highlight-provider').children.some(o=>o.value==='codex'));
+  assert.ok(nodes.get('highlight-provider').children.some(o=>o.value==='codex-gpt-6-luna'));
+  await vm.runInContext('openHighlights("https://youtu.be/abc_def-ghI")',context);
+  nodes.get('highlight-provider').value='codex-gpt-6-luna';nodes.get('highlight-provider').onchange();
+  assert.equal(nodes.get('highlight-budget-field').hidden,true);
+  assert.match(nodes.get('highlight-provider-note').textContent,/Codex bridge/);
+  await nodes.get('highlight-form').onsubmit({preventDefault(){}});
+  const body=writes.find(w=>w.url==='/api/highlights').body;
+  assert.equal(body.provider,'codex');assert.equal(body.codex_model,'gpt-6-luna');assert.equal(body.budget_usd,0);
+});
+
+
+test('highlight reasoning controls follow provider and submit independent efforts',async()=>{
+  const {nodes,context,writes}=fixture();
+  await vm.runInContext('openHighlights("https://youtu.be/abc_def-ghI")',context);
+  for(const provider of ['local','gemini','openai','codex','codex-gpt-6-luna']){
+    nodes.get('highlight-provider').value=provider;nodes.get('highlight-provider').onchange();
+    assert.equal(nodes.get('highlight-reasoning-settings').hidden,['local','gemini'].includes(provider));
+  }
+  nodes.get('highlight-discovery-reasoning').value='none';
+  nodes.get('highlight-verification-reasoning').value='xhigh';
+  await nodes.get('highlight-form').onsubmit({preventDefault(){}});
+  const body=writes.find(w=>w.url==='/api/highlights').body;
+  assert.equal(body.discovery_reasoning,'none');assert.equal(body.verification_reasoning,'xhigh');
+});
+
+test('all reasoning selectors expose the requested range and keep Low as default',()=>{
+  const html=fs.readFileSync(path.join(__dirname,'../src/vaarattu_shorts/static/index.html'),'utf8');
+  for(const id of ['discovery-reasoning','verification-reasoning','highlight-discovery-reasoning','highlight-verification-reasoning']){
+    const select=html.match(new RegExp(`<select id="${id}">([\\s\\S]*?)</select>`))[1];
+    assert.deepEqual([...select.matchAll(/value="([^"]+)"/g)].map(m=>m[1]),['none','low','medium','high','xhigh']);
+    assert.match(select,/<option value="low" selected>/);
+  }
 });

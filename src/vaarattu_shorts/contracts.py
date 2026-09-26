@@ -117,6 +117,7 @@ class RunRequest(Contract):
     video: str
     asr: Literal["turbo"] = "turbo"
     provider: Literal["local", "gemini", "openai", "codex", "zai", "deepseek", "meta"] = "local"
+    codex_model: Literal["gpt-5.6-luna", "gpt-6-luna"] | None = None
     local_model: Literal["gemma4-31b", "gemma4-26b-a4b"] = "gemma4-31b"
     context_size: Literal[16384, 32768] = 16384
     budget_usd: float = Field(default=0, ge=0, le=100)
@@ -124,8 +125,8 @@ class RunRequest(Contract):
     stream_id: int | None = Field(default=None, gt=0, le=2147483647)
     stream_offset_seconds: float | None = None
     alignment_confirmed: bool = False
-    discovery_reasoning: Literal["low", "medium"] = "low"
-    verification_reasoning: Literal["low", "medium"] = "low"
+    discovery_reasoning: Literal["none", "low", "medium", "high", "xhigh"] = "low"
+    verification_reasoning: Literal["none", "low", "medium", "high", "xhigh"] = "low"
     video_encoder: Literal["libx264", "h264_nvenc"] = "h264_nvenc"
     trim_silence: bool = True
     final_transcription: bool = False

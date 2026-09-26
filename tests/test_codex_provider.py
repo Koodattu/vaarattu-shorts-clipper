@@ -184,3 +184,36 @@ def test_codex_admission_needs_no_platform_key_and_snapshots_no_secrets(settings
         assert run["usage"]["estimated_cost_usd"] is None
     with pytest.raises(ValueError, match="spending limit"):
         RunRequest(video="abc_def-ghI", provider="openai", layout_id=layout)
+
+
+@pytest.mark.parametrize("model", ["gpt-5.6-luna", "gpt-6-luna"])
+@pytest.mark.parametrize("effort", ["none", "low", "medium", "high", "xhigh"])
+def test_explicit_codex_choice_is_saved_for_both_run_types(settings, monkeypatch, model, effort):
+    from vaarattu_shorts import highlights
+    from vaarattu_shorts.storage import atomic_json
+    monkeypatch.setattr("vaarattu_shorts.web.preflight", lambda *_: {})
+    app = create_app(settings)
+    layout = app.state.store.add_layout({"name": "Test layout"})
+    manifest_id = "a"*32
+    atomic_json(settings.work / "highlights" / "manifests" / manifest_id / "manifest.json",
+                {"title": "Recording", "sources": [{"asset": "s0", "id": "abc_def-ghI", "duration": 100}], "duration": 100})
+    with TestClient(app, base_url="http://localhost") as client:
+        headers = {"X-Local-Token": client.get("/api/status").json()["token"], "Idempotency-Key": "explicit-model"}
+        for endpoint, fields, store in [
+            ("/api/runs", {"video": "abc_def-ghI", "layout_id": layout}, app.state.store),
+            ("/api/highlights", {"manifest_id": manifest_id}, highlights.store_for(settings)),
+        ]:
+            response = client.post(endpoint, headers=headers, json={**fields, "provider": "codex", "codex_model": model,
+                "discovery_reasoning": effort, "verification_reasoning": effort})
+            assert response.status_code == 202, response.text
+            config = store.get(response.json()["id"])["config"]
+            assert config["codex"]["model"] == model and config["budget_usd"] == 0
+            assert config["discovery_reasoning"] == config["verification_reasoning"] == effort
+            monkeypatch.setenv("CODEX_MODEL", "changed-default")
+            evaluator = Evaluator("codex", store, response.json()["id"], settings.work, 0, lambda: None,
+                                  codex_config=config["codex"], discovery_reasoning=config["discovery_reasoning"],
+                                  verification_reasoning=config["verification_reasoning"])
+            url, _, body = evaluator._request("rules", "speech", Proposals.model_json_schema(), evaluator.discovery_reasoning)
+            assert body["model"] == model and body["reasoning"]["effort"] == effort
+            assert url.endswith("/v1/responses") and "max_output_tokens" not in body
+            assert client.post(endpoint, headers=headers, json={**fields, "provider": "codex", "codex_model": "unknown"}).status_code == 422

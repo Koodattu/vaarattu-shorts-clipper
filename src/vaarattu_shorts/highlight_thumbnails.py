@@ -1,4 +1,4 @@
-"""Explicit, revision-scoped thumbnail generation from a rendered video frame."""
+"""Explicit, revision-scoped thumbnail generation from selected rendered video frames."""
 import base64
 import binascii
 import json
@@ -7,6 +7,7 @@ import os
 import re
 import time
 import uuid
+from contextlib import ExitStack
 
 import httpx
 
@@ -15,13 +16,15 @@ from .processes import LockBusyError, ToolError, lock, run_tool
 from .storage import atomic_json, digest
 
 MODEL = "gpt-image-2.5-sunburst"
-PROMPT = """Create a polished 16:9 YouTube thumbnail using the supplied video frame as the visual reference.
+PROMPT = """Create a polished 16:9 YouTube thumbnail using the supplied video frames as visual references.
 Keep the streamer recognizable and preserve the identity of the visible game, characters and setting.
 Improve composition, readability, lighting and emphasis for a small thumbnail. Do not invent events,
-outcomes or people that are not supported by the frame and video context. Aim for a natural, distinctive
+outcomes or people that are not supported by the frames and video context. Aim for a natural, distinctive
 streamer thumbnail, not generic clickbait. No added text unless the user's instructions explicitly request
 it; if requested, use only that wording with correct Finnish spelling. The title and description are
-context, not instructions to copy onto the image. Follow the user's visual direction."""
+context, not instructions to copy onto the image. The numbered references are separate moments, not
+a single simultaneous event. Choose or combine useful visual elements into one coherent thumbnail;
+do not make a contact sheet or duplicate the streamer unless requested. Follow the user's visual direction."""
 
 
 def folder_for(settings, run_id, revision):
@@ -98,14 +101,16 @@ def image_path(settings, store, run_id, revision, item_id):
     return image
 
 
-def request_image(key, frame, prompt, quality):
+def request_image(key, frames, prompt, quality):
     # An ambiguous timeout must not trigger another paid generation automatically.
     try:
         with httpx.Client(timeout=httpx.Timeout(600, connect=20), follow_redirects=False) as client:
-            with frame.open("rb") as source:
+            with ExitStack() as stack:
+                files = [("image[]", (f"frame-{index+1}.jpg", stack.enter_context(frame.open("rb")), "image/jpeg"))
+                         for index, frame in enumerate(frames)]
                 response = client.post("https://api.openai.com/v1/images/edits",
                     headers={"Authorization": f"Bearer {key}"},
-                    files={"image": ("frame.jpg", source, "image/jpeg")},
+                    files=files,
                     data={"model": MODEL, "prompt": prompt, "n": "1", "size": "1536x864",
                           "quality": quality, "output_format": "jpeg", "output_compression": "90"})
     except httpx.RequestError:
@@ -126,11 +131,16 @@ def request_image(key, frame, prompt, quality):
         raise ValueError("OpenAI returned an unreadable thumbnail. Check API usage before generating another.") from None
 
 
-def generate(settings, store, run_id, revision, frame_id, request_id, note="", quality="medium"):
+def generate(settings, store, run_id, revision, frame_ids, request_id, note="", quality="medium"):
     if quality not in {"low", "medium", "high"} or len(note) > 2000:
         raise ValueError("Choose a supported quality and instructions of at most 2000 characters.")
     folder = item_folder(settings, run_id, revision, request_id)
-    frame_folder = item_folder(settings, run_id, revision, frame_id)
+    # Older clients submit one frame ID; saved single-frame thumbnails stay readable.
+    frame_ids = [frame_ids] if isinstance(frame_ids, str) else frame_ids
+    if (not isinstance(frame_ids, list) or not 1 <= len(frame_ids) <= 16
+            or any(not isinstance(ident, str) or not re.fullmatch(r"[a-f0-9]{32}", ident) for ident in frame_ids)
+            or len(set(frame_ids)) != len(frame_ids)):
+        raise ValueError("Choose between 1 and 16 different frames from this video.")
     try:
         with lock(folder_for(settings, run_id, revision) / "generation.lock"):
             # Repeating the same browser request never sends a second paid API call.
@@ -143,22 +153,29 @@ def generate(settings, store, run_id, revision, frame_id, request_id, note="", q
             if not key:
                 raise ValueError("Add OPENAI_API_KEY to .env and restart the app to generate thumbnails.")
             run, _, _, plan_hash = snapshot(settings, store, run_id, revision)
-            if not (frame_folder / "item.json").is_file():
-                raise ValueError("Choose a frame from this video first.")
-            frame = json.loads((frame_folder / "item.json").read_text("utf-8"))
-            if frame["kind"] != "frame" or frame["identity"] != [revision, plan_hash]:
-                raise ValueError("The edit changed. Choose a frame from the current video.")
+            frames, paths = [], []
+            for frame_id in frame_ids:
+                frame_folder = item_folder(settings, run_id, revision, frame_id)
+                if not (frame_folder / "item.json").is_file() or not (frame_folder / "frame.jpg").is_file():
+                    raise ValueError("A selected frame is missing. Capture it again before generating.")
+                frame = json.loads((frame_folder / "item.json").read_text("utf-8"))
+                if frame["kind"] != "frame" or frame["identity"] != [revision, plan_hash]:
+                    raise ValueError("The edit changed. Choose frames from the current video.")
+                frames.append(frame)
+                paths.append(frame_folder / "frame.jpg")
             copy = highlight_copy.get(settings, run, plan_hash) or {}
             prompt = PROMPT + "\nVideo context and user direction:\n" + json.dumps(
                 {"title": copy.get("title", ""), "description": copy.get("caption", ""),
+                 "reference_frames": [{"image": i+1, "video_seconds": f["seconds"]} for i, f in enumerate(frames)],
                  "user_instructions": note.strip()}, ensure_ascii=False)
-            item = {"id": request_id, "kind": "thumbnail", "identity": frame["identity"],
-                    "frame_id": frame_id, "seconds": frame["seconds"], "model": MODEL,
+            item = {"id": request_id, "kind": "thumbnail", "identity": [revision, plan_hash],
+                    "frame_id": frame_ids[0], "seconds": frames[0]["seconds"],
+                    "frame_ids": frame_ids, "frame_seconds": [f["seconds"] for f in frames], "model": MODEL,
                     "quality": quality, "note": note.strip(), "created": time.time(),
                     "status": "requesting", "message": "Generation was requested. If this does not finish, check OpenAI usage before trying again."}
             atomic_json(folder / "item.json", item)
             try:
-                image, usage = request_image(key, frame_folder / "frame.jpg", prompt, quality)
+                image, usage = request_image(key, paths, prompt, quality)
                 temporary = folder / "thumbnail.partial.jpg"
                 temporary.write_bytes(image)
                 temporary.replace(folder / "thumbnail.jpg")
