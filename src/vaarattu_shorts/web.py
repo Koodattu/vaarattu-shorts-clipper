@@ -16,7 +16,7 @@ from fastapi import Body, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import buffer, caption_correction, catalog, delivery, discover, highlight_sources, highlights, r2, recordings, stream_data, tighten
+from . import buffer, caption_correction, clip_trim, catalog, delivery, discover, highlight_sources, highlights, r2, recordings, stream_data, tighten
 from .context_repair import ContextRequest
 from .contracts import MIN_CLIP_US, EditRequest, LayoutSave, RunRequest, Word, clip_duration_limit, source_url
 from .llm import PROVIDERS, codex_settings
@@ -514,6 +514,16 @@ def create_app(settings):
         publishing_action(buffer.discard_unsubmitted, store, clip_id)
         return {"discarded": True}
 
+    @app.post("/api/publishing/buffer/media-cleanup")
+    def cleanup_buffer_media():
+        from .processes import lock
+
+        def remove():
+            with lock(settings.work / "r2-upload.lock"):
+                return buffer.remove_all_published_media(settings, store)
+
+        return publishing_action(remove)
+
     @app.delete("/api/publishing/buffer/media/{clip_id}")
     def remove_buffer_media(clip_id: str):
         from .processes import lock
@@ -694,6 +704,34 @@ def create_app(settings):
         revision = store.queue_edit(clip_id, expected_revision, body)
         return {"revision": revision, "run_id": clip["run_id"]}
 
+    def trim_inputs(clip):
+        body = clip["body"]
+        if body["status"] != "ready" or not public_clip(clip)["has_preview"]:
+            raise ValueError("Wait for a finished clip before trimming it.")
+        section = Path(body.get("section") or "__missing__").resolve()
+        if not section.is_relative_to(settings.work.resolve()) or not section.is_file():
+            raise ValueError("The original source preview is unavailable. Re-render the clip before trimming.")
+        transcript_path = settings.work / "runs" / clip["run_id"] / "asr" / "transcript.json"
+        if not transcript_path.is_file():
+            raise ValueError("Restore the saved recording transcript before trimming.")
+        return clip_trim.context(body, json.loads(transcript_path.read_text("utf-8")))
+
+    @app.get("/api/clips/{clip_id}/trim")
+    def trim_context(clip_id: str):
+        clip = store.clip(clip_id)
+        return {"clip": public_clip(clip), **trim_inputs(clip)}
+
+    @app.post("/api/clips/{clip_id}/trim", status_code=202)
+    def trim_clip(clip_id: str, expected_revision: int = Body(ge=1),
+                  start_us: int = Body(ge=0), end_us: int = Body(gt=0)):
+        clip = store.clip(clip_id)
+        if clip["revision"] != expected_revision:
+            raise ValueError("This clip changed. Reopen Trim clip before saving.")
+        body = clip_trim.apply(clip["body"], trim_inputs(clip), start_us, end_us)
+        body["previous_revision"] = clip["revision"]
+        revision = store.queue_edit(clip_id, expected_revision, body)
+        return {"revision": revision, "run_id": clip["run_id"]}
+
     @app.post("/api/clips/{clip_id}/edit", status_code=202)
     def edit(clip_id: str, edit: EditRequest):
         clip = store.clip(clip_id)
@@ -753,7 +791,7 @@ def create_app(settings):
             "caption_check": None,
             "tighten_check": None,
             "caption_correction_pass": original.get("caption_correction_pass") or "manual-edit",
-            "layout": store.layout(edit.layout_id),
+            "layout": store.layout(edit.layout_id) if edit.layout_id else original["layout"],
             "reviewed": edit.reviewed,
             "status": "pending",
             "flags": [],

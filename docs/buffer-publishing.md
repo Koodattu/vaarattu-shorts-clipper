@@ -12,7 +12,7 @@
    and other settings. The browser never receives the saved key back.
 3. Select the organization and destination channel for each platform, then **Save
    channels**. Leaving a platform unselected excludes it from new submissions.
-   **Refresh Buffer status** fetches connected channels and current delivery results.
+   **Sync with Buffer** fetches connected channels and current delivery results.
 4. Cloudflare storage must also show Connected. See [storage setup](cloudflare-publishing.md).
 
 Buffer Free supports three connected channels and ten queued posts per channel.
@@ -20,6 +20,29 @@ The app checks queue availability before preview and again before each clip's
 submission, including existing posts created outside this app. It reserves room for
 locally recorded submissions whose outcome is uncertain. Buffer still enforces its
 own account limits, permissions and media requirements.
+
+## Calendar and posting history
+
+Publishing opens with a monthly calendar in **Europe/Helsinki** time, with Monday
+as the first day of the week. Scheduled and published deliveries share one clip
+entry when they fall on the same day; different platform delivery dates appear on
+their respective days. Filters show scheduled, published, attention-needed or local
+plan entries. Use the month picker, arrows or Today to navigate.
+
+Click a post for its saved video revision, platform results, links and submission
+actions. Click a date or its extra-post count to see every entry for that day.
+Published posts use Buffer's actual publication time when available. Older records
+fall back to the scheduled or confirmation date, marked **~** and explained in the
+details. Manual posting records use the time you recorded publication. A local plan
+is labelled separately: it does not mean Buffer has accepted a schedule.
+
+**Sync with Buffer** fetches current delivery statuses and fills in missing historical
+publication dates. Opening the page or navigating the calendar reads saved records;
+it does not submit posts. Published history remains visible after editing a clip.
+
+Expand **Ready to schedule** to prepare individual final clips. Cloud storage cleanup,
+manual posting plans and connections are separate collapsible sections below the
+calendar. None is a required step before filling the scheduled queue.
 
 ## Publish or schedule
 
@@ -55,7 +78,7 @@ filling until resolved. Accepted posts are retained if a later submission fails.
 does not start a recurring worker: press it again as slots become available.
 
 Only the current revision marked **Ready for posting** can start a new submission.
-The Publishing page shows ten clips per page, with final-video playback, an editable
+The ready-to-schedule section shows ten clips per page, with final-video playback, an editable
 post caption, YouTube title, category and audience setting. The default category is
 Gaming and the default audience is Not made for kids; check these before confirming.
 YouTube visibility is public. Instagram videos use Reel format and share to the feed.
@@ -77,7 +100,7 @@ being submitted. Each clip's submissions are persisted independently.
 
 After Buffer accepts a schedule, it handles publication even if the local app is closed.
 The local daily plan does not continuously refill Buffer: use **Fill scheduled queue** or
-submit another selected batch as slots become available. Refresh Buffer status to see the current per-platform results.
+submit another selected batch as slots become available. Sync with Buffer to see the current per-platform results.
 An accepted/scheduled post is not counted as published until Buffer reports it sent.
 Notification-only posts, drafts and provider errors are shown as needing attention.
 Manage cancellations, remote edits and failed remote posts in Buffer, then refresh here.
@@ -91,7 +114,7 @@ for temporary network/server failures. Post creation is never retried blindly: B
 documented create operation has no idempotency key, so a timeout might mean the post
 was created but its response was lost.
 
-For an uncertain outcome, **Refresh Buffer status** searches the channel for the matching
+For an uncertain outcome, **Sync with Buffer** searches the channel for the matching
 uploaded video, caption and scheduled time. Exactly one match can restore the receipt.
 Otherwise inspect Buffer, then use **Resolve submission** to attach the matching Buffer
 post ID or explicitly confirm that no post was created. Only then can remaining platforms
@@ -104,11 +127,18 @@ Publishing requests are serialized independently of video processing and review 
 Their state lives in `buffer_publications` and `buffer_previews` in the existing SQLite
 database; non-secret channel configuration lives in `workdir/buffer.json`.
 
-Cleanup preserves submitted video revisions. **Remove hosted copy** becomes useful after
-all tracked destinations have been confirmed published for 48 hours; it checks every local
-request using the same URL and preserves the local video. Before confirming, check that no
-other posts made directly in Buffer still depend on that URL. No automatic age-based cloud
-deletion is enabled.
+**Remove published cloud copies** in Publishing performs cloud cleanup in one click.
+It refreshes Buffer delivery status, checks all uploaded copies and removes each unique
+file only after every tracked destination has confirmed publication for 48 hours. Files
+used by scheduled, sending, approval-needed, draft or failed posts in the connected Buffer
+organizations are kept, including posts created directly in Buffer. Missing publication
+records or confirmation times also keep the file. Results list removed/kept/failed files
+with reasons and the bytes removed. One failed deletion does not stop other eligible files;
+clicking again retries remaining eligible files. Local final videos and publishing records
+stay saved, preventing reposts. Opening or refreshing the page never deletes files.
+
+The existing per-clip **Remove hosted copy** action remains available with its publication
+checks. No automatic age-based cloud deletion is enabled.
 
 ## Verification and first live test
 

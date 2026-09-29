@@ -1,5 +1,5 @@
 "use strict";
-let publishingBusy=false,publishingData=null,publishingPage=0,publishingPreview=null,publishingTimeClip=null,publishingResolution=null;
+let publishingBusy=false,publishingData=null,publishingStorage=null,publishingPage=0,publishingPreview=null,publishingTimeClip=null,publishingResolution=null;
 const publishingSelected=new Set(),publishingEdits=new Map(),publishingFields=new Map();
 const publishingNames={youtube:"YouTube",instagram:"Instagram",tiktok:"TikTok"};
 const publishingStatuses={pending:"Not submitted",failed:"Submission failed",unknown:"Check uncertain submission",submitting:"Check interrupted submission",scheduled:"Scheduled",sending:"Publishing",posted:"Published",error:"Failed in Buffer",draft:"Draft in Buffer",needs_approval:"Approval needed in Buffer",attention:"Attention needed in Buffer"};
@@ -32,7 +32,7 @@ function publishingSelection(){ $("publishing-selection").textContent=`${publish
 async function loadPublishing(){
   if(publishingBusy)return;
   publishingRemember();
-  const [storage,data]=await Promise.all([api("/api/publishing/storage"),api("/api/publishing/buffer")]);publishingData=data;
+  const [storage,data]=await Promise.all([api("/api/publishing/storage"),api("/api/publishing/buffer")]);publishingData=data;publishingStorage=storage;
   $("publishing-storage-status").textContent=`${storage.connected?"Connected":"Not connected"} · ${storage.bucket} · App storage limit: ${(storage.storage_limit/1e9).toFixed(0)} GB`;
   $("publishing-storage-setup").open=!storage.connected;$("publishing-buffer-setup").open=!data.connected;
   const connected=storage.connected&&data.connected&&Object.keys(data.mapping).length>0;
@@ -45,21 +45,37 @@ async function loadPublishing(){
   for(const p of Object.keys(publishingNames))publishingOptions($("publishing-"+p),[["","Do not publish here"],...data.channels.filter(c=>c.service===p).map(c=>[c.id,`${c.displayName||c.name}${c.isDisconnected?" · Reconnect in Buffer":""}${c.isLocked?" · Locked":""}${c.isQueuePaused?" · Paused":""}`])],data.mapping[p]);
   $("publishing-save-channels").disabled=!data.connected;$("publishing-refresh-buffer").disabled=!data.connected;
   $("publishing-fill").disabled=!storage.connected||!data.connected||!Object.keys(data.mapping).length;
-  $("publishing-capacity").textContent=data.remaining?`${Object.entries(data.remaining).map(([p,n])=>`${publishingNames[p]}: ${n}/10 queue slots available`).join(" · ")}. Last checked ${new Date(data.refreshed_at).toLocaleString()}.`:"Buffer Free: three channels, ten queued posts per channel. Refresh Buffer status to check availability; it is checked again before submission.";
+  $("publishing-cleanup").disabled=!storage.connected||!data.connected;
+  $("publishing-capacity").textContent=data.remaining?`${Object.entries(data.remaining).map(([p,n])=>`${publishingNames[p]}: ${n}/10 queue slots available`).join(" · ")}. Last checked ${new Date(data.refreshed_at).toLocaleString()}.`:"Buffer Free: three channels, ten queued posts per channel. Sync with Buffer to check availability; it is checked again before submission.";
   for(const id of publishingSelected)if(!data.clips.some(c=>c.id===id&&c.ready&&c.plan&&!c.publication))publishingSelected.delete(id);
   for(const [id,edits] of publishingEdits){
     const clip=data.clips.find(c=>c.id===id);
     if(!clip||clip.revision!==edits.revision||(clip.copy?.id||null)!==edits.copy_id)publishingEdits.delete(id);
   }
-  publishingPage=Math.min(publishingPage,Math.max(0,Math.ceil(data.clips.length/10)-1));publishingFields.clear();$("publishing-videos").replaceChildren();
-  for(const clip of data.clips.slice(publishingPage*10,(publishingPage+1)*10)){
+  paintPublishingCalendar(data);
+  const ready=data.clips.filter(c=>!c.publication&&c.ready&&!Object.values(c.plan?.deliveries||{}).some(r=>r.status==="posted"));
+  $("publishing-ready-summary").textContent=`Ready to schedule · ${ready.length} ${ready.length===1?"clip":"clips"}`;
+  const openCards=new Set([...$("publishing-videos").children].filter(c=>c.open).map(c=>c.dataset.clipId));
+  publishingPage=Math.min(publishingPage,Math.max(0,Math.ceil(ready.length/10)-1));publishingFields.clear();$("publishing-videos").replaceChildren();
+  for(const clip of ready.slice(publishingPage*10,(publishingPage+1)*10)){
+    const card=text("details","","publishing-ready-card"),summary=text("summary",clip.copy?.title||clip.title);
+    card.dataset.clipId=clip.id;card.open=openCards.has(clip.id);
+    card.append(summary,publishingClipCard(clip,storage));$("publishing-videos").append(card);
+  }
+  if(!ready.length)$("publishing-videos").append(text("p","No unscheduled final clips. Mark more clips Ready for posting in the review queue."));
+  $("publishing-page").textContent=ready.length?`${publishingPage*10+1}–${Math.min((publishingPage+1)*10,ready.length)} of ${ready.length}`:"";
+  $("publishing-previous").hidden=publishingPage===0;$("publishing-next").hidden=(publishingPage+1)*10>=ready.length;publishingSelection();
+}
+function publishingClipCard(clip,storage){
     const row=text("article","","form-section"),job=clip.publication;
     row.append(text("h3",job?job.item.title:clip.title),text("p",`${clip.source_title} · Revision ${job?job.revision:clip.revision}`),publishingVideo(clip.id,job?job.revision:clip.revision));
     if(job){
-      row.append(text("p",publishingWhen(job.item)));
+      row.append(text("p",job.item.due_at?`Scheduled: ${publishingWhen(job.item)}`:"Immediate publishing request"));
       if(job.revision!==clip.revision||!clip.ready)row.append(text("p","This submission uses an earlier approved final version. Editing locally does not replace a post in Buffer.","clip-flag"));
       for(const [p,r] of Object.entries(job.receipts)){
         row.append(text("p",`${publishingNames[p]}: ${publishingStatuses[r.status]||r.status}${r.message?` · ${r.message}`:""}`));
+        const timing=publishingReceiptDate(clip,r);
+        if(timing.at)row.append(text("p",`${timing.label}: ${publishingCalendarDateTime(timing.at)}`,"muted"));
         if(r.url)row.append(publishingLink(`Open ${publishingNames[p]} post`,r.url));
         if(["unknown","submitting"].includes(r.status))row.append(action(`Resolve ${publishingNames[p]} submission`,()=>{
           publishingResolution={clip_id:clip.id,platform:p};$("publishing-resolve-id").value="";$("publishing-resolve-absent").checked=false;$("publishing-resolve-dialog").showModal();
@@ -101,7 +117,7 @@ async function loadPublishing(){
         select.onchange=()=>{if(select.checked&&publishingSelected.size>=10){select.checked=false;$("publishing-message").textContent="Select up to ten daily posts at a time.";return;}if(select.checked)publishingSelected.add(clip.id);else publishingSelected.delete(clip.id);publishingSelection();};
         const label=text("label","","check");label.append(select,text("span",`Use daily plan: ${publishingWhen({due_at:clip.plan.scheduled_at,timezone:clip.plan.timezone})}`));row.append(label);
       }
-      const controls=text("div","","actions"),enabled=storage.connected&&data.connected&&Object.keys(data.mapping).length>0;
+      const controls=text("div","","actions"),enabled=storage.connected&&publishingData.connected&&Object.keys(publishingData.mapping).length>0;
       const instant=action("Preview publish now",()=>openPublishingPreview([publishingItem(clip)],"now"));instant.disabled=!enabled;
       const schedule=action("Choose posting time",()=>{publishingTimeClip=clip;$("publishing-local-time").value="";$("publishing-time-dialog").showModal();});schedule.disabled=!enabled;controls.append(instant,schedule);
       const hosted=Object.values(storage.uploads).find(u=>u.clip_id===clip.id&&u.revision===clip.revision&&u.sha256===clip.video_sha256);
@@ -109,12 +125,9 @@ async function loadPublishing(){
       else{const upload=action("Upload final video",()=>publishingWork(async()=>{await api(`/api/publishing/storage/clips/${clip.id}`,{method:"POST",body:JSON.stringify({revision:clip.revision})});$("publishing-message").textContent="Final video uploaded. No social post was created.";}));upload.disabled=!storage.connected;controls.append(upload);}
       row.append(controls);
     }
-    $("publishing-videos").append(row);
-  }
-  if(!data.clips.length)$("publishing-videos").append(text("p","Mark clips Ready for posting to publish them here."));
-  $("publishing-page").textContent=data.clips.length?`${publishingPage*10+1}–${Math.min((publishingPage+1)*10,data.clips.length)} of ${data.clips.length}`:"";
-  $("publishing-previous").hidden=publishingPage===0;$("publishing-next").hidden=(publishingPage+1)*10>=data.clips.length;publishingSelection();
+    return row;
 }
+
 async function openPublishingPreview(items,mode,extra={}){return publishingWork(async()=>{
   if(mode!=="resume"){
     for(const item of items){
@@ -125,7 +138,7 @@ async function openPublishingPreview(items,mode,extra={}){return publishingWork(
   publishingPreview=await api("/api/publishing/buffer/preview",{method:"POST",body:JSON.stringify({items,mode,...extra})});
   $("publishing-preview-items").replaceChildren();$("publishing-preview-message").textContent="";$("publishing-confirm").checked=false;$("publishing-send").disabled=true;
   $("publishing-send").textContent=publishingPreview.items[0].mode==="now"?"Publish now":"Schedule in Buffer";
-  $("publishing-preview-summary").textContent="Confirmation uploads these final files to public Cloudflare URLs and submits them to Buffer for automatic publishing. Refresh Buffer status afterward to check the platform results.";
+  $("publishing-preview-summary").textContent="Confirmation uploads these final files to public Cloudflare URLs and submits them to Buffer for automatic publishing. Sync with Buffer afterward to check the platform results.";
   for(const item of publishingPreview.items){
     const row=text("article","","form-section");row.append(text("h3",item.title),publishingVideo(item.clip_id,item.revision),text("p",publishingWhen(item)),text("p",item.caption,"publishing-caption"));
     for(const [p,c] of Object.entries(publishingPreview.channels))row.append(text("p",`${publishingNames[p]}: ${c.displayName||c.name}`));
@@ -144,7 +157,7 @@ $("publishing-send").onclick=async()=>{
       if(Object.values(job.receipts).some(r=>!["posted","scheduled","sending"].includes(r.status)))throw new Error("Submission needs attention. Close this preview and check the per-platform results before continuing.");
       publishingSelected.delete(item.clip_id);
     }
-    $("publishing-message").textContent="Buffer accepted the submissions. Refresh Buffer status to check when each platform confirms publication.";$("publishing-preview-dialog").close();
+    $("publishing-message").textContent="Buffer accepted the submissions. Sync with Buffer to check when each platform confirms publication.";$("publishing-preview-dialog").close();
   }catch(e){$("publishing-preview-message").textContent=e.message;}
   finally{publishingBusy=false;$("publishing-preview-cancel").disabled=false;$("publishing-confirm").disabled=false;$("publishing-confirm").checked=false;await loadPublishing().catch(e=>error(e.message));}
 };
@@ -182,3 +195,18 @@ $("publishing-resolve-cancel").onclick=()=>$("publishing-resolve-dialog").close(
 $("publishing-resolve-form").onsubmit=e=>{e.preventDefault();$("publishing-resolve-dialog").close();return publishingWork(async()=>{
   await api(`/api/publishing/buffer/resolve/${publishingResolution.clip_id}/${publishingResolution.platform}`,{method:"POST",body:JSON.stringify({post_id:$("publishing-resolve-id").value.trim(),absent_confirmed:$("publishing-resolve-absent").checked})});$("publishing-message").textContent="Submission resolved. Preview remaining submissions if needed.";
 });};
+
+$("publishing-cleanup").onclick=()=>publishingWork(async()=>{
+  $("publishing-cleanup").disabled=true;$("publishing-cleanup").textContent="Checking and removing…";
+  $("publishing-cleanup-message").textContent="Refreshing Buffer and checking which cloud copies can be removed…";
+  $("publishing-cleanup-details").hidden=true;$("publishing-cleanup-items").replaceChildren();
+  try{
+    const result=await api("/api/publishing/buffer/media-cleanup",{method:"POST"});
+    $("publishing-cleanup-message").textContent=`${result.removed.length} cloud copies removed (${(result.removed_bytes/1e6).toFixed(1)} MB). ${result.kept.length} kept. ${result.failed.length} could not be removed. Local final videos are unchanged.`;
+    for(const [key,label] of [["removed","Removed"],["kept","Kept"],["failed","Could not remove"]]){
+      for(const item of result[key])$("publishing-cleanup-items").append(text("p",`${label}: ${item.title}${item.reason?` — ${item.reason}`:""}`));
+    }
+    $("publishing-cleanup-details").hidden=!result.removed.length&&!result.kept.length&&!result.failed.length;
+  }catch(e){$("publishing-cleanup-message").textContent=e.message;}
+  finally{$("publishing-cleanup").textContent="Remove published cloud copies";}
+});

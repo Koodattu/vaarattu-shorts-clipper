@@ -208,7 +208,7 @@ def render_video(settings, plan, media, output, encoder, check, progress):
     listing.write_text("\n".join(f"file '{p.name}'" for p in pieces), encoding="utf-8")
     temporary = output.with_name(output.stem+".partial.mp4")
     run_tool([settings.ffmpeg, "-nostdin", "-v", "error", "-y", "-f", "concat", "-safe", "1",
-              "-i", listing, "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+              "-i", listing, "-c:v", "copy", "-c:a", "aac", "-b:a", "128k", "-ar", "48000",
               "-video_track_timescale", "30000", "-movflags", "+faststart", temporary], settings, work, "assemble", check, timeout=7200)
     run_tool([settings.ffmpeg, "-nostdin", "-v", "error", "-xerror", "-i", temporary, "-f", "null", "-"],
              settings, work, "decode-check", check, timeout=7200)

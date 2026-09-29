@@ -319,3 +319,163 @@ def test_reads_back_off_but_post_creation_is_never_blindly_retried(monkeypatch):
     with pytest.raises(buffer.RemoteError, match="502"):
         api.query("mutation test", mutation=True)
     assert len(calls) == 1
+
+
+def publish_cleanup_pair(settings, store, remote):
+    for clip in ("early", "late"):
+        ticket = buffer.preview(settings, store, [item(clip)], "now")
+        buffer.send(settings, store, ticket["id"], clip)
+    for post in remote["posts"].values():
+        post["status"] = "sent"
+    buffer.refresh(settings, store)
+
+
+def test_bulk_cloud_cleanup_refreshes_skips_pending_and_is_repeatable(settings, store, remote, monkeypatch):
+    publish_cleanup_pair(settings, store, remote)
+    late = buffer.publications(store)["late"]
+    for receipt in late["receipts"].values():
+        receipt["status"] = "scheduled"
+        remote["posts"][receipt["post_id"]]["status"] = "scheduled"
+    buffer.save_publication(store, late)
+    later = buffer.now() + timedelta(hours=49)
+    monkeypatch.setattr(buffer, "now", lambda: later)
+    api = TestClient(create_app(settings), base_url="http://127.0.0.1:8765")
+    headers = {"x-local-token": api.get("/api/status").json()["token"]}
+    endpoint = "/api/publishing/buffer/media-cleanup"
+    assert api.post(endpoint).status_code == 403
+    response = api.post(endpoint, headers=headers)
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert [r["clip_id"] for r in result["removed"]] == ["early"]
+    assert [r["clip_id"] for r in result["kept"]] == ["late"]
+    assert result["removed_bytes"] == len(b"final-early") and not result["failed"]
+    assert list(remote["objects"].values()) == [b"final-late"]
+    assert buffer.publications(store)["early"]["media_removed_at"]
+    assert (settings.ready / "early/1/short.mp4").read_bytes() == b"final-early"
+    assert all(r["status"] == "posted" for r in buffer.publications(store)["early"]["receipts"].values())
+    result = api.post(endpoint, headers=headers).json()
+    assert result["removed"] == [] and len(result["kept"]) == 1
+    assert len([r for r in remote["requests"] if r.method == "DELETE"]) == 1
+
+
+def test_bulk_cleanup_newly_confirmed_posts_wait_and_untracked_uploads_stay(settings, store, remote):
+    ticket = buffer.preview(settings, store, [item()], "now")
+    buffer.send(settings, store, ticket["id"], "early")
+    r2.upload(settings, store, "late", 1)
+    for post in remote["posts"].values():
+        post["status"] = "sent"
+    result = buffer.remove_all_published_media(settings, store)
+    assert not result["removed"] and not result["failed"]
+    assert len(result["kept"]) == 2
+    assert "48 hours" in next(r["reason"] for r in result["kept"] if r["clip_id"] == "early")
+    assert "no confirmed publication" in next(r["reason"] for r in result["kept"] if r["clip_id"] == "late")
+    assert all(r["status"] == "posted" for r in buffer.publications(store)["early"]["receipts"].values())
+    assert len(remote["objects"]) == 2
+
+
+def test_bulk_cleanup_preserves_file_reused_directly_in_buffer(settings, store, remote, monkeypatch):
+    publish_cleanup_pair(settings, store, remote)
+    remote["posts"]["external"] = {**remote["posts"]["1"], "id": "external", "status": "draft"}
+    later = buffer.now() + timedelta(hours=49)
+    monkeypatch.setattr(buffer, "now", lambda: later)
+    result = buffer.remove_all_published_media(settings, store)
+    assert [r["clip_id"] for r in result["removed"]] == ["late"]
+    assert [r["clip_id"] for r in result["kept"]] == ["early"]
+    assert "Buffer post still uses" in result["kept"][0]["reason"]
+
+
+def test_bulk_cleanup_deletes_shared_file_once_and_retains_every_receipt(settings, store, remote, monkeypatch):
+    import copy
+
+    ticket = buffer.preview(settings, store, [item()], "now")
+    original = buffer.send(settings, store, ticket["id"], "early")
+    for post in remote["posts"].values():
+        post["status"] = "sent"
+    buffer.refresh(settings, store)
+    shared = copy.deepcopy(buffer.publications(store)["early"])
+    shared["clip_id"] = "late"
+    buffer.save_publication(store, shared)
+    later = buffer.now() + timedelta(hours=49)
+    monkeypatch.setattr(buffer, "now", lambda: later)
+    result = buffer.remove_all_published_media(settings, store)
+    assert len(result["removed"]) == 1 and not result["kept"]
+    assert result["removed_bytes"] == original["media"]["bytes"]
+    assert all(j["media_removed_at"] for j in buffer.publications(store).values())
+    assert not remote["objects"]
+    assert len([r for r in remote["requests"] if r.method == "DELETE"]) == 1
+
+
+def test_bulk_cleanup_continues_after_one_cloud_delete_fails(settings, store, remote, monkeypatch):
+    publish_cleanup_pair(settings, store, remote)
+    later = buffer.now() + timedelta(hours=49)
+    monkeypatch.setattr(buffer, "now", lambda: later)
+    early_hash = buffer.publications(store)["early"]["media"]["sha256"]
+    original_request = r2.Client.request
+    def request(self, method, key="", **kwargs):
+        if method == "DELETE" and early_hash in key:
+            raise ValueError("Cloudflare could not be reached.")
+        return original_request(self, method, key, **kwargs)
+    monkeypatch.setattr(r2.Client, "request", request)
+    result = buffer.remove_all_published_media(settings, store)
+    assert [r["clip_id"] for r in result["removed"]] == ["late"]
+    assert [r["clip_id"] for r in result["failed"]] == ["early"]
+    assert not buffer.publications(store)["early"].get("media_removed_at")
+    assert len(r2.uploads(settings)) == 1
+    assert list(remote["objects"].values()) == [b"final-early"]
+
+
+def test_bulk_cleanup_stops_before_deletion_when_buffer_check_fails(settings, store, remote, monkeypatch):
+    publish_cleanup_pair(settings, store, remote)
+    def unavailable(*args):
+        raise buffer.RemoteError("Buffer unavailable")
+    monkeypatch.setattr(buffer.Client, "organizations", unavailable)
+    with pytest.raises(buffer.RemoteError, match="unavailable"):
+        buffer.remove_all_published_media(settings, store)
+    assert not any(r.method == "DELETE" for r in remote["requests"])
+    assert len(remote["objects"]) == 2
+
+
+def test_bulk_cleanup_respects_publishing_and_upload_locks(settings, remote):
+    from vaarattu_shorts.processes import lock
+
+    api = TestClient(create_app(settings), base_url="http://127.0.0.1:8765")
+    headers = {"x-local-token": api.get("/api/status").json()["token"]}
+    for name in ("buffer-publishing.lock", "r2-upload.lock"):
+        with lock(settings.work / name):
+            response = api.post("/api/publishing/buffer/media-cleanup", headers=headers)
+        assert response.status_code == 400 and "in progress" in response.text
+    assert not any(r.method == "DELETE" for r in remote["requests"])
+
+
+def test_publication_time_is_saved_and_legacy_backfill_keeps_cleanup_confirmation(settings, store, remote, monkeypatch):
+    ticket = buffer.preview(settings, store, [item()], "now")
+    buffer.send(settings, store, ticket["id"], "early")
+    for post in remote["posts"].values():
+        post.update(status="sent", sentAt="2026-09-29T16:12:00Z")
+    buffer.refresh(settings, store)
+    job = buffer.publications(store)["early"]
+    assert all(r["published_at"] == "2026-09-29T16:12:00Z" for r in job["receipts"].values())
+    confirmed = {p: r["checked_at"] for p, r in job["receipts"].items()}
+    for receipt in job["receipts"].values():
+        del receipt["published_at"]
+    buffer.save_publication(store, job)
+    later = buffer.now() + timedelta(hours=49)
+    monkeypatch.setattr(buffer, "now", lambda: later)
+    buffer.refresh(settings, store)
+    saved = buffer.publications(store)["early"]
+    assert all(r["published_at"] == "2026-09-29T16:12:00Z" for r in saved["receipts"].values())
+    assert {p: r["checked_at"] for p, r in saved["receipts"].items()} == confirmed
+    assert not buffer.media_removal_reason([saved])
+    count = sum(b"query Post(" in request.content for request in remote["requests"])
+    buffer.refresh(settings, store)
+    assert sum(b"query Post(" in request.content for request in remote["requests"]) == count
+
+
+def test_calendar_keeps_manual_post_history_after_final_approval_changes(settings, store, remote):
+    delivery.schedule(store, [remote["run"]], "2030-01-01", "18:00", "Europe/Helsinki")
+    post = next(p for p in delivery.posting_plan(store) if p["clip_id"] == "early")
+    delivery.record_post(store, post["id"], "youtube", "https://youtube.com/shorts/published")
+    store.review_clip("early", 1, "approved")
+    clip = next(c for c in buffer.status(settings, store)["clips"] if c["id"] == "early")
+    assert not clip["ready"] and clip["publication"] is None
+    assert clip["plan"]["deliveries"]["youtube"]["status"] == "posted"

@@ -199,7 +199,7 @@ class EditRequest(Contract):
     end_us: int = Field(gt=0)
     title: str = Field(min_length=1, max_length=200)
     words: list[Word] = Field(max_length=1000)
-    layout_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    layout_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     reviewed: bool = False
     trim_silence: bool | None = None
     video_encoder: Literal["libx264", "h264_nvenc"] | None = None

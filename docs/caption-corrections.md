@@ -1,5 +1,7 @@
 # Caption word corrections
 
+**Edit captions** in the review queue opens a manual word editor beside the current clip preview. Correct words directly without an AI request or changing timestamps. Words removed by existing cuts are hidden. **Save captions and render** keeps the current layout, pacing and speech cuts, creates a new revision and keeps your place in the queue. Cancel leaves the saved clip unchanged. Corrected words are protected from later automatic caption corrections.
+
 New runs have an optional **Automatically correct clear caption word errors before rendering** setting, off by default. It runs on final selected clips after optional large-v3 transcription. It uses the run's existing provider, cut-review reasoning setting and spending limit. Local models load once for the correction batch and exit before rendering. Completed corrections are saved so a resumed render does not repeat the pass. Manually edited clips are excluded from automatic passes.
 
 **Check caption errors** in the review queue and editor opens the same suggestion panel. A check uses the durable worker and keeps the existing preview and review decision. Closing the panel leaves captions unchanged and does not cancel a queued check. Reopen it to see results. Select individual replacements and choose **Apply selected and render** to create a new revision. The previous preview remains available. **Undo last corrections and render** restores the last applied words unless subsequent edits conflict. Unsaved editor changes must be saved before checking the saved clip.

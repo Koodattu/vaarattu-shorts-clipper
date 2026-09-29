@@ -350,7 +350,7 @@ def render_clip(settings, section, mapping, body, layout, words, folder, check):
             "-c:a",
             "aac",
             "-b:a",
-            "192k",
+            "128k",
             "-movflags",
             "+faststart",
             "short.mp4",

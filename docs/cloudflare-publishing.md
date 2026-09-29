@@ -26,9 +26,12 @@ is enabled because it could delete videos before delayed or retried publication.
 The standalone storage upload button does not create Buffer posts. Use the
 [Buffer publishing workflow](buffer-publishing.md) to publish now or submit scheduled
 posts. Keep cloud copies while posts are scheduled or need attention. Publishing
-offers explicit removal once every tracked destination has confirmed publication
-for at least 48 hours. It checks other tracked clips using the same file, preserves
-local final videos, and never removes cloud copies automatically.
+has a **Remove published cloud copies** button. One click refreshes delivery status
+and removes eligible files once every tracked destination has confirmed publication
+for at least 48 hours. It checks shared files and unfinished posts in the connected
+Buffer organizations, keeps uploads without confirmed publishing records, and reports
+removed files, retained files and failures. Local final videos and publishing history
+are preserved. Cleanup runs only when clicked; there is no automatic background deletion.
 
 Backend routes activate on the next normal app restart. No worker or processing
 run needs to be started to configure storage.

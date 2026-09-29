@@ -1,5 +1,17 @@
 # Video rendering, captions and delivery
 
+## Audio encoding
+
+New clip renders and rerenders, plus highlight drafts and final videos, encode AAC audio at a target of **128 kbps** for publishing compatibility. Actual average bitrate varies with the audio. Source downloads keep their acquisition quality, and existing rendered or scheduled files are not rewritten.
+
+## Manual timeline in the review queue
+
+**Trim clip** opens the original recording with start/end handles, precise source-time fields, **Start here**, **End here**, **Play selected range** and reset. Click the timeline to seek; arrow keys adjust a focused handle, with Shift for one-second steps. Speech timestamps are shown in blue, the selected range in green and existing speech cuts with stripes. Playback here shows the source before internal cuts and captions.
+
+Edges snap outward to whole words. Extensions use only the already downloaded, aligned footage and canonical transcript coverage (usually about ten seconds around the clip). Refined captions keep their own coverage; Turbo and large-v3 timestamps are never mixed. The backend enforces those bounds, at least three seconds of output and valid existing joins. A trim that intersects a speech cut or removes a required neighboring word is rejected with an explanation; moving completely past a cut drops that cut. Manual extensions have no fixed 90-second cap within the available footage.
+
+Saving reuses caption corrections, layout and encoding, recomputes pause trimming, and creates a render revision on the same queue item without ASR or LLM work. A previous preview remains available. Content approval is retained; readiness for posting must be checked again. Cut-undo history is cleared when the excerpt changes so undo cannot restore out-of-range speech. Cancel/reset do not alter saved media. No footage is downloaded merely by opening the dialog.
+
 The review queue now supports **Needs more context**, with before/after directions and an optional note. The LLM can extend the existing moment into a new revision or keep the original with an explanation. See [context repair](context-repair.md) for queue behavior, model inputs and retry semantics.
 
 ## Optional final transcription (8 September 2026)

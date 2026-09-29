@@ -56,6 +56,7 @@ async function loadPostingPlan(){
         form.onsubmit=async event=>{event.preventDefault();button.disabled=true;try{
           await api(`/api/delivery/posts/${post.id}/${platform}`,{method:"POST",body:JSON.stringify({url:input.value})});
           await loadPostingPlan();
+          if(typeof loadPublishing==="function")await loadPublishing();
         }catch(e){error(e.message);button.disabled=false;}};
         row.append(form);
         if(delivery.url){const link=text("a",`Open ${name} post`);link.href=delivery.url;link.target="_blank";link.rel="noopener";row.append(link);}
@@ -63,6 +64,7 @@ async function loadPostingPlan(){
       if(post.buffer_managed){const link=text("a","Manage publishing");link.href="#publishing";row.append(link);}
       if(!post.buffer_managed&&Object.values(post.deliveries).every(d=>d.status!=="posted"))row.append(action("Remove from plan",async()=>{
         await api(`/api/delivery/posts/${post.id}`,{method:"DELETE"});await loadPostingPlan();
+        if(typeof loadPublishing==="function")await loadPublishing();
       }));
       $("posting-plan").append(row);
     }

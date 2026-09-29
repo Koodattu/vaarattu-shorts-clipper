@@ -61,3 +61,34 @@ test("posting controls belong only to Publishing while Cleanup explains its inde
   assert.ok(publishing.indexOf('id="publishing-fill"')<publishing.indexOf('id="publishing-connections"'));
   assert.ok(!publishing.includes('href="#delivery"'));
 });
+
+
+test("manual posting records and removed plans refresh the publishing calendar",async()=>{
+  const directory=path.join(__dirname,"../src/vaarattu_shorts/static");
+  const nodes=new Map([...fs.readFileSync(path.join(directory,"index.html"),"utf8").matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],new Element()]));
+  const writes=[];let calendarRefreshes=0;
+  const post={id:"plan",clip_id:"clip",title:"Clip",revision:3,ready:true,scheduled_at:"2026-09-29T16:00:00Z",timezone:"Europe/Helsinki",deliveries:{youtube:{status:"pending"}}};
+  let plan=[post];
+  const context=vm.createContext({
+    $:id=>nodes.get(id),document:{createElement:tag=>Object.assign(new Element(),{tagName:tag})},text:(tag,value)=>Object.assign(new Element(),{textContent:value,tagName:tag}),
+    action:(label,onclick)=>Object.assign(new Element(),{textContent:label,onclick}),error:message=>assert.fail(message),
+    loadPublishing:async()=>{calendarRefreshes++;},
+    api:async(url,options)=>{
+      if(!options)return {recordings:[],plan};
+      writes.push({url,method:options.method});
+      if(options.method==="DELETE")plan=[];
+      else post.deliveries.youtube={status:"posted",url:JSON.parse(options.body).url};
+      return {};
+    },
+  });
+  vm.runInContext(fs.readFileSync(path.join(directory,"delivery.js"),"utf8"),context);
+  await nodes.get("refresh-posting-plan").onclick();
+  const form=nodes.get("posting-plan").children[0].children.find(c=>c.tagName==="form");
+  form.children[0].children[0].value="https://youtube.com/shorts/posted";
+  await form.onsubmit({preventDefault(){}});
+  assert.equal(calendarRefreshes,1);assert.equal(writes[0].url,"/api/delivery/posts/plan/youtube");
+  assert.equal(post.deliveries.youtube.status,"posted");
+  post.deliveries.youtube={status:"pending"};await nodes.get("refresh-posting-plan").onclick();
+  await nodes.get("posting-plan").children[0].children.find(c=>c.textContent==="Remove from plan").onclick();
+  assert.equal(calendarRefreshes,2);assert.equal(plan.length,0);assert.equal(writes[1].method,"DELETE");
+});

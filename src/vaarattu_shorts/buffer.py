@@ -202,7 +202,7 @@ def status(settings, store):
     with store.connect() as db:
         for run in delivery.recording_rows(store, db):
             for clip in run["clips"]:
-                if clip["review_status"] != "ready_to_post" and clip["id"] not in jobs:
+                if clip["review_status"] != "ready_to_post" and clip["id"] not in jobs and clip["id"] not in plan:
                     continue
                 body = clip["body"]
                 clips.append({"id": clip["id"], "revision": clip["revision"], "title": body["title"],
@@ -363,7 +363,8 @@ def receipt_from_post(api, post, channel_id):
     if url and not url.startswith("https://"):
         url = ""
     return {"status": status, "post_id": post["id"], "channel_id": channel_id, "url": url,
-            "due_at": post.get("dueAt"), "checked_at": now().isoformat(),
+            "due_at": post.get("dueAt"), "published_at": post.get("sentAt") if status == "posted" else None,
+            "checked_at": now().isoformat(),
             "message": api.message(post["error"].get("message")) if post.get("error") else
             ("Buffer requires attention; automatic publication is not confirmed." if status == "attention" else "")}
 
@@ -457,6 +458,15 @@ def refresh(settings, store):
     for job in jobs.values():
         for receipt in job["receipts"].values():
             if receipt["status"] == "posted":
+                # Backfill historical calendar dates without resetting the cleanup grace period.
+                if "published_at" not in receipt and receipt.get("post_id"):
+                    try:
+                        post = api.post(receipt["post_id"])
+                        saved = receipt_from_post(api, post, receipt["channel_id"])
+                        if saved["status"] == "posted":
+                            receipt["published_at"] = saved["published_at"]
+                    except RemoteError:
+                        pass  # Keep confirmed delivery and the clearly labelled date fallback.
                 continue
             try:
                 post = None
@@ -520,16 +530,28 @@ def discard_unsubmitted(store, clip_id):
             db.execute("UPDATE posting_plan SET deliveries=? WHERE clip_id=?", (json.dumps(receipts), clip_id))
 
 
+def media_removal_reason(related):
+    if not related or any(not j["receipts"] or set(j["item"]["mapping"]) - j["receipts"].keys() for j in related):
+        return "Publication records are incomplete; keep this hosted copy."
+    if any(r.get("status") != "posted" for j in related for r in j["receipts"].values()):
+        return "Wait until every tracked platform confirms publication before removing the hosted copy."
+    try:
+        recent = any(datetime.fromisoformat(r["checked_at"]) > now() - timedelta(hours=48)
+                     for j in related for r in j["receipts"].values())
+    except (KeyError, TypeError, ValueError):
+        return "Publication confirmation time is missing or invalid; keep this hosted copy."
+    return "Keep the hosted copy for 48 hours after publication was confirmed." if recent else ""
+
+
 def remove_published_media(settings, store, clip_id):
     jobs = publications(store)
     job = jobs.get(clip_id)
     if not job or job.get("media_removed_at"):
         raise ValueError("There is no hosted copy to remove.")
     related = [j for j in jobs.values() if j["media"]["url"] == job["media"]["url"]]
-    if any(r["status"] != "posted" for j in related for r in j["receipts"].values()):
-        raise ValueError("Wait until every tracked platform confirms publication before removing the hosted copy.")
-    if any(datetime.fromisoformat(r["checked_at"]) > now() - timedelta(hours=48) for j in related for r in j["receipts"].values()):
-        raise ValueError("Keep the hosted copy for 48 hours after publication was confirmed.")
+    reason = media_removal_reason(related)
+    if reason:
+        raise ValueError(reason)
     key = f"clips/{job['media']['sha256']}.mp4"
     r2.Client(**r2.credentials(settings)).request("DELETE", key)
     saved = r2.uploads(settings)
@@ -541,3 +563,56 @@ def remove_published_media(settings, store, clip_id):
         related_job["media_removed_at"] = now().isoformat()
         save_publication(store, related_job)
     return {"removed": True}
+
+
+def remove_all_published_media(settings, store):
+    """Called under the publishing and upload locks; never infer success from a due date."""
+    refresh(settings, store)
+    jobs = publications(store)
+    uploads = r2.uploads(settings)
+    groups = {}
+    for job in jobs.values():
+        groups.setdefault(job["media"]["url"], []).append(job)
+    # Also protect uploads which have no successful publishing request yet.
+    for record in uploads.values():
+        groups.setdefault(record["url"], [])
+    candidates = {url: related for url, related in groups.items()
+                  if any(not j.get("media_removed_at") for j in related)
+                  or any(r["url"] == url for r in uploads.values())}
+    result = {"removed": [], "kept": [], "failed": [], "removed_bytes": 0}
+    if not candidates:
+        return result
+    api, cfg = client(settings), config(settings)
+    in_use = set()
+    # A copy scheduled directly in Buffer may not have a local publishing receipt.
+    organizations = {cfg["organization_id"], *(j["item"]["organization_id"] for j in jobs.values())}
+    for organization in organizations:
+        channels = api.channels(organization)
+        if not channels:
+            continue
+        posts = api.posts(organization, {"channelIds": [c["id"] for c in channels],
+                                        "status": ["scheduled", "sending", "needs_approval", "draft", "error"]})
+        in_use.update(a["source"] for post in posts for a in post.get("assets", []) if a.get("source"))
+    for url, related in candidates.items():
+        records = [r for r in uploads.values() if r["url"] == url]
+        job = next((j for j in related if not j.get("media_removed_at")), None)
+        label = job["item"]["title"] if job else "Uploaded video"
+        item = {"title": label, "clip_id": job["clip_id"] if job else records[0]["clip_id"]}
+        matched = {(j["clip_id"], j["revision"]) for j in related if not j.get("media_removed_at")}
+        if not job or any((r["clip_id"], r["revision"]) not in matched for r in records):
+            reason = "An uploaded revision has no confirmed publication record."
+        elif url in in_use:
+            reason = "A scheduled, unfinished or failed Buffer post still uses this file."
+        else:
+            reason = media_removal_reason(related)
+        if reason:
+            result["kept"].append({**item, "reason": reason})
+            continue
+        try:
+            remove_published_media(settings, store, job["clip_id"])
+        except (ValueError, OSError) as exc:
+            result["failed"].append({**item, "reason": str(exc)})
+            continue
+        result["removed"].append(item)
+        result["removed_bytes"] += job["media"]["bytes"]
+    return result
