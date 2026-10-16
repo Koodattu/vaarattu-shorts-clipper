@@ -118,15 +118,21 @@ def test_matching_remote_video_and_repeated_source_moment_are_excluded(settings,
     assert result["clips"][0]["clip_id"] in {"late", "late-copy"}
 
 
-def test_partial_submission_stops_fill_until_resolved(settings, store, remote):
+def test_partial_submission_stops_current_batch_but_next_fill_skips_it(settings, store, remote):
     remote["fail_channel"] = "instagram"
     result = publishing_queue.fill(settings, store)
     assert result["scheduled"] == 0 and "attention" in result["message"]
     assert len(remote["mutations"]) == 2
-    with pytest.raises(ValueError, match="incomplete"):
-        publishing_queue.fill(settings, store)
-    assert len(remote["mutations"]) == 2
     assert "late" not in buffer.publications(store)
+    first = buffer.publications(store)["early"]
+    remote["fail_channel"] = None
+    result = publishing_queue.fill(settings, store)
+    assert [c["clip_id"] for c in result["clips"]] == ["late"]
+    assert result["attention"] == [{"clip_id": "early", "title": "Posting title", "platforms": ["tiktok"]}]
+    assert len(remote["mutations"]) == 5
+    assert sum(m["assets"][0]["video"]["url"] == first["media"]["url"] for m in remote["mutations"]) == 2
+    assert buffer.publications(store)["early"]["receipts"]["tiktok"]["status"] == "pending"
+    assert buffer.publications(store)["early"]["receipts"]["youtube"] == first["receipts"]["youtube"]
 
 
 def test_selected_pending_local_plan_is_retimed_but_remote_schedule_is_kept(settings, store, remote):
@@ -209,3 +215,26 @@ def test_lazy_fill_import_works_with_contracts_already_loaded_before_twitch_upda
     assert callable(module.fill)
     assert module.source_key("https://youtu.be/abc_def-ghI") == "abc_def-ghI"
     assert module.source_key("https://www.twitch.tv/videos/123") == "https://www.twitch.tv/videos/123"
+
+
+def test_remote_failed_post_does_not_block_fill_or_get_reposted(settings, store, remote):
+    store.review_clip("late", 1, "approved")
+    assert publishing_queue.fill(settings, store)["scheduled"] == 1
+    for post in remote["posts"].values():
+        post["status"] = "sent"
+    remote["posts"]["3"].update(status="error", error={"message": "socket hang up"})
+    store.review_clip("late", 1, "ready_to_post")
+    api = TestClient(create_app(settings), base_url="http://127.0.0.1:8765")
+    headers = {"x-local-token": api.get("/api/status").json()["token"]}
+    response = api.post("/api/publishing/buffer/fill", headers=headers)
+    assert response.status_code == 200, response.text
+    assert [c["clip_id"] for c in response.json()["clips"]] == ["late"]
+    assert response.json()["attention"] == [{"clip_id": "early", "title": "Posting title", "platforms": ["tiktok"]}]
+    assert len(remote["mutations"]) == 6
+    job = buffer.publications(store)["early"]
+    assert job["receipts"]["tiktok"]["status"] == "error"
+    assert job["receipts"]["tiktok"]["message"] == "socket hang up"
+    assert len([m for m in remote["mutations"] if m["assets"][0]["video"]["url"] == job["media"]["url"]]) == 3
+    again = publishing_queue.fill(settings, store)
+    assert again["scheduled"] == 0 and again["attention"] == response.json()["attention"]
+    assert len(remote["mutations"]) == 6

@@ -73,8 +73,11 @@ automatically; keep their manual posting records here.
 Filling uses each clip's title as its caption, Gaming as the YouTube category, and Not made
 for kids. Use individual previews below when different metadata is needed. Existing remote
 schedules stay unchanged; selected entries in the local plan that have never been submitted
-can move to the new daily schedule. An incomplete or uncertain existing submission stops
-filling until resolved. Accepted posts are retained if a later submission fails. The button
+can move to the new daily schedule. Failed and uncertain existing requests are skipped and
+reported with their clip titles and affected platforms; they do not block filling with other
+clips. Every saved request, render hash and source moment still prevents resubmission.
+Uncertain receipts reserve queue capacity until resolved. A new failure stops the current
+batch, retaining accepted posts; the next fill skips the affected clip. The button
 does not start a recurring worker: press it again as slots become available.
 
 Only the current revision marked **Ready for posting** can start a new submission.
@@ -120,6 +123,17 @@ Otherwise inspect Buffer, then use **Resolve submission** to attach the matching
 post ID or explicitly confirm that no post was created. Only then can remaining platforms
 be retried. A wholly unsubmitted request can be discarded and previewed again with new
 settings. Existing remote posts retain their records to prevent accidental duplicates.
+
+If a post is already live but Buffer reports failure, open its calendar details and choose
+**Already published on [platform]**. Paste the published post's HTTPS link and confirm.
+This changes only the local receipt, preserves the original Buffer result, and labels the
+post **Published · confirmed by you**. Sync cannot overwrite that confirmation. No retry,
+remote edit or new post is sent. Without an actual publication timestamp, the calendar
+continues to label the saved scheduled date as approximate.
+
+Cloud cleanup waits 48 hours from manual confirmation and still requires every tracked
+platform to be published. The exact failed Buffer post that was confirmed no longer blocks
+bulk cleanup; a requeued post or another unfinished post sharing its media still does.
 
 Preview tickets expire after one hour. Changed files, withdrawn final approval, revised
 clips, changed channels and changed daily-plan entries block stale submissions.

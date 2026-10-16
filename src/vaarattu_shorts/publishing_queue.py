@@ -98,18 +98,20 @@ def fill(settings, store):
     api = buffer.client(settings)
     cfg, _ = buffer.selected_channels(settings, api)
     jobs = buffer.publications(store)
-    unfinished = [j for j in jobs.values() if any(r["status"] not in ACCEPTED for r in j["receipts"].values())]
-    if unfinished:
-        raise ValueError("Finish or resolve the existing incomplete publishing request before filling the queue.")
+    # Every saved request remains excluded by choose(), including failed and uncertain posts.
+    # One old failure must not block scheduling unrelated final clips.
+    attention = [{"clip_id": j["clip_id"], "title": j["item"]["title"],
+                  "platforms": [p for p, r in j["receipts"].items() if r["status"] not in ACCEPTED]}
+                 for j in jobs.values() if any(r["status"] not in ACCEPTED for r in j["receipts"].values())]
     posts = api.posts(cfg["organization_id"], {"channelIds": list(cfg["mapping"].values())})
     remaining = buffer.capacity(api, cfg, jobs, posts)
     count = min(remaining.values())
     if not count:
-        return {"scheduled": 0, "message": "The selected channels have no shared free queue slots.", "clips": []}
+        return {"scheduled": 0, "message": "The selected channels have no shared free queue slots.", "clips": [], "attention": attention}
     selected, skipped_order = choose(store, jobs, posts, count)
     if not selected:
         return {"scheduled": 0, "message": "No unposted Ready for posting clips are available in source order.",
-                "clips": [], "skipped_order": skipped_order}
+                "clips": [], "skipped_order": skipped_order, "attention": attention}
     # Prepare all text before creating plans or submitting any clip in this batch.
     copies = {c["id"]: publishing_copy.generate(settings, store, c) for c in selected}
     local_now = buffer.now().astimezone(ZoneInfo(ZONE))
@@ -168,7 +170,7 @@ def fill(settings, store):
     items = [{"clip_id": c["id"], "revision": c["revision"],
               "title": copies[c["id"]]["title"], "caption": copies[c["id"]]["caption"]} for c in selected]
     ticket = buffer.preview(settings, store, items, "plan")
-    result = {"scheduled": 0, "clips": [], "skipped_order": skipped_order, "message": ""}
+    result = {"scheduled": 0, "clips": [], "skipped_order": skipped_order, "attention": attention, "message": ""}
     for item in ticket["items"]:
         try:
             job = buffer.send(settings, store, ticket["id"], item["clip_id"])
@@ -176,7 +178,7 @@ def fill(settings, store):
             result["message"] = str(exc)
             break
         if any(r["status"] not in ACCEPTED for r in job["receipts"].values()):
-            result["message"] = "A submission needs attention. Check its platform results before filling again."
+            result["message"] = "This batch stopped after a submission needed attention. Accepted posts are saved; the next fill skips this clip."
             break
         result["scheduled"] += 1
         result["clips"].append({"clip_id": item["clip_id"], "title": item["title"], "due_at": item["due_at"]})

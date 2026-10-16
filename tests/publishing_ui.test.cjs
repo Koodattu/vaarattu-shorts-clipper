@@ -9,6 +9,7 @@ class Element{
   pause(){this.paused=true;}
   querySelectorAll(tag){return this.children.flatMap(c=>[...(c.tagName===tag?[c]:[]),...c.querySelectorAll(tag)]);}
   scrollIntoView(){}
+  focus(){this.focused=true;}
 }
 function fixture(){
   const directory=path.join(__dirname,"../src/vaarattu_shorts/static");
@@ -38,14 +39,20 @@ function fixture(){
         return {removed:[{clip_id:"done",title:"Published clip"}],removed_bytes:25000000,
           kept:[{clip_id:"wait",title:"Scheduled clip",reason:"Still scheduled"}],failed:[]};
       }
-      if(url.endsWith("buffer/fill"))return {scheduled:2,message:"",skipped_order:0};
+      if(url.includes("/buffer/confirm-published/")){
+        if(state.fail)throw new Error("Paste the HTTPS link to the published post on the selected platform.");
+        const receipt=data.clips[0].publication.receipts.tiktok;
+        data.clips[0].publication.receipts.tiktok={...receipt,status:"posted",url:body.url,published_at:null,message:"",manual_confirmation:{previous_receipt:{...receipt}}};
+        return data.clips[0].publication;
+      }
+      if(url.endsWith("buffer/fill"))return {scheduled:2,message:"",skipped_order:0,attention:state.attention||[]};
       if(url.endsWith("preview"))return {id:"ticket",channels:{youtube:{name:"Channel"}},items:body.items.map(i=>({...i,mapping:{youtube:"yt"},mode:body.mode==="now"?"now":"schedule",due_at:body.mode==="now"?null:"2030-01-01T16:00:00Z",timezone:body.timezone||"Europe/Helsinki"}))};
       if(url.includes("/send/"))return {receipts:{youtube:{status:state.fail?"unknown":"scheduled"}}};
       return {};
     },
   });
   for(const file of ["publishing-calendar.js","publishing.js"])vm.runInContext(fs.readFileSync(path.join(directory,file),"utf8"),context);
-  return {nodes,writes,state,data,context,find:(label)=>find(nodes.get("publishing-videos"),label)};
+  return {nodes,writes,state,data,context,find:(label)=>find(nodes.get("publishing-videos"),label),findIn:find};
 }
 test("publishing requires an explicit upload and clears credential inputs before sending",async()=>{
   const {nodes,writes,find}=fixture();
@@ -230,4 +237,54 @@ test("calendar includes every month entry beyond the ten-item ready pool page",a
   const day=nodes.get("publishing-calendar-grid").children.find(c=>c.children.length>1);
   assert.equal(day.children.length,5);assert.equal(day.children[4].textContent,"+13 more");day.children[4].onclick();
   assert.equal(nodes.get("publishing-calendar-detail").children.length,16);
+});
+
+
+test("fill reports skipped existing failures without resubmitting them",async()=>{
+  const {nodes,state,writes}=fixture();state.storage=true;state.buffer=true;
+  state.attention=[{clip_id:"old",title:"Uber, pizzaversiona",platforms:["tiktok"]}];
+  await nodes.get("refresh-publishing").onclick();
+  await nodes.get("publishing-fill").onclick();
+  assert.deepEqual(writes.map(w=>w.url),["/api/publishing/buffer/fill"]);
+  assert.match(nodes.get("publishing-fill-message").textContent,/2 clips scheduled/);
+  assert.match(nodes.get("publishing-fill-message").textContent,/Skipped 1 existing request needing attention: Uber, pizzaversiona \(TikTok\)/);
+});
+
+test("already published action keeps input on failure and saves only explicit local confirmation",async()=>{
+  const {nodes,state,writes,data,context,findIn}=fixture();state.buffer=true;
+  data.clips[0].publication={revision:3,item:{title:"Uber, pizzaversiona",due_at:"2026-10-06T17:19:00Z",timezone:"Europe/Helsinki"},receipts:{
+    tiktok:{status:"error",post_id:"tt-1",message:"socket hang up",due_at:"2026-10-06T17:19:00Z"},
+    youtube:{status:"scheduled",post_id:"yt-1"},
+  }};
+  await nodes.get("refresh-publishing").onclick();
+  vm.runInContext('openPublishingCalendar({clipId:"clip"})',context);
+  const panel=nodes.get("publishing-calendar-detail");
+  assert.equal(findIn(panel,"Already published on YouTube"),undefined);
+  findIn(panel,"Already published on TikTok").onclick();
+  assert.equal(nodes.get("publishing-published-dialog").open,true);
+  assert.match(nodes.get("publishing-published-summary").textContent,/Uber, pizzaversiona.*TikTok/);
+  assert.equal(nodes.get("publishing-published-url").focused,true);
+  assert.equal(writes.length,0);
+  nodes.get("publishing-published-url").value="https://instagram.com/reel/wrong";
+  state.fail=true;
+  await nodes.get("publishing-published-form").onsubmit({preventDefault(){}});
+  assert.equal(nodes.get("publishing-published-dialog").open,true);
+  assert.equal(nodes.get("publishing-published-url").value,"https://instagram.com/reel/wrong");
+  assert.match(nodes.get("publishing-published-message").textContent,/HTTPS link/);
+  assert.equal(nodes.get("publishing-published-save").disabled,false);
+  state.fail=false;
+  nodes.get("publishing-published-url").value="https://www.tiktok.com/@vaarattu/video/123";
+  const submit=()=>nodes.get("publishing-published-form").onsubmit({preventDefault(){}});
+  await Promise.all([submit(),submit()]);
+  assert.equal(writes.length,2);
+  assert.deepEqual(writes[1],{url:"/api/publishing/buffer/confirm-published/clip/tiktok",body:{url:"https://www.tiktok.com/@vaarattu/video/123",post_id:"tt-1"}});
+  assert.equal(nodes.get("publishing-published-dialog").open,false);
+  assert.ok(findIn(panel,"TikTok: Published · confirmed by you"));
+  assert.ok(findIn(panel,"Failed in Buffer · socket hang up"));
+  assert.equal(findIn(panel,"Already published on TikTok"),undefined);
+  assert.equal(nodes.get("publishing-calendar-close").focused,true);
+  assert.match(nodes.get("publishing-message").textContent,/No post was submitted/);
+  const calendar=vm.runInContext('publishingCalendarModel(publishingData.clips,"posted")',context);
+  assert.equal(calendar[0].day,"2026-10-06");
+  assert.equal(calendar[0].estimated,true);
 });

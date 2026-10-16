@@ -23,6 +23,7 @@ PLATFORMS = delivery.PLATFORMS
 POST_FIELDS = "id status text dueAt sentAt channelId externalLink schedulingType assets { source } error { message }"
 RETRYABLE = {"pending", "failed"}
 UNCERTAIN = {"submitting", "unknown"}
+CONFIRMABLE = UNCERTAIN | {"error", "failed", "attention"}
 
 
 class PublishItem(BaseModel):
@@ -515,6 +516,27 @@ def resolve(settings, store, clip_id, platform, post_id="", absent_confirmed=Fal
     return job
 
 
+def confirm_published(store, clip_id, platform, url, post_id=""):
+    """Record the user's verification; never publish or retry a remote post."""
+    url = delivery.published_post_url(platform, url)
+    job = publications(store).get(clip_id)
+    if not job or platform not in job["receipts"]:
+        raise ValueError("No publishing receipt exists for this clip and platform.")
+    receipt = job["receipts"][platform]
+    if (receipt.get("post_id") or "") != post_id:
+        raise ValueError("The Buffer receipt changed. Reopen the post details before confirming.")
+    if receipt["status"] == "posted" and receipt.get("manual_confirmation") and receipt.get("url") == url:
+        return job  # Repeated clicks must not restart the cleanup grace period.
+    if receipt["status"] not in CONFIRMABLE:
+        raise ValueError("Only a failed or uncertain post can be confirmed here. Check its current status.")
+    confirmed_at = now().isoformat()
+    previous = dict(receipt)
+    receipt.update(status="posted", url=url, published_at=None, checked_at=confirmed_at, message="",
+                   manual_confirmation={"confirmed_at": confirmed_at, "previous_receipt": previous})
+    save_publication(store, job)
+    return job
+
+
 def discard_unsubmitted(store, clip_id):
     job = publications(store).get(clip_id)
     if not job or any(r.get("post_id") or r["status"] not in RETRYABLE for r in job["receipts"].values()):
@@ -584,6 +606,9 @@ def remove_all_published_media(settings, store):
         return result
     api, cfg = client(settings), config(settings)
     in_use = set()
+    confirmed_posts = {(j["item"]["organization_id"], r["channel_id"], r["post_id"])
+                       for j in jobs.values() for r in j["receipts"].values()
+                       if r["status"] == "posted" and r.get("manual_confirmation") and r.get("post_id")}
     # A copy scheduled directly in Buffer may not have a local publishing receipt.
     organizations = {cfg["organization_id"], *(j["item"]["organization_id"] for j in jobs.values())}
     for organization in organizations:
@@ -592,7 +617,12 @@ def remove_all_published_media(settings, store):
             continue
         posts = api.posts(organization, {"channelIds": [c["id"] for c in channels],
                                         "status": ["scheduled", "sending", "needs_approval", "draft", "error"]})
-        in_use.update(a["source"] for post in posts for a in post.get("assets", []) if a.get("source"))
+        for post in posts:
+            # Only the exact failed post confirmed by the user is reconciled. A requeued
+            # post or another post using the same file still protects the hosted copy.
+            if post["status"] == "error" and (organization, post["channelId"], post["id"]) in confirmed_posts:
+                continue
+            in_use.update(a["source"] for a in post.get("assets", []) if a.get("source"))
     for url, related in candidates.items():
         records = [r for r in uploads.values() if r["url"] == url]
         job = next((j for j in related if not j.get("media_removed_at")), None)

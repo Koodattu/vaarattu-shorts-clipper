@@ -283,14 +283,14 @@ def schedule(store, run_ids, start_date, local_time, zone):
         return {"added": len(selected)}
 
 
-def record_post(store, post_id, platform, url):
+def published_post_url(platform, url):
     if platform not in PLATFORMS:
         raise ValueError("Choose YouTube, Instagram or TikTok.")
     parsed = urlsplit(url.strip())
     hosts = {
         "youtube": {"youtube.com", "www.youtube.com", "youtu.be"},
         "instagram": {"instagram.com", "www.instagram.com"},
-        "tiktok": {"tiktok.com", "www.tiktok.com"},
+        "tiktok": {"tiktok.com", "www.tiktok.com", "vm.tiktok.com", "vt.tiktok.com"},
     }
     if (
         parsed.scheme != "https"
@@ -300,6 +300,11 @@ def record_post(store, post_id, platform, url):
         or len(url) > 2000
     ):
         raise ValueError("Paste the HTTPS link to the published post on the selected platform.")
+    return url.strip()
+
+
+def record_post(store, post_id, platform, url):
+    url = published_post_url(platform, url)
     with store.connect() as db:
         db.execute("BEGIN IMMEDIATE")
         row = db.execute("SELECT * FROM posting_plan WHERE id=?", (post_id,)).fetchone()

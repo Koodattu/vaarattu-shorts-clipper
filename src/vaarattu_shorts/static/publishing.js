@@ -1,5 +1,5 @@
 "use strict";
-let publishingBusy=false,publishingData=null,publishingStorage=null,publishingPage=0,publishingPreview=null,publishingTimeClip=null,publishingResolution=null;
+let publishingBusy=false,publishingData=null,publishingStorage=null,publishingPage=0,publishingPreview=null,publishingTimeClip=null,publishingResolution=null,publishingConfirmation=null;
 const publishingSelected=new Set(),publishingEdits=new Map(),publishingFields=new Map();
 const publishingNames={youtube:"YouTube",instagram:"Instagram",tiktok:"TikTok"};
 const publishingStatuses={pending:"Not submitted",failed:"Submission failed",unknown:"Check uncertain submission",submitting:"Check interrupted submission",scheduled:"Scheduled",sending:"Publishing",posted:"Published",error:"Failed in Buffer",draft:"Draft in Buffer",needs_approval:"Approval needed in Buffer",attention:"Attention needed in Buffer"};
@@ -73,10 +73,21 @@ function publishingClipCard(clip,storage){
       row.append(text("p",job.item.due_at?`Scheduled: ${publishingWhen(job.item)}`:"Immediate publishing request"));
       if(job.revision!==clip.revision||!clip.ready)row.append(text("p","This submission uses an earlier approved final version. Editing locally does not replace a post in Buffer.","clip-flag"));
       for(const [p,r] of Object.entries(job.receipts)){
-        row.append(text("p",`${publishingNames[p]}: ${publishingStatuses[r.status]||r.status}${r.message?` · ${r.message}`:""}`));
+        row.append(text("p",`${publishingNames[p]}: ${publishingStatuses[r.status]||r.status}${r.manual_confirmation?" · confirmed by you":""}${r.message?` · ${r.message}`:""}`));
+        if(r.manual_confirmation){
+          const previous=r.manual_confirmation.previous_receipt;
+          const details=text("details","","disclosure");details.append(text("summary","Original Buffer result"),text("p",`${publishingStatuses[previous.status]||previous.status}${previous.message?` · ${previous.message}`:""}`));row.append(details);
+        }
         const timing=publishingReceiptDate(clip,r);
         if(timing.at)row.append(text("p",`${timing.label}: ${publishingCalendarDateTime(timing.at)}`,"muted"));
         if(r.url)row.append(publishingLink(`Open ${publishingNames[p]} post`,r.url));
+        if(["error","failed","attention","unknown","submitting"].includes(r.status))row.append(action(`Already published on ${publishingNames[p]}`,()=>{
+          if(publishingBusy)return;
+          publishingConfirmation={clip_id:clip.id,platform:p,post_id:r.post_id||""};
+          $("publishing-published-summary").textContent=`Confirm that “${job.item.title}” is already live on ${publishingNames[p]}.`;
+          $("publishing-published-url").value=r.url||"";$("publishing-published-message").textContent="";
+          $("publishing-published-dialog").showModal();$("publishing-published-url").focus();
+        }));
         if(["unknown","submitting"].includes(r.status))row.append(action(`Resolve ${publishingNames[p]} submission`,()=>{
           publishingResolution={clip_id:clip.id,platform:p};$("publishing-resolve-id").value="";$("publishing-resolve-absent").checked=false;$("publishing-resolve-dialog").showModal();
         }));
@@ -180,7 +191,7 @@ $("publishing-fill").onclick=()=>publishingWork(async()=>{
       if(!clip.publication&&edits&&(edits.title.trim()||edits.caption.trim()||edits.note.trim()))await publishingSaveCopy(clip);
     }
     const result=await api("/api/publishing/buffer/fill",{method:"POST"});
-    $("publishing-fill-message").textContent=`${result.scheduled} clip${result.scheduled===1?"":"s"} scheduled at random times between 19:00 and 21:00 Finnish time (Europe/Helsinki), one per day.${result.message?` ${result.message}`:""}${result.skipped_order?` ${result.skipped_order} earlier source moments were left out to preserve posting order.`:""}`;
+    $("publishing-fill-message").textContent=`${result.scheduled} clip${result.scheduled===1?"":"s"} scheduled at random times between 19:00 and 21:00 Finnish time (Europe/Helsinki), one per day.${result.message?` ${result.message}`:""}${result.skipped_order?` ${result.skipped_order} earlier source moments were left out to preserve posting order.`:""}${result.attention?.length?` Skipped ${result.attention.length} existing request${result.attention.length===1?"":"s"} needing attention: ${result.attention.map(a=>`${a.title} (${a.platforms.map(p=>publishingNames[p]).join(", ")})`).join("; ")}.`:""}`;
   }catch(e){$("publishing-fill-message").textContent=e.message;}
 });
 $("publishing-refresh-buffer").onclick=()=>publishingWork(async()=>{await api("/api/publishing/buffer/refresh",{method:"POST"});$("publishing-message").textContent="Buffer channels and delivery status refreshed.";});
@@ -195,6 +206,24 @@ $("publishing-resolve-cancel").onclick=()=>$("publishing-resolve-dialog").close(
 $("publishing-resolve-form").onsubmit=e=>{e.preventDefault();$("publishing-resolve-dialog").close();return publishingWork(async()=>{
   await api(`/api/publishing/buffer/resolve/${publishingResolution.clip_id}/${publishingResolution.platform}`,{method:"POST",body:JSON.stringify({post_id:$("publishing-resolve-id").value.trim(),absent_confirmed:$("publishing-resolve-absent").checked})});$("publishing-message").textContent="Submission resolved. Preview remaining submissions if needed.";
 });};
+
+$("publishing-published-cancel").onclick=()=>{if(!publishingBusy)$("publishing-published-dialog").close();};
+$("publishing-published-dialog").oncancel=e=>{if(publishingBusy)e.preventDefault();};
+$("publishing-published-form").onsubmit=async e=>{
+  e.preventDefault();if(publishingBusy||!publishingConfirmation)return;
+  await publishingWork(async()=>{
+    const {clip_id,platform,post_id}=publishingConfirmation;
+    $("publishing-published-save").disabled=true;$("publishing-published-cancel").disabled=true;$("publishing-published-url").disabled=true;
+    $("publishing-published-message").textContent="Saving confirmation…";
+    try{
+      await api(`/api/publishing/buffer/confirm-published/${clip_id}/${platform}`,{method:"POST",body:JSON.stringify({url:$("publishing-published-url").value.trim(),post_id})});
+      $("publishing-message").textContent=`${publishingNames[platform]} marked as published, confirmed by you. No post was submitted. Cloud cleanup waits at least 48 hours after confirmation.`;
+      $("publishing-published-dialog").close();publishingConfirmation=null;
+    }catch(e){$("publishing-published-message").textContent=e.message;}
+    finally{$("publishing-published-save").disabled=false;$("publishing-published-cancel").disabled=false;$("publishing-published-url").disabled=false;}
+  });
+  if(!$("publishing-published-dialog").open&&$("publishing-calendar-dialog").open)$("publishing-calendar-close").focus();
+};
 
 $("publishing-cleanup").onclick=()=>publishingWork(async()=>{
   $("publishing-cleanup").disabled=true;$("publishing-cleanup").textContent="Checking and removing…";

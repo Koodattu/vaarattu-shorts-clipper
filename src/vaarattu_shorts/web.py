@@ -509,6 +509,11 @@ def create_app(settings):
                        absent_confirmed: bool = Body(default=False)):
         return publishing_action(buffer.resolve, settings, store, clip_id, platform, post_id, absent_confirmed)
 
+    @app.post("/api/publishing/buffer/confirm-published/{clip_id}/{platform}")
+    def confirm_buffer_published(clip_id: str, platform: str, url: str = Body(max_length=2000),
+                                post_id: str = Body(default="", max_length=200)):
+        return publishing_action(buffer.confirm_published, store, clip_id, platform, url, post_id)
+
     @app.delete("/api/publishing/buffer/requests/{clip_id}")
     def discard_buffer_request(clip_id: str):
         publishing_action(buffer.discard_unsubmitted, store, clip_id)
