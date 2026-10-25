@@ -8,7 +8,7 @@ from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
 
-from . import caption_correction, context_repair, discover, recordings, render, selection as review_selection, stream_data, tighten, transcribe, youtube
+from . import caption_correction, context_repair, discover, recordings, render, selection as review_selection, stream_data, tighten, transcribe, twitch_catalog, youtube
 from .contracts import CHANNEL_ID, Candidate, RunRequest, Word, source_url
 from .llm import Evaluator, ModelAnchorError, ModelOutputError, check_provider, local_server
 from .models import model_path
@@ -50,6 +50,7 @@ class Pipeline:
         self.settings = replace(
             settings,
             youtube_channel_id=self.config.get("channel_id", CHANNEL_ID),
+            twitch_channel=self.config.get("twitch_channel", settings.twitch_channel),
             asr_batch_size=self.config.get("asr_batch_size", 0),
             asr_flash_attention=self.config.get("asr_flash_attention", False),
         )
@@ -104,6 +105,7 @@ class Pipeline:
             "metadata",
             lambda: (recordings.metadata(self.settings, self.config["video"], self.folder, self.check), []),
         )
+        twitch_catalog.remember_source(self.settings, self.store, metadata)
 
         def audio_stage():
             source = recordings.acquire(self.settings, self.config["video"], self.folder / "audio", self.check)

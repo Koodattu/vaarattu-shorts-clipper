@@ -58,7 +58,7 @@ def metadata(settings, value, folder, check=lambda: None):
         owner = info.get("uploader_id")
     return {"provider": provider, "id": identity, "url": url, "owner": owner,
             "title": info.get("title") or identity, "duration": float(info["duration"]),
-            "upload_date": info.get("upload_date")}
+            "upload_date": info.get("upload_date"), "timestamp": info.get("timestamp")}
 
 
 def resolve(settings, store, urls, folder, *, collection=False, match_parts=True):

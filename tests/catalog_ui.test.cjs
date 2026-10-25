@@ -22,6 +22,73 @@ function find(node, label) {
   for(const child of node.children){const match=find(child,label);if(match)return match;}
 }
 
+test("Twitch library fetch, source filters, split status and selection preserve provider identity", async()=>{
+  const staticPath=path.join(__dirname,"../src/vaarattu_shorts/static");
+  const html=fs.readFileSync(path.join(staticPath,"index.html"),"utf8");
+  const nodes=new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],new Element()]));
+  nodes.get("video-filter").value="all";
+  const twitchUrl="https://www.twitch.tv/videos/12345678901";
+  const whole={id:"12345678901",provider:"twitch",title:"Twitch recording",url:twitchUrl,
+    published:"2026-09-24T12:00:00Z",duration:7200,available:true,processed:false,
+    partially_processed:true,state:"not_started",match_status:"matched",
+    thumbnail:"https://static-cdn.jtvnw.net/recording.jpg",matched_sources:[
+      {title:"Export (Part 1/2)",url:"https://www.youtube.com/watch?v=abcdefghijk",processed:true},
+      {title:"Export (Part 2/2)",url:"https://www.youtube.com/watch?v=lmnopqrstuv",processed:false},
+    ]};
+  const youtube={...whole,id:"12345678901",provider:"youtube",title:"Different YouTube video",
+    url:"https://www.youtube.com/watch?v=12345678901",thumbnail:undefined,
+    partially_processed:false,match_status:"unmatched",matched_sources:[]};
+  let library={configured:false,channel_id:"UCfixture",has_older:false,twitch:{configured:true,channel:"vaarattu"},videos:[youtube,whole]};
+  let fail=true;const calls=[];
+  const context=vm.createContext({
+    document:{getElementById:id=>nodes.get(id),createElement:tag=>new Element(tag)},
+    fetch:async(url,options)=>{
+      calls.push({url,method:options.method||"GET"});
+      if(url==="/api/videos/twitch"){
+        if(fail)return {ok:false,json:async()=>({detail:"Twitch unavailable. Saved videos preserved."})};
+        library={...library,videos:[youtube,{...whole,processed:true,partially_processed:false,processed_via_match:true,completed_run_id:"other-run"}]};
+        return {ok:true,json:async()=>library};
+      }
+      const responses={"/api/status":{token:"fixture",models:{turbo:true},providers:{}},"/api/layouts":[],"/api/runs":[],"/api/videos":library};
+      if(url.startsWith("/api/streams/search?"))return {ok:true,json:async()=>({status:"ready",matches:[]})};
+      assert.ok(url in responses,`Unexpected request: ${url}`);
+      return {ok:true,json:async()=>responses[url]};
+    },
+  });
+  vm.runInContext(fs.readFileSync(path.join(staticPath,"app.js"),"utf8"),context);
+  await new Promise(setImmediate);
+  assert.equal(nodes.get("fetch-videos").disabled,true);
+  assert.equal(nodes.get("fetch-twitch").disabled,false);
+  const list=nodes.get("channel-videos");
+  const before=calls.length;
+  nodes.get("video-source").value="twitch";nodes.get("video-source").oninput();
+  assert.equal(list.children.length,1);
+  assert.ok(find(list,"1 of 2 parts processed"));
+  assert.ok(find(list,"Matched 2 YouTube parts"));
+  assert.equal(list.children[0].children[0].src,whole.thumbnail);
+  assert.equal(calls.length,before,"Source filtering must not fetch metadata");
+  await find(list,"Select video").onclick();
+  assert.equal(nodes.get("video").value,twitchUrl);
+  assert.ok(find(nodes.get("selected-video"),"Twitch recording"));
+  assert.ok(find(nodes.get("selected-video"),"Some matching YouTube parts are already processed. This run will process the whole Twitch recording."));
+  assert.ok(calls.every(c=>c.method==="GET"),"Selecting does not start processing");
+  nodes.get("video").value="12345678901";
+  vm.runInContext("paintSelectedVideo()",context);
+  assert.ok(find(nodes.get("selected-video"),"Different YouTube video"),"A bare numeric ID remains YouTube");
+  await nodes.get("fetch-twitch").onclick();
+  assert.equal(nodes.get("error").textContent,"Twitch unavailable. Saved videos preserved.");
+  assert.ok(find(list,"Twitch recording"));
+  assert.equal(nodes.get("fetch-twitch").disabled,false);
+  fail=false;await nodes.get("fetch-twitch").onclick();
+  assert.equal(calls.at(-1).url,"/api/videos/twitch");
+  assert.ok(find(list,"Processed on matching recording"));
+  assert.ok(find(list,"Previous results"));
+  nodes.get("video-filter").value="partial";nodes.get("video-filter").oninput();
+  assert.ok(find(list,"No saved videos match these filters."));
+  nodes.get("video-filter").value="processed";nodes.get("video-filter").oninput();
+  assert.ok(find(list,"Twitch recording"));
+});
+
 test("approved and mixed queues exclude final clips and undo restores content approval",async()=>{
   const staticPath=path.join(__dirname,"../src/vaarattu_shorts/static");
   const nodes=new Map([...fs.readFileSync(path.join(staticPath,"index.html"),"utf8").matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],new Element()]));

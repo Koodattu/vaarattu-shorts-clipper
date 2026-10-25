@@ -80,7 +80,7 @@ function paintRuns(){
   $("runs").replaceChildren();$("runs-count").textContent=runList.length;
   if(!runList.length)$("runs").append(text("p","Your runs will appear here.","muted"));
   for(const run of runList){
-    const video=library?.videos.find(v=>v.id===run.config.video||v.url===run.config.video);
+    const video=library?.videos.find(v=>(v.provider!=="twitch"&&v.id===run.config.video)||v.url===run.config.video);
     const row=action("",async()=>{activeRun=run.id;paintRuns();await detail();});
     row.className="run-row"+(run.id===activeRun?" selected":"");row.setAttribute("aria-pressed",String(run.id===activeRun));
     row.append(text("strong",video?.title||run.config.video),text("span",run.state.charAt(0).toUpperCase()+run.state.slice(1)));
@@ -95,38 +95,57 @@ async function refresh(){const runs=await api("/api/runs");const active=runs.fin
   if(active&&!polling){polling=true;setTimeout(async()=>{polling=false;try{await refresh();}catch(e){error(e.message);}},2000);}
 }
 async function loadLibrary(){const next=await api("/api/videos");if(JSON.stringify(next)!==JSON.stringify(library)){library=next;paintLibrary();if(currentView==="process")matchSelectedStream();}}
+function videoThumbnail(video){return video.provider==="twitch"?(video.thumbnail||"/static/recording-placeholder.svg"):`https://i.ytimg.com/vi/${video.id}/mqdefault.jpg`;}
 function paintLibrary(){
   if(!library)return;
   $("library-count").textContent=library.videos.length;
   $("fetch-videos").disabled=fetchingVideos||!library.configured;
+  $("fetch-twitch").disabled=fetchingVideos||!library.twitch?.configured;
+  const twitch=library.twitch;
+  $("twitch-status").textContent=twitch?(!twitch.configured?"Twitch · Set TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET in .env and restart to fetch VODs.":`Twitch · ${twitch.channel}${twitch.fetched_at?` · Last fetched ${new Date(twitch.fetched_at*1000).toLocaleString()}`:" · Fetch VODs to begin."}`):"";
   $("older-videos").disabled=fetchingVideos||!library.configured;
   $("older-videos").hidden=!library.has_older;
   const heading=library.channel_title||library.channel_id;
-  $("channel-status").textContent=fetchingVideos?"Fetching channel videos…":!library.configured?`${heading} · Set YOUTUBE_API_KEY in .env and restart to fetch videos.`:`${heading} · ${library.videos.length} saved videos${library.fetched_at?` · Last fetched ${new Date(library.fetched_at*1000).toLocaleString()}`:" · Fetch the latest videos to begin."}`;
-  const query=$("video-search").value.trim().toLocaleLowerCase(), filter=$("video-filter").value;
-  const items=library.videos.filter(v=>(filter==="all"||(filter==="processed"?v.processed:!v.processed))&&`${v.title} ${v.id}`.toLocaleLowerCase().includes(query));
+  $("channel-status").textContent=fetchingVideos?"Fetching channel videos…":!library.configured?`${heading} · Set YOUTUBE_API_KEY in .env and restart to fetch videos.`:`${heading} · ${library.videos.filter(v=>v.provider!=="twitch").length} saved YouTube videos${library.fetched_at?` · Last fetched ${new Date(library.fetched_at*1000).toLocaleString()}`:" · Fetch the latest videos to begin."}`;
+  const query=$("video-search").value.trim().toLocaleLowerCase(), filter=$("video-filter").value, source=$("video-source").value||"all";
+  const items=library.videos.filter(v=>(source==="all"||(v.provider||"youtube")===source)&&(filter==="all"||(filter==="partial"?v.partially_processed:filter==="processed"?v.processed:!v.processed))&&`${v.title} ${v.id}`.toLocaleLowerCase().includes(query));
   const box=$("channel-videos");box.replaceChildren();
   videoPage=Math.min(videoPage,Math.max(0,Math.ceil(items.length/videoPageSize)-1));
   if(!items.length){const empty=text("div","","empty-state");empty.append(text("h3",library.videos.length?"No saved videos match these filters.":"No channel videos saved yet."),text("p",library.videos.length?"Try another title or choose All videos.":"Fetch your channel videos, or start a new run with a video URL."));box.append(empty);}
   for(const video of items.slice(videoPage*videoPageSize,(videoPage+1)*videoPageSize)){
     const row=text("article","","channel-video");
-    const img=document.createElement("img");img.src=`https://i.ytimg.com/vi/${video.id}/mqdefault.jpg`;img.alt="";img.loading="lazy";img.width=160;img.height=90;row.append(img);
+    const img=document.createElement("img");img.src=videoThumbnail(video);img.alt="";img.loading="lazy";img.width=160;img.height=90;row.append(img);
     const info=text("div","","channel-video-info");const title=text("h3",video.title);title.title=video.title;info.append(title);
-    const seconds=video.duration;const duration=seconds?`${Math.floor(seconds/3600)}:${String(Math.floor(seconds/60)%60).padStart(2,"0")}:${String(seconds%60).padStart(2,"0")}`:"Duration unavailable";
-    info.append(text("p",`${video.published?new Date(video.published).toLocaleDateString():"Date unavailable"} · ${duration}`,"muted"));
+    const provider=video.provider==="twitch"?"Twitch":"YouTube";
+    const seconds=Math.floor(video.duration||0);const duration=seconds?`${Math.floor(seconds/3600)}:${String(Math.floor(seconds/60)%60).padStart(2,"0")}:${String(seconds%60).padStart(2,"0")}`:"Duration unavailable";
+    info.append(text("p",`${provider} · ${video.published?new Date(video.published).toLocaleDateString():"Date unavailable"} · ${duration}`,"muted"));
     const states={not_started:"Not started",queued:"Queued",running:"Processing",paused:"Paused",failed:"Failed",cancelled:"Cancelled",completed:video.outcome==="no_candidates"?"No suitable clips":video.outcome==="needs_attention"?"Clips need attention":"Completed"};
-    const status=text("p",`${video.processed?"Processed · ":""}${states[video.state]||video.state}${video.available?"":" · Recording unavailable"}`,"video-status"+(video.outcome==="needs_attention"||video.state==="failed"?" attention":video.processed?" complete":["running","queued"].includes(video.state)?" active":""));
+    const matched=video.matched_sources||[];
+    if(matched.length){
+      const details=text("details","","recording-matches");
+      details.append(text("summary",`Matched ${video.provider==="twitch"?`${matched.length} YouTube ${matched.length===1?"video":"parts"}`:"Twitch VOD"}`));
+      details.append(text("p","Matched by recording date, title and complete duration.","muted"));
+      for(const other of matched){
+        const link=document.createElement("a");link.href=other.url;link.target="_blank";link.rel="noopener";link.textContent=`${other.title} · ${other.processed?"Processed":"Not yet processed"}`;
+        const line=text("p","");line.append(link);details.append(line);
+      }
+      info.append(details);
+    }else if(video.match_status==="ambiguous"||video.match_status==="incomplete_parts"){
+      info.append(text("p",video.match_status==="ambiguous"?"Multiple possible matches · History kept separate":"Recording parts missing or duplicated · History kept separate","muted"));
+    }
+    const progress=video.processed_via_match?"Processed on matching recording":video.partially_processed?`${matched.filter(v=>v.processed).length} of ${matched.length} parts processed`:`${video.processed?"Processed · ":""}${states[video.state]||video.state}`;
+    const status=text("p",`${progress}${video.run_id&&(video.processed_via_match||video.partially_processed)?` · ${states[video.state]||video.state}`:""}${video.available?"":" · Recording unavailable"}`,"video-status"+(video.outcome==="needs_attention"||video.state==="failed"?" attention":video.processed?" complete":["running","queued"].includes(video.state)?" active":""));
     const buttons=text("div","","video-actions");const select=action(video.processed?"Select again":"Select video",()=>{$("video").value=video.url;paintSelectedVideo();goView("process");$("video").focus();});select.disabled=!video.available;buttons.append(select);
     const highlight=action("Create highlight video",()=>openHighlights(video.url));highlight.disabled=!video.available;buttons.append(highlight);
     if(video.run_id)buttons.append(action("View run",async()=>{activeRun=video.run_id;paintRuns();await detail();goView("results");}));
     if(video.completed_run_id&&video.completed_run_id!==video.run_id)buttons.append(action("Previous results",async()=>{activeRun=video.completed_run_id;paintRuns();await detail();goView("results");}));
-    const link=document.createElement("a");link.href=video.url;link.target="_blank";link.rel="noopener";link.textContent="↗";link.title="Open on YouTube";link.setAttribute("aria-label",`Open ${video.title} on YouTube`);buttons.append(link);row.append(info,status,buttons);box.append(row);
+    const link=document.createElement("a");link.href=video.url;link.target="_blank";link.rel="noopener";link.textContent="↗";link.title=`Open on ${provider}`;link.setAttribute("aria-label",`Open ${video.title} on ${provider}`);buttons.append(link);row.append(info,status,buttons);box.append(row);
   }
   $("show-videos").hidden=(videoPage+1)*videoPageSize>=items.length;
   $("previous-videos").hidden=videoPage===0;
   $("video-page").textContent=items.length?`${videoPage*videoPageSize+1}–${Math.min((videoPage+1)*videoPageSize,items.length)} of ${items.length} videos`:"0 videos";
 }
-function paintSelectedVideo(){const video=library?.videos.find(v=>v.url===$("video").value||v.id===$("video").value);const box=$("selected-video");box.replaceChildren();box.hidden=!video;if(video){const img=document.createElement("img");img.src=`https://i.ytimg.com/vi/${video.id}/mqdefault.jpg`;img.alt="";box.append(img,text("p",video.title));}
+function paintSelectedVideo(){const video=library?.videos.find(v=>v.url===$("video").value||(v.provider!=="twitch"&&v.id===$("video").value));const box=$("selected-video");box.replaceChildren();box.hidden=!video;if(video){const img=document.createElement("img");img.src=videoThumbnail(video);img.alt="";box.append(img,text("p",video.title));if(video.processed)box.append(text("p","Already processed. Starting a new run will process this recording again.","muted"));else if(video.partially_processed)box.append(text("p","Some matching YouTube parts are already processed. This run will process the whole Twitch recording.","muted"));}
   if(matchingVideo!==$("video").value){matchingVideo=$("video").value;resetStreamMatch();$("stream-query").value=video?.title||"";}
   if(video&&!$("stream-query").value)$("stream-query").value=video.title;
 }
@@ -134,7 +153,7 @@ function matchSelectedStream(){
   paintSelectedVideo();
   if(library&&$("video").value.trim()&&!$("stream-id").value&&!$("find-stream").disabled)return findStream();
 }
-$("video").oninput=()=>{paintSelectedVideo();if(library?.videos.some(v=>v.url===$("video").value||v.id===$("video").value))matchSelectedStream();};
+$("video").oninput=()=>{paintSelectedVideo();if(library?.videos.some(v=>v.url===$("video").value||(v.provider!=="twitch"&&v.id===$("video").value)))matchSelectedStream();};
 $("video").onchange=matchSelectedStream;
 function resetStreamMatch(){streamLookup++;$("stream-id").value="";$("stream-offset").value="";$("alignment").checked=false;$("stream-matches").replaceChildren();$("stream-match-status").textContent="";$("find-stream").disabled=false;$("check-stream").disabled=false;}
 function chooseStream(match){
@@ -177,10 +196,11 @@ $("check-stream").onclick=async()=>{
 };
 async function fetchVideos(action){if(fetchingVideos)return;fetchingVideos=true;error("");paintLibrary();try{library=await api(`/api/videos/${action}`,{method:"POST"});}catch(e){error(e.message);}finally{fetchingVideos=false;paintLibrary();}}
 $("fetch-videos").onclick=()=>fetchVideos("refresh");
+$("fetch-twitch").onclick=()=>fetchVideos("twitch");
 $("older-videos").onclick=()=>fetchVideos("older");
 $("show-videos").onclick=()=>{videoPage++;paintLibrary();$("channel-videos").scrollTop=0;};
 $("previous-videos").onclick=()=>{videoPage--;paintLibrary();$("channel-videos").scrollTop=0;};
-for(const id of ["video-search","video-filter"])$(id).oninput=()=>{videoPage=0;paintLibrary();};
+for(const id of ["video-search","video-filter","video-source"])$(id).oninput=()=>{videoPage=0;paintLibrary();};
 function recordingContextUrl(value,startUs){
   const seconds=Math.max(0,Math.floor(startUs/1e6)-10);
   if(value.startsWith("https://www.twitch.tv/videos/"))return `${value}?t=${Math.floor(seconds/3600)}h${Math.floor(seconds%3600/60)}m${seconds%60}s`;

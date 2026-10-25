@@ -225,6 +225,61 @@ Selection uses compact original speech passages for discovery and detailed word 
 
 After installing the passages-v2 changes, restart the launcher before resuming an existing paused selection run. Its completed audio/transcript are reused, but selection starts with the new format in a separate inference folder. Old responses and spending remain saved. The UI reports the planned speech-section count.
 
+## YouTube and Twitch video library
+
+The library has separate **Fetch latest YouTube** and **Fetch Twitch VODs** buttons.
+Fetching imports metadata only; selecting a recording does not start a run. Both
+providers use the existing shorts and highlight processing paths. The source
+filter lets you choose Twitch while its VODs are still available.
+
+YouTube uses `YOUTUBE_API_KEY` and `YOUTUBE_CHANNEL_ID`. For Twitch, register a
+[confidential Twitch app](https://dev.twitch.tv/docs/authentication/register-app/)
+and set `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, and `TWITCH_CHANNEL=vaarattu`
+in `.env`, then restart the app. Use the login name for `TWITCH_CHANNEL`, not a URL.
+The server uses an [app access token](https://dev.twitch.tv/docs/authentication/getting-tokens-oauth/#client-credentials-grant-flow)
+to read public archive metadata; no user authorization scopes are requested.
+Credentials and tokens are never included in library responses or saved metadata.
+Twitch fetching works without a YouTube key. Pasting a Twitch VOD URL for processing
+still works without these API credentials.
+
+**Automatic matching is conservative metadata matching, not a media fingerprint.**
+It requires the YouTube title's original Finnish recording date (`d.m.yyyy`), the
+Twitch creation date in Europe/Helsinki, and the same normalized title (ignoring
+case, punctuation, whitespace and promotional URLs). YouTube upload dates are
+not used as recording dates. Full durations must agree within three seconds per
+YouTube part to allow rounding. Edited, shortened, renamed or undated exports
+can remain unmatched; no fuzzy title guess marks them processed.
+
+Numbered exports use the existing `(Part 1/N)` / `(Osa 1/N)` convention. Every part
+must be present exactly once, and their summed duration must match one Twitch VOD.
+Missing/duplicated parts and multiple possible matches keep their histories
+separate. Fetch older YouTube pages if a matching part is not yet in the library.
+Expand **Matched…** on a recording to inspect its counterpart(s).
+
+- A fully processed Twitch VOD marks every matched YouTube part processed.
+- All YouTube parts must be fully processed before the Twitch VOD is processed.
+  A subset shows **Partly processed** and the completed-part count. Starting a
+  Twitch run still scans the entire VOD; it does not automatically skip these parts.
+- Failed or paused runs count only if they already recorded complete analysis
+  coverage. Partial analysis does not count. A later failed retry does not erase
+  an earlier completed analysis.
+- Both sources must have saved metadata. Matching is recalculated on library reads,
+  including after later imports and restarts. Directly processed Twitch VODs from
+  the configured channel also retain their timestamp/title/duration for later matching.
+- A successful full Twitch refresh marks missing/expired VODs unavailable but keeps
+  their metadata and processing history. Failed/incomplete refreshes preserve the
+  entire saved catalog. Live/in-progress broadcasts are not selectable.
+
+The library's status tracks **shorts analysis**. Highlight jobs remain a separate
+workflow; a highlight run does not imply shorts discovery is complete. Matching
+does not translate clip timestamps, infer chat alignment, switch the source of an
+existing run, or prevent intentional reprocessing. Selecting an already processed
+recording shows a warning before starting another run.
+
+Offline verification covers imports/pagination, failed refresh preservation,
+provider identity, split/ambiguous matches, expiration, history and UI interactions.
+Live Twitch access and downloads require verification with configured credentials.
+
 ## Checks and recovery
 
 Offline checks do not download media/models, invoke FFmpeg, perform inference or launch a network server. HTTP fixture responses and in-memory ASGI requests validate orchestration; they cannot certify Finnish quality or GPU compatibility.

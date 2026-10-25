@@ -97,6 +97,11 @@ class Store:
                     id TEXT PRIMARY KEY, channel_id TEXT NOT NULL, published TEXT NOT NULL, body TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS youtube_channel_date ON youtube_videos(channel_id, published);
+                CREATE TABLE IF NOT EXISTS twitch_channels(id TEXT PRIMARY KEY, body TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS twitch_videos(
+                    id TEXT PRIMARY KEY, channel_id TEXT NOT NULL, published TEXT NOT NULL, body TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS twitch_channel_date ON twitch_videos(channel_id, published);
                 PRAGMA user_version=1;
             """)
             db.execute("BEGIN IMMEDIATE")
@@ -155,57 +160,52 @@ class Store:
                 (channel["id"], json.dumps(channel, ensure_ascii=False)),
             )
 
+    def twitch_channel(self, channel_id):
+        with self.connect() as db:
+            row = db.execute("SELECT body FROM twitch_channels WHERE id=?", (channel_id,)).fetchone()
+            return json.loads(row["body"]) if row else None
+
+    def save_twitch_catalog(self, channel, videos):
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute("UPDATE twitch_videos SET body=json_set(body,'$.available',json('false')) WHERE channel_id=?",
+                       (channel["id"],))
+            for video in videos:
+                db.execute(
+                    "INSERT INTO twitch_videos VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
+                    "channel_id=excluded.channel_id,published=excluded.published,body=excluded.body",
+                    (video["id"], channel["id"], video["published"], json.dumps(video, ensure_ascii=False)),
+                )
+            db.execute("INSERT INTO twitch_channels VALUES(?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body",
+                       (channel["id"], json.dumps(channel, ensure_ascii=False)))
+
+    def remember_twitch_video(self, channel_id, video):
+        with self.connect() as db:
+            # Preserve fetched thumbnails and availability. Processing may resume from
+            # an old metadata checkpoint after Twitch has already removed the VOD.
+            db.execute("INSERT INTO twitch_videos VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
+                       "body=json_patch(twitch_videos.body,json_remove(excluded.body,'$.available')),"
+                       "published=excluded.published WHERE twitch_videos.channel_id=excluded.channel_id",
+                       (video["id"], channel_id, video["published"], json.dumps(video, ensure_ascii=False)))
+
     def videos(self, channel_id):
+        return self.library_videos(channel_id)
+
+    def library_videos(self, channel_id, twitch_channel=None):
+        from .library import with_history
+
         with self.connect() as db:
             db.execute("BEGIN")
-            videos = [
-                json.loads(r["body"])
-                for r in db.execute(
-                    "SELECT body FROM youtube_videos WHERE channel_id=? ORDER BY published DESC,id",
-                    (channel_id,),
-                )
-            ]
-            history = {}
-            # Use all matching runs, not the recent-runs UI's 100-row limit.
-            for row in db.execute(
-                "SELECT r.id,r.state,r.result,json_extract(r.config,'$.video') AS video "
-                "FROM runs r JOIN youtube_videos v ON v.id=json_extract(r.config,'$.video') "
-                "WHERE v.channel_id=? ORDER BY r.created DESC,r.rowid DESC",
-                (channel_id,),
-            ):
-                result = json.loads(row["result"])
-                item = history.setdefault(
-                    row["video"],
-                    {
-                        "run_id": row["id"],
-                        "state": row["state"],
-                        "outcome": result.get("outcome"),
-                        "processed": False,
-                        "completed_run_id": None,
-                    },
-                )
-                if (row["state"] == "completed" and result.get("coverage") != "partial") or result.get(
-                    "coverage"
-                ) == "complete":
-                    item["processed"] = True
-                    if item["completed_run_id"] is None:
-                        item["completed_run_id"] = row["id"]
-        return [
-            {
-                **v,
-                **history.get(
-                    v["id"],
-                    {
-                        "run_id": None,
-                        "state": "not_started",
-                        "outcome": None,
-                        "processed": False,
-                        "completed_run_id": None,
-                    },
-                ),
-            }
-            for v in videos
-        ]
+            videos = [{**json.loads(r["body"]), "provider": "youtube"} for r in db.execute(
+                "SELECT body FROM youtube_videos WHERE channel_id=?", (channel_id,))]
+            if twitch_channel:
+                videos.extend({**json.loads(r["body"]), "provider": "twitch"} for r in db.execute(
+                    "SELECT body FROM twitch_videos WHERE channel_id=?", (twitch_channel,)))
+            runs = [self.unpack(r) for r in db.execute(
+                "SELECT id,state,config,result FROM runs ORDER BY created DESC,rowid DESC")]
+        videos.sort(key=lambda v: v["url"])
+        videos.sort(key=lambda v: v["published"], reverse=True)
+        return with_history(videos, runs)
 
     def admit(self, config: dict, request_key: str) -> str:
         with self.connect() as db:

@@ -69,6 +69,7 @@ def load_env(path: Path) -> None:
 class Settings:
     root: Path
     youtube_channel_id: str = CHANNEL_ID
+    twitch_channel: str = "vaarattu"
     asr_batch_size: int = 16
     asr_flash_attention: bool = False
     ffmpeg: str = "ffmpeg"
@@ -142,7 +143,10 @@ def load_settings(root: Path | None = None) -> Settings:
     channel = os.environ.get("YOUTUBE_CHANNEL_ID", CHANNEL_ID).strip() or CHANNEL_ID
     if not re.fullmatch(r"UC[A-Za-z0-9_-]{22}", channel):
         raise ValueError("Set YOUTUBE_CHANNEL_ID to the channel's UC… ID, not its handle or URL.")
-    settings = Settings(root=root, youtube_channel_id=channel, **data)
+    twitch = os.environ.get("TWITCH_CHANNEL", "vaarattu").strip().lower()
+    if not re.fullmatch(r"[a-z0-9_]{1,25}", twitch):
+        raise ValueError("Set TWITCH_CHANNEL to the channel login, not its URL.")
+    settings = Settings(root=root, youtube_channel_id=channel, twitch_channel=twitch, **data)
     if type(settings.asr_batch_size) is not int or not 0 <= settings.asr_batch_size <= 64:
         raise ValueError("Set asr_batch_size to 1–64, or 0 for unbatched transcription.")
     if type(settings.asr_flash_attention) is not bool:

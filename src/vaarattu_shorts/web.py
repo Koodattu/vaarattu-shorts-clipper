@@ -16,7 +16,7 @@ from fastapi import Body, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import buffer, caption_correction, clip_trim, catalog, delivery, discover, highlight_sources, highlights, r2, recordings, stream_data, tighten
+from . import buffer, caption_correction, clip_trim, catalog, delivery, discover, highlight_sources, highlights, r2, recordings, stream_data, tighten, twitch_catalog
 from .context_repair import ContextRequest
 from .contracts import MIN_CLIP_US, EditRequest, LayoutSave, RunRequest, Word, clip_duration_limit, source_url
 from .llm import PROVIDERS, codex_settings
@@ -108,7 +108,7 @@ def create_app(settings):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; img-src 'self' blob: data: https://i.ytimg.com; media-src 'self'; "
+            "default-src 'self'; img-src 'self' blob: data: https://i.ytimg.com https://*.ttvnw.net https://*.jtvnw.net; media-src 'self'; "
             "style-src 'self'; script-src 'self'; frame-src https://www.youtube.com https://player.twitch.tv; "
             "frame-ancestors 'none'; base-uri 'none'"
         )
@@ -171,23 +171,29 @@ def create_app(settings):
     @app.get("/api/videos")
     def videos():
         channel = store.channel(settings.youtube_channel_id)
+        twitch = store.twitch_channel(settings.twitch_channel)
         return {
             "channel_id": settings.youtube_channel_id,
             "channel_title": channel["title"] if channel else "",
             "configured": bool(os.environ.get("YOUTUBE_API_KEY", "").strip()),
             "fetched_at": channel["fetched_at"] if channel else None,
             "has_older": bool(channel and channel.get("next_page_token")),
-            "videos": store.videos(settings.youtube_channel_id),
+            "twitch": {"channel": settings.twitch_channel, "configured": twitch_catalog.configured(),
+                       "fetched_at": twitch["fetched_at"] if twitch else None},
+            "videos": store.library_videos(settings.youtube_channel_id, settings.twitch_channel),
         }
 
     @app.post("/api/videos/{action}")
     def fetch_videos(action: str):
-        if action not in {"refresh", "older"}:
+        if action not in {"refresh", "older", "twitch"}:
             raise HTTPException(404, "Action not found.")
         if not catalog_lock.acquire(blocking=False):
             raise HTTPException(409, "Channel videos are already being fetched.")
         try:
-            catalog.fetch_page(settings, store, older=action == "older")
+            if action == "twitch":
+                twitch_catalog.fetch(settings, store)
+            else:
+                catalog.fetch_page(settings, store, older=action == "older")
             return videos()
         finally:
             catalog_lock.release()
@@ -197,7 +203,8 @@ def create_app(settings):
         provider, vod_id, url = source_url(video)
         if len(q) > 300:
             raise ValueError("Use a VOD title of at most 300 characters.")
-        saved = next((v for v in store.videos(settings.youtube_channel_id) if v["id"] == vod_id), {}) if provider == "youtube" else {}
+        saved = next((v for v in store.library_videos(settings.youtube_channel_id, settings.twitch_channel)
+                      if v["url"] == url), {})
         title = q.strip() or saved.get("title", "")
         if provider == "twitch" and not title:
             with TemporaryDirectory(prefix="clip-source-") as folder:
@@ -364,6 +371,7 @@ def create_app(settings):
             "pipeline_version": 1,
             "channel_id": settings.youtube_channel_id,
             "asr_batch_size": settings.asr_batch_size,
+            "twitch_channel": settings.twitch_channel,
             "asr_flash_attention": settings.asr_flash_attention,
             **({"codex": codex_settings(body.codex_model)} if body.provider == "codex" else {}),
         }
