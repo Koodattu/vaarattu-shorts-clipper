@@ -70,7 +70,8 @@ Posts created directly in Buffer are recognized when their media URL matches thi
 hosted render. Unrelated uploads made directly to social platforms cannot be identified
 automatically; keep their manual posting records here.
 
-Filling uses each clip's title as its caption, Gaming as the YouTube category, and Not made
+Filling reuses saved posting titles and captions, generating missing copy from each clip's
+final speech before uploading anything. It uses Gaming as the YouTube category and Not made
 for kids. Use individual previews below when different metadata is needed. Existing remote
 schedules stay unchanged; selected entries in the local plan that have never been submitted
 can move to the new daily schedule. Failed and uncertain existing requests are skipped and
@@ -79,6 +80,21 @@ clips. Every saved request, render hash and source moment still prevents resubmi
 Uncertain receipts reserve queue capacity until resolved. A new failure stops the current
 batch, retaining accepted posts; the next fill skips the affected clip. The button
 does not start a recurring worker: press it again as slots become available.
+
+**Posting copy model** applies to queue filling, individual generation and blank text in
+previews. It defaults to **OpenAI API - gpt-6-luna**; **Codex gpt-6-luna** is an explicit
+alternative. It does not inherit the provider saved in the source recording. The API
+spending limit applies to each source run's cumulative usage, including earlier processing;
+it does not change that run's saved configuration. Existing posting copy is reused.
+
+Queue fill reports capacity checks, copy progress, planning and submissions. Reloading the
+page reconnects to its saved status. **Stop queue fill** interrupts model work and stops
+before the next clip submission; an upload/submission already in progress finishes first.
+Accepted posts remain scheduled. Copy generation has a five-minute limit per clip; the
+whole fill has a thirty-minute limit checked between remote operations. Failures, stopping
+and interrupted app sessions offer **Retry remaining queue**. Saved copy is retained and
+existing submissions are excluded, including uncertain ones requiring separate resolution.
+Restart the app after updating the backend to enable these controls.
 
 Only the current revision marked **Ready for posting** can start a new submission.
 The ready-to-schedule section shows ten clips per page, with final-video playback, an editable

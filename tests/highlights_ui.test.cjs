@@ -26,7 +26,7 @@ function fixture(){
     window:{location:{hostname:"localhost"}},currentView:'highlights',setTimeout:()=>1,clearTimeout:()=>{},crypto:{randomUUID:()=> 'request-key'},
     goView:view=>{context.currentView=view;},
     api:async(url,options)=>{
-      if(!options){reads.push(url);if(url.includes('/plan?'))return plan;if(url.includes('/selection?'))return {revision:run.revision,plan_hash:'f'.repeat(64),current_floor:75,previews:Array.from({length:101},(_,score)=>({score_floor:score,duration:score>90?0:score>=80?120:360,scenes:score>90?0:score>=80?2:6,sections:score>90?0:score>=80?4:12,added:0,removed:score>90?6:score>=80?4:0}))};if(url==='/api/status')return {providers:{codex:{available:true,configured:true,model:'configured'}}};return [run];}
+      if(!options){reads.push(url);if(url.includes('/plan?'))return plan;if(url.includes('/selection?'))return {revision:run.revision,plan_hash:'f'.repeat(64),current_floor:75,previews:Array.from({length:101},(_,score)=>({score_floor:score,duration:score>90?0:score>=80?120:360,scenes:score>90?0:score>=80?2:6,sections:score>90?0:score>=80?4:12,added:0,removed:score>90?6:score>=80?4:0}))};if(url==='/api/status')return {providers:{codex:{available:true,configured:true,model:'gpt-6-luna'},openai:{available:true,configured:true,model:'gpt-6-luna'}}};return [run];}
       const body=JSON.parse(options.body);writes.push({url,body});
       if(url.endsWith('/resolve'))return {id:'b'.repeat(32),title:'Recording',sources:[{asset:'s0',id:'abc_def-ghI',provider:'youtube',url:'https://youtu.be/abc_def-ghI',title:'Part 1',duration:100},{asset:'s1',id:'123',provider:'twitch',url:'https://www.twitch.tv/videos/123',title:'Part 2',duration:200}],duration:300,notes:[]};
       if(url.endsWith('/copy/generate'))return {id:'generated',title:'Generated title',caption:'Generated description'};
@@ -481,13 +481,13 @@ test('thumbnail reference limit permits removing a selection without starting ge
 });
 
 
-test('additional Codex Luna model is submitted separately from its provider',async()=>{
+test('highlight picker distinguishes Codex and OpenAI API with one Luna model each',async()=>{
   const {nodes,context,writes}=fixture();
   await vm.runInContext('loadHighlights()',context);
   assert.ok(nodes.get('highlight-provider').children.some(o=>o.value==='codex'));
-  assert.ok(nodes.get('highlight-provider').children.some(o=>o.value==='codex-gpt-6-luna'));
+  assert.deepEqual(nodes.get('highlight-provider').children.map(o=>[o.value,o.textContent]),[['codex','Codex gpt-6-luna'],['openai','OpenAI API - gpt-6-luna']]);
   await vm.runInContext('openHighlights("https://youtu.be/abc_def-ghI")',context);
-  nodes.get('highlight-provider').value='codex-gpt-6-luna';nodes.get('highlight-provider').onchange();
+  nodes.get('highlight-provider').value='codex';nodes.get('highlight-provider').onchange();
   assert.equal(nodes.get('highlight-budget-field').hidden,true);
   assert.match(nodes.get('highlight-provider-note').textContent,/Codex bridge/);
   await nodes.get('highlight-form').onsubmit({preventDefault(){}});
@@ -499,7 +499,7 @@ test('additional Codex Luna model is submitted separately from its provider',asy
 test('highlight reasoning controls follow provider and submit independent efforts',async()=>{
   const {nodes,context,writes}=fixture();
   await vm.runInContext('openHighlights("https://youtu.be/abc_def-ghI")',context);
-  for(const provider of ['local','gemini','openai','codex','codex-gpt-6-luna']){
+  for(const provider of ['local','gemini','openai','codex']){
     nodes.get('highlight-provider').value=provider;nodes.get('highlight-provider').onchange();
     assert.equal(nodes.get('highlight-reasoning-settings').hidden,['local','gemini'].includes(provider));
   }

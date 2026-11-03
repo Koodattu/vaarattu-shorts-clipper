@@ -1,19 +1,22 @@
 "use strict";
-let manualCaptionClip=null,manualCaptionBusy=false,manualCaptionInputs=[];
+let manualCaptionClip=null,manualCaptionBusy=false,manualCaptionInputs=[],manualCaptionFromEditor=false;
 function manualCaptionControls(){
   const changed=manualCaptionInputs.some(({word,input})=>input.value.trim()!==word.text.trim());
   $("manual-caption-save").disabled=manualCaptionBusy||!changed||manualCaptionInputs.some(({input})=>!input.value.trim());
   $("manual-caption-close").disabled=manualCaptionBusy;
   $("manual-caption-fields").disabled=manualCaptionBusy;
 }
-async function openManualCaptions(){
-  const queued=reviewQueue[0];
-  if(reviewBusy||reviewRendering||!queued||queued.status!=="ready"||!queued.has_preview)return;
-  reviewBusy=true;reviewControls();$("review-player").pause();
+async function openManualCaptions(fromEditor=false){
+  const queued=fromEditor?editing:reviewQueue[0];
+  if(fromEditor?!editorActionAllowed():reviewBusy||reviewRendering)return;
+  if(!queued||queued.status!=="ready"||!queued.has_preview)return;
+  manualCaptionFromEditor=fromEditor;
+  if(fromEditor){editorBusy=true;editorControls();pauseEditorPlayers();}
+  else{reviewBusy=true;reviewControls();$("review-player").pause();}
   manualCaptionBusy=true;
   try{
     const clip=await api(`/api/clips/${queued.id}`);
-    if(clip.status!=="ready"||!clip.has_preview)throw new Error("This clip changed. Refresh the queue before editing captions.");
+    if(clip.status!=="ready"||!clip.has_preview)throw new Error("This clip changed. Refresh before editing captions.");
     manualCaptionClip=clip;manualCaptionInputs=[];
     $("manual-caption-words").replaceChildren();
     for(const word of clip.words||[]){
@@ -29,10 +32,14 @@ async function openManualCaptions(){
     $("manual-caption-message").textContent=manualCaptionInputs.length?"The video shows the saved captions until you render your changes.":"No caption words are available to edit.";
     const player=$("manual-caption-player");
     player.src=`/api/artifacts/${clip.id}/video?revision=${clip.revision}`;
-    const position=clip.revision===queued.revision?$("review-player").currentTime:0;
+    const position=clip.revision===queued.revision?$(fromEditor?"editor-player":"review-player").currentTime:0;
     player.onloadedmetadata=()=>{player.currentTime=position||0;};player.load();
     $("manual-caption-dialog").showModal();
-  }catch(e){reviewMessage(e.message,true);manualCaptionClip=null;reviewBusy=false;reviewControls();}
+  }catch(e){
+    manualCaptionClip=null;
+    if(fromEditor){editorMessage(e.message,true);editorBusy=false;editorControls();}
+    else{reviewMessage(e.message,true);reviewBusy=false;reviewControls();}
+  }
   finally{manualCaptionBusy=false;manualCaptionControls();}
 }
 async function saveManualCaptions(event){
@@ -47,19 +54,24 @@ async function saveManualCaptions(event){
       expected_revision:clip.revision,start_us:clip.start_us,end_us:clip.end_us,title:clip.title,
       words:clip.words.map(word=>changed.has(word.id)?{...word,text:changed.get(word.id)}:word),reviewed:true,
     })});
-    reviewLast=null;reviewRendering={id:clip.id,...result};
-    reviewQueue[0]={...clip,revision:result.revision,status:"pending",has_preview:false};
-    $("manual-caption-dialog").close();paintReviewQueue();
-    reviewMessage("Captions saved. Rendering the new revision; your place in the queue is kept.");
+    $("manual-caption-dialog").close();
+    if(manualCaptionFromEditor)await followEditorRevision(clip,result);
+    else{
+      reviewLast=null;reviewRendering={id:clip.id,...result};
+      reviewQueue[0]={...clip,revision:result.revision,status:"pending",has_preview:false};
+      paintReviewQueue();reviewMessage("Captions saved. Rendering the new revision; your place in the queue is kept.");
+    }
   }catch(e){$("manual-caption-message").textContent=e.message;}
   finally{manualCaptionBusy=false;manualCaptionControls();}
-  if(reviewRendering)await pollReviewRender();
+  if(!manualCaptionFromEditor&&reviewRendering)await pollReviewRender();
 }
-$("review-caption-edit").onclick=openManualCaptions;
+$("review-caption-edit").onclick=()=>openManualCaptions();
+$("edit-caption-edit").onclick=()=>openManualCaptions(true);
 $("manual-caption-form").onsubmit=saveManualCaptions;
 $("manual-caption-close").onclick=()=>{if(!manualCaptionBusy)$("manual-caption-dialog").close();};
 $("manual-caption-dialog").oncancel=event=>{if(manualCaptionBusy)event.preventDefault();};
 $("manual-caption-dialog").onclose=()=>{
   $("manual-caption-player").pause();$("manual-caption-player").removeAttribute("src");$("manual-caption-player").load();
-  manualCaptionClip=null;manualCaptionInputs=[];reviewBusy=false;reviewControls();
+  manualCaptionClip=null;manualCaptionInputs=[];
+  if(manualCaptionFromEditor){editorBusy=false;editorControls();}else{reviewBusy=false;reviewControls();}
 };

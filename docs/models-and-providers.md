@@ -1,6 +1,6 @@
 # Local models and API providers
 
-Additional implemented option: [Codex through the local API bridge](codex-provider.md), defaulting to gpt-5.6-luna and low reasoning without a Platform API key. Its subscription/credit usage is separate from the API prices below.
+Additional implemented option: [Codex through the local API bridge](codex-provider.md), defaulting to gpt-6-luna and low reasoning without a Platform API key. Its subscription/credit usage is separate from the API prices below.
 
 Decision/research update: 2026-09-06. This is a design, not an installed model catalogue or a completed benchmark. The user's revised preference supersedes the initial Qwen3.5-9B and Gemini 3.5 Flash-Lite defaults. Local inference should use Gemma 4 through llama.cpp, with the largest useful model that fits entirely on the RTX 4090 at a tested context size. API selection should cover all five requested providers.
 
@@ -70,8 +70,8 @@ All adapters must emit the same canonical source timeline, coverage, raw words a
 
 The OpenAI provider now uses `gpt-6-luna` through Responses with strict structured output.
 Clipping and highlight discovery and review keep their existing low reasoning setting,
-request sizes and output limits. The separate Codex bridge keeps its configured model.
-Select **OpenAI · gpt-6-luna** when starting a run; it uses the existing `OPENAI_API_KEY`.
+request sizes and output limits. The separate Codex bridge also uses `gpt-6-luna` for future requests.
+Select **OpenAI API - gpt-6-luna** when starting a run; it uses the existing `OPENAI_API_KEY`.
 Restart the app after updating so the provider picker and worker use the new default.
 
 Standard short-context rates are $0.10 input and $0.50 output per million tokens.
@@ -92,12 +92,12 @@ Prices below are USD per million tokens, standard synchronous uncached text inpu
 | Provider / model ID | Input / output | Structured-output and reasoning considerations |
 |---|---:|---|
 | Google `gemini-3.8-flash` | $0.75 / $3.75 through 2026-12-31; $1.50 / $7.50 from 2027-01-01 | Structured output supported; thinking low/medium/high, not minimal |
-| OpenAI `gpt-5.6-luna` | $0.20 / $1.20 for short-context standard requests | Structured outputs; Responses API recommended; reasoning none through max supported. Requests above 272K input use higher rates |
+| OpenAI (retired model; historical rates) | $0.20 / $1.20 for short-context standard requests | Structured outputs; Responses API recommended; reasoning none through max supported. Requests above 272K input use higher rates |
 | Z.ai `glm-5.3-flash` | Promotional $0.075 / $0.25; list $0.15 / $0.50 | JSON output documented; validate locally rather than assume strict JSON Schema equivalence. Thinking cannot be disabled for this model |
 | DeepSeek `deepseek-v4-flash` | Off-peak $0.22 / $0.66; peak $0.44 / $1.32 | JSON-object mode, not a strict schema guarantee; supports non-thinking. Observed version DeepSeek-V4-Flash-0731 |
 | Meta Muse Spark 1.3 | Not verified from accessible primary pricing documentation | Release/API availability announced; exact model ID, endpoint, credentials, response contract and rates remain to be confirmed from accessible API documentation |
 
-Primary sources: [Gemini model](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash) and [pricing](https://ai.google.dev/gemini-api/docs/pricing); [Luna model](https://developers.openai.com/api/docs/models/gpt-5.6-luna) and [OpenAI pricing](https://developers.openai.com/api/docs/pricing); [GLM model](https://docs.z.ai/guides/vlm/glm-5.3-flash), [JSON output](https://docs.z.ai/guides/capabilities/struct-output) and [pricing](https://docs.z.ai/guides/overview/pricing); [DeepSeek pricing](https://api-docs.deepseek.com/quick_start/pricing/) and [JSON mode](https://api-docs.deepseek.com/guides/json_mode/); [Meta release announcement](https://research.meta.ai/blog/introducing-muse-spark-1-3) and [pricing portal](https://ai.developer.meta.com/docs/pricing-rate-limits).
+Primary sources: [Gemini model](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash) and [pricing](https://ai.google.dev/gemini-api/docs/pricing); [Luna model](https://developers.openai.com/api/docs/models/gpt-6-luna) and [OpenAI pricing](https://developers.openai.com/api/docs/pricing); [GLM model](https://docs.z.ai/guides/vlm/glm-5.3-flash), [JSON output](https://docs.z.ai/guides/capabilities/struct-output) and [pricing](https://docs.z.ai/guides/overview/pricing); [DeepSeek pricing](https://api-docs.deepseek.com/quick_start/pricing/) and [JSON mode](https://api-docs.deepseek.com/guides/json_mode/); [Meta release announcement](https://research.meta.ai/blog/introducing-muse-spark-1-3) and [pricing portal](https://ai.developer.meta.com/docs/pricing-rate-limits).
 
 GLM's 50% launch discount expires at 24:00 on September 9, 2026, UTC+8. DeepSeek peak periods are Monday–Friday 01:00–04:00 and 06:00–10:00 UTC; other times are off-peak. Older indexed DeepSeek prices differ from the fetched current table; retain the rate snapshot used for each estimate. OpenAI API billing is separate from Codex access. Meta's pricing portal returned a login requirement during research: do not adopt an aggregator's rate or guess an API slug as a verified contract.
 
@@ -106,7 +106,7 @@ For an illustrative VOD requiring 500,000 input tokens and 12,000 total billed o
 | Rate profile | Illustrative cost |
 |---|---:|
 | GLM promotional / list | $0.0405 / $0.0810 |
-| Luna standard short context | $0.1144 |
+| Retired OpenAI model, standard short context | $0.1144 |
 | DeepSeek off-peak / peak | $0.1179 / $0.2358 |
 | Gemini current / January 2027 | $0.4200 / $0.8400 |
 

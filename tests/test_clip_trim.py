@@ -50,7 +50,8 @@ def test_trim_preserves_captions_cuts_and_layout_and_queues_only_render(settings
         assert response.status_code == 200
         available = response.json()
         assert available["clip"]["revision"] == 1
-        assert available["max_us"] == (35000000 if original.get("caption_transcript") else 40000000)
+        assert available["min_us"] == 0
+        assert available["max_us"] == 40000000
         assert next(w for w in available["words"] if w["id"] == original["words"][2]["id"])["text"] == "Manual correction"
         response = client.post("/api/clips/clip/trim", headers=headers,
                                json=dict(expected_revision=1, start_us=start, end_us=end))
@@ -107,7 +108,7 @@ def test_missing_source_is_actionable(settings, store, trim_fixture):
 
 def test_manual_trim_skips_asr_and_llm_during_rerender(settings, store, trim_fixture, monkeypatch):
     run, original, transcript = trim_fixture
-    revised = clip_trim.apply(original, clip_trim.context(original, transcript), 6000000, 34000000)
+    revised = clip_trim.apply(original, clip_trim.context(original, transcript), 0, 40000000)
     store.queue_edit("clip", 1, revised)
     audio = settings.work / "runs" / run / "audio.opus"
     audio.write_bytes(b"audio")
@@ -121,10 +122,41 @@ def test_manual_trim_skips_asr_and_llm_during_rerender(settings, store, trim_fix
     monkeypatch.setattr(instance, "deliver", lambda clip, *args: delivered.append(clip))
     monkeypatch.setattr(instance, "finish", lambda *args: None)
     instance.rerender()
-    assert len(delivered) == 1 and delivered[0]["body"]["start_us"] == 6000000
+    assert len(delivered) == 1 and delivered[0]["body"]["start_us"] == 0
 
 
 def test_overlapping_words_snap_to_outer_edge():
     words = [dict(start_us=10, end_us=20), dict(start_us=15, end_us=25)]
     assert clip_trim.snap(18, "start", words) == 10
     assert clip_trim.snap(18, "end", words) == 25
+
+
+def test_full_source_extension_preserves_refinement_and_survives_reopening(settings, store, trim_fixture):
+    _, original, transcript = trim_fixture
+    available = clip_trim.context(original, transcript)
+    revised = clip_trim.apply(original, available, 0, 40000000)
+    assert (revised["start_us"], revised["end_us"]) == (0, 40000000)
+    assert revised["words"][0]["id"] == "w0"
+    assert revised["words"][-1]["id"] == "w39"
+    assert len(revised["words"]) == 40
+    assert revised["speech_cuts"] == original["speech_cuts"]
+    assert next(w for w in revised["words"] if w["id"] == original["words"][2]["id"])["text"] == "Manual correction"
+    if original.get("caption_transcript"):
+        assert revised["caption_transcript"]["profile"] == "large-v3 + turbo"
+        assert revised["words"][5]["id"] == "f-w5"
+        assert revised["caption_transcript"]["start_us"] == 0
+        assert revised["caption_transcript"]["end_us"] == 40000000
+    reopened = clip_trim.context(revised, transcript)
+    assert reopened["words"] == revised["words"]
+    assert original["start_us"] == 10000000
+
+
+def test_saved_section_not_whole_recording_limits_trim(trim_fixture):
+    _, body, transcript = trim_fixture
+    body = {**body, "mapping": {"origin_us": 2000000, "section_duration": 36}}
+    available = clip_trim.context(body, transcript)
+    assert (available["min_us"], available["max_us"], available["origin_us"]) == (2000000, 38000000, 2000000)
+    revised = clip_trim.apply(body, available, 2000000, 38000000)
+    assert revised["start_us"] == available["origin_us"]
+    with pytest.raises(ValueError, match="available source"):
+        clip_trim.apply(body, available, 0, 38000000)

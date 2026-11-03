@@ -10,15 +10,21 @@ def context(body, transcript):
     if "origin_us" not in mapping or not mapping.get("section_duration"):
         raise ValueError("This clip has no verified source timing. Re-render it before trimming.")
     captions = body.get("caption_transcript") or transcript
-    minimum = max(0, mapping["origin_us"], captions.get("start_us", 0))
+    minimum = max(0, mapping["origin_us"])
     maximum = min(transcript["duration_us"],
-                  mapping["origin_us"] + round(mapping["section_duration"] * 1000000),
-                  captions.get("end_us", transcript["duration_us"]))
+                  mapping["origin_us"] + round(mapping["section_duration"] * 1000000))
     if not minimum <= body["start_us"] < body["end_us"] <= maximum:
-        raise ValueError("The saved source or caption coverage does not enclose this clip. Re-render it before trimming.")
+        raise ValueError("The saved source does not enclose this clip. Re-render it before trimming.")
+    originals = list(captions["words"])
+    if body.get("caption_transcript"):
+        # Refined words stay canonical inside their coverage. The recording transcript
+        # supplies the surrounding footage, without duplicating words at either seam.
+        originals.extend(w for w in transcript["words"]
+                         if w["end_us"] <= captions["start_us"] or w["start_us"] >= captions["end_us"])
+    originals.sort(key=lambda w: (w["start_us"], w["end_us"]))
     edits = {w["id"]: w for w in body["words"]}
     words = []
-    for original in captions["words"]:
+    for original in originals:
         if original["end_us"] <= minimum or original["start_us"] >= maximum:
             continue
         word = Word.model_validate(original).model_dump()
@@ -55,6 +61,11 @@ def apply(body, available, start, end):
         raise ValueError("Keep some speech in the selected range.")
     revised = {**body, "start_us": start, "end_us": end, "words": selected,
                "speech_cuts": [c for c in body.get("speech_cuts", []) if c["end_us"] > start and c["start_us"] < end]}
+    captions = body.get("caption_transcript")
+    if captions and (start < captions["start_us"] or end > captions["end_us"]):
+        revised["caption_transcript"] = {**captions, "profile": "large-v3 + turbo",
+                                         "start_us": available["min_us"], "end_us": available["max_us"],
+                                         "words": available["words"]}
     try:
         cuts = tighten.intervals(revised)
     except ValueError as exc:

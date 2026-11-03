@@ -1,12 +1,23 @@
 "use strict";
 let galleryClips=[], galleryPage=0, galleryLoading=false;
+let galleryPosting=new Map();
 let reviewNotesClip=null, reviewNoteSaving=false;
 const galleryPageSize=12, galleryCards=new Map();
 const reviewLabels={unreviewed:"Unreviewed",approved:"Approved",not_approved:"Not approved",ready_to_post:"Ready for posting"};
+const galleryPostingLabels={not_posted:"Not yet posted",scheduled:"Scheduled",partly_posted:"Partly posted",posted:"Posted"};
+function galleryPostingStatus(clip){
+  const receipts=Object.values({...clip.plan?.deliveries,...clip.publication?.receipts});
+  const posted=receipts.filter(r=>r.status==="posted").length;
+  if(posted)return posted===receipts.length?"posted":"partly_posted";
+  return receipts.some(r=>["scheduled","sending"].includes(r.status))?"scheduled":"not_posted";
+}
 async function loadGallery(){
   if(galleryLoading)return;
   galleryLoading=true;$("refresh-gallery").disabled=true;
-  try{galleryClips=await api("/api/clips");paintGallery();}
+  try{
+    const [clips,publishing]=await Promise.all([api("/api/clips"),api("/api/publishing/buffer")]);
+    galleryClips=clips;galleryPosting=new Map(publishing.clips.map(c=>[c.id,galleryPostingStatus(c)]));paintGallery();
+  }
   finally{galleryLoading=false;$("refresh-gallery").disabled=false;}
 }
 function gallerySource(clip){
@@ -54,16 +65,16 @@ function galleryCard(clip){
   const video=document.createElement("video");video.controls=true;video.preload="metadata";video.playsInline=true;
   video.src=`/api/artifacts/${clip.id}/video?revision=${clip.revision}`;video.setAttribute("aria-label",clip.title);
   video.onplay=()=>{for(const other of $("gallery-clips").querySelectorAll("video"))if(other!==video)other.pause();};
-  const badge=text("span","","review-badge");
+  const badge=text("span","","review-badge"),postingBadge=text("span","","muted");
   const statusRow=text("div","","gallery-card-meta");
-  statusRow.append(badge,text("span",`${((clip.output_duration_us??(clip.end_us-clip.start_us))/1e6).toFixed(1)}s · Revision ${clip.revision}`,"muted"));
+  statusRow.append(badge,postingBadge,text("span",`${((clip.output_duration_us??(clip.end_us-clip.start_us))/1e6).toFixed(1)}s · Revision ${clip.revision}`,"muted"));
   const title=text("h2",clip.title),source=text("p",gallerySource(clip),"gallery-source muted");
   title.title=clip.title;source.title=source.textContent;
   const notes=clipNotes(clip),notesButton=action(notes.length?`${notes.length} review ${notes.length===1?"note":"notes"}`:"Review reason",()=>showClipNotes(entry.clip));
   notesButton.className="gallery-notes";
   body.append(statusRow,title,source,notesButton);
   const reviews=text("div","","gallery-review"),buttons=[];
-  const entry={card,video,badge,buttons,clip,saving:false};
+  const entry={card,video,badge,postingBadge,buttons,clip,saving:false};
   for(const [status,label] of [["approved","Approve"],["not_approved","Not approved"],["unreviewed","Clear review"]]){
     const button=action(label,async()=>{
       if(entry.saving)return;
@@ -90,6 +101,7 @@ function galleryCard(clip){
 function updateGalleryReview(entry){
   const status=entry.clip.review_status||"unreviewed";
   entry.badge.textContent=reviewLabels[status];entry.badge.className="review-badge review-"+status;
+  entry.postingBadge.textContent=galleryPostingLabels[galleryPosting.get(entry.clip.id)||"not_posted"];
   for(const item of entry.buttons){
     item.button.disabled=entry.saving||item.status===status;
     item.button.setAttribute("aria-pressed",String(item.status===status));
@@ -100,8 +112,12 @@ function paintGallery(){
   const counts={unreviewed:0,approved:0,not_approved:0,ready_to_post:0};
   for(const clip of galleryClips)counts[clip.review_status||"unreviewed"]++;
   $("gallery-summary").textContent=`${galleryClips.length} rendered clips · ${counts.unreviewed} unreviewed · ${counts.ready_to_post} ready for posting · ${counts.approved} approved · ${counts.not_approved} not approved`;
-  const query=$("gallery-search").value.trim().toLocaleLowerCase(),filter=$("gallery-filter").value;
-  const items=galleryClips.filter(c=>(filter==="all"||(c.review_status||"unreviewed")===filter)&&`${c.title} ${gallerySource(c)}`.toLocaleLowerCase().includes(query));
+  const query=$("gallery-search").value.trim().toLocaleLowerCase(),filter=$("gallery-filter").value,postingFilter=$("gallery-posting-filter").value;
+  const items=galleryClips.filter(c=>{
+    const posting=galleryPosting.get(c.id)||"not_posted";
+    const matchesPosting=postingFilter==="all"||(postingFilter==="not_posted"?["not_posted","scheduled"].includes(posting):posting===postingFilter);
+    return matchesPosting&&(filter==="all"||(c.review_status||"unreviewed")===filter)&&`${c.title} ${gallerySource(c)}`.toLocaleLowerCase().includes(query);
+  });
   galleryPage=Math.min(galleryPage,Math.max(0,Math.ceil(items.length/galleryPageSize)-1));
   const visible=items.slice(galleryPage*galleryPageSize,(galleryPage+1)*galleryPageSize),cards=[];
   const grid=$("gallery-clips"),keep=new Set();
@@ -114,13 +130,13 @@ function paintGallery(){
   for(const [key,entry] of galleryCards)if(!keep.has(key)){entry.video.pause();galleryCards.delete(key);}
   if(!cards.length){
     const empty=text("div","","empty-state");
-    empty.append(text("h2",galleryClips.length?"No clips match these filters.":"No rendered clips yet."),text("p",galleryClips.length?"Try another search or choose All clips.":"Clips from every run appear here once a rendered preview is available."));
+    empty.append(text("h2",galleryClips.length?"No clips match these filters.":"No rendered clips yet."),text("p",galleryClips.length?"Try another search or reset both status filters.":"Clips from every run appear here once a rendered preview is available."));
     grid.replaceChildren(empty);
   }else if(cards.length!==grid.children.length||cards.some((card,i)=>card!==grid.children[i]))grid.replaceChildren(...cards);
   $("gallery-page").textContent=items.length?`${galleryPage*galleryPageSize+1}–${Math.min((galleryPage+1)*galleryPageSize,items.length)} of ${items.length} clips`:"0 clips";
   $("previous-gallery").hidden=galleryPage===0;$("next-gallery").hidden=(galleryPage+1)*galleryPageSize>=items.length;
 }
 $("refresh-gallery").onclick=()=>loadGallery().catch(e=>error(e.message));
-for(const id of ["gallery-search","gallery-filter"])$(id).oninput=()=>{galleryPage=0;paintGallery();};
+for(const id of ["gallery-search","gallery-filter","gallery-posting-filter"])$(id).oninput=()=>{galleryPage=0;paintGallery();};
 $("previous-gallery").onclick=()=>{galleryPage--;paintGallery();$("gallery-heading").scrollIntoView({behavior:"auto"});};
 $("next-gallery").onclick=()=>{galleryPage++;paintGallery();$("gallery-heading").scrollIntoView({behavior:"auto"});};

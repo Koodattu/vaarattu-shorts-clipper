@@ -46,7 +46,7 @@ For ASR, retain faster-whisper Turbo as the familiar baseline; compare large-v3,
 
 ### Provider comparison, not measured billing
 
-The [current API comparison](models-and-providers.md) covers Gemini 3.8 Flash, GPT-5.6 Luna, GLM-5.3-Flash, DeepSeek V4 Flash and the unresolved Meta Muse Spark 1.3 pricing/API contract. It includes primary sources, launch-discount expiry, time-of-day rates and an identical illustrative workload. GLM has the lowest verified standard uncached rates among the requested models; no Finnish quality or cost-per-useful-clip winner has been established.
+The [current API comparison](models-and-providers.md) covers Gemini 3.8 Flash, GPT-6 Luna, GLM-5.3-Flash, DeepSeek V4 Flash and the unresolved Meta Muse Spark 1.3 pricing/API contract. It includes primary sources, launch-discount expiry, time-of-day rates and an identical illustrative workload. GLM has the lowest verified standard uncached rates among the requested models; no Finnish quality or cost-per-useful-clip winner has been established.
 
 Budget by actual tokenized Finnish text including timestamps, prompts, overlap, verification and repairs:
 

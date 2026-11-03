@@ -55,7 +55,7 @@ These durations are tested before the automatic cut adds speech padding. The flo
 
 Chat enrichment was active for aligned stream 253. Two additional regions were evaluated: 00:12:30–00:16:30 and 02:30:30–02:34:30. Both returned empty candidate lists. Neither exported clip came from the chat pass. Detected peak buckets had five active chatters against a local baseline of two; this coarse signal does not establish that speech was interesting.
 
-75 completed model requests: **61 full-transcript discovery + 2 chat-peak discovery + 12 verification calls for 10 targets**. Microphone and layoffs verification each used one additional repair request; the microphone repair still failed the same-idea-passage constraint. Raw responses identify **gpt-5.6-luna**, reasoning effort **low**.
+75 completed model requests: **61 full-transcript discovery + 2 chat-peak discovery + 12 verification calls for 10 targets**. Microphone and layoffs verification each used one additional repair request; the microphone repair still failed the same-idea-passage constraint. Raw responses identify the then-configured Codex model, reasoning effort **low**. The recorded model predates the current GPT-6 Luna default; raw audit artifacts retain the original model identifier.
 
 Tokens from saved usage records: **382,757 input**, **18,212 output**, including **12,276 reasoning tokens**. Cached input: 0. Recorded request elapsed time sums to 473.391 seconds; this is not end-to-end pipeline runtime. Codex subscription usage has no dollar-cost estimate here.
 

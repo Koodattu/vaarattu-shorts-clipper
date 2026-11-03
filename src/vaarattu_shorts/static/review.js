@@ -1,7 +1,7 @@
 "use strict";
 let reviewQueue=[], reviewBusy=false, reviewLoaded=false, reviewSkipped=0, reviewLast=null, reviewVideoKey="";
 let reviewRendering=null, reviewRenderPolling=false, reviewRenderTimer=null;
-let reviewContextClip=null;
+let reviewContextClip=null,reviewContextFromEditor=false;
 function reviewMessage(message,isError=false){
   $("review-message").textContent=message;
   $("review-message").title=message;
@@ -153,35 +153,39 @@ function skipReview(){
   reviewMessage(contextPending?"Context review continues. Refresh the queue after it finishes to revisit this clip.":"Skipped for now. No decision saved.");paintReviewQueue();
 }
 
-function openContextReview(){
-  const clip=reviewQueue[0];
-  if(reviewBusy||reviewRendering||!clip||clip.context_request?.status==="pending"||clip.status!=="ready")return;
-  reviewContextClip={...clip};$("review-player").pause();
+function openContextReview(fromEditor=false){
+  const clip=fromEditor?editing:reviewQueue[0];
+  if(fromEditor?!editorActionAllowed():reviewBusy||reviewRendering)return;
+  if(!clip||clip.context_request?.status==="pending"||clip.status!=="ready")return;
+  reviewContextFromEditor=fromEditor;reviewContextClip={...clip};
+  if(fromEditor)pauseEditorPlayers();else $("review-player").pause();
   $("review-context-before").checked=false;$("review-context-after").checked=false;
   $("review-context-note").value="";$("review-context-message").textContent="";
   $("review-context-dialog").showModal();
 }
 async function submitContextReview(event){
   event.preventDefault();
-  if(reviewBusy||!reviewContextClip)return;
+  if((reviewContextFromEditor?editorBusy:reviewBusy)||!reviewContextClip)return;
   const clip=reviewContextClip;
-  reviewBusy=true;reviewControls();
+  if(reviewContextFromEditor){editorBusy=true;editorControls();}else{reviewBusy=true;reviewControls();}
   for(const id of ["review-context-submit","review-context-cancel","review-context-before","review-context-after","review-context-note"])$(id).disabled=true;
   $("review-context-message").textContent="Queuing context review…";
   try{
-    const body={expected_revision:clip.revision,before:$("review-context-before").checked,after:$("review-context-after").checked,note:$("review-context-note").value};
+    const body={...(reviewContextFromEditor?editorAnalysisRequest():{}),expected_revision:clip.revision,before:$("review-context-before").checked,after:$("review-context-after").checked,note:$("review-context-note").value};
     const result=await api(`/api/clips/${clip.id}/context`,{method:"POST",body:JSON.stringify(body)});
-    reviewRendering={id:clip.id,...result,context:true};
-    reviewLast=null;
-    reviewQueue[0]={...clip,context_request:{...body,id:result.request_id,status:"pending"}};
     $("review-context-dialog").close();reviewContextClip=null;
-    paintReviewQueue();reviewMessage("Starting context review. You can skip for now while it works.");
+    if(reviewContextFromEditor)await followEditorRevision(clip,result,true);
+    else{
+      reviewRendering={id:clip.id,...result,context:true};reviewLast=null;
+      reviewQueue[0]={...clip,context_request:{...body,id:result.request_id,status:"pending"}};
+      paintReviewQueue();reviewMessage("Starting context review. You can skip for now while it works.");
+    }
   }catch(e){$("review-context-message").textContent=e.message;}
   finally{
-    reviewBusy=false;reviewControls();
+    if(reviewContextFromEditor){editorBusy=false;editorControls();}else{reviewBusy=false;reviewControls();}
     for(const id of ["review-context-submit","review-context-cancel","review-context-before","review-context-after","review-context-note"])$(id).disabled=false;
   }
-  if(reviewRendering)await pollReviewRender();
+  if(!reviewContextFromEditor&&reviewRendering)await pollReviewRender();
 }
 async function undoReview(){
   if(reviewBusy||reviewRendering||!reviewLast)return;
@@ -206,9 +210,10 @@ $("review-rerender").onclick=event=>{if(event.detail<2)return rerenderReview();}
 $("review-render-run").onclick=async()=>{if(!reviewQueue.length)return;activeRun=reviewQueue[0].run_id;try{await detail();paintRuns();goView("results");}catch(e){reviewMessage(e.message,true);}};
 $("review-notes").onclick=()=>{if(reviewQueue.length)showClipNotes(reviewQueue[0]);};
 $("review-context").onclick=event=>{if(event.detail<2)openContextReview();};
+$("edit-context").onclick=()=>openContextReview(true);
 $("review-context-form").onsubmit=submitContextReview;
 $("review-context-cancel").onclick=()=>{$("review-context-dialog").close();reviewContextClip=null;};
-$("review-context-dialog").oncancel=event=>{if(reviewBusy)event.preventDefault();else reviewContextClip=null;};
+$("review-context-dialog").oncancel=event=>{if(reviewContextFromEditor?editorBusy:reviewBusy)event.preventDefault();else reviewContextClip=null;};
 $("review-player").onerror=()=>{if(reviewQueue.length)reviewMessage("This preview could not load. Refresh the queue or skip this clip.",true);};
 document.addEventListener("keydown",event=>{
   if(currentView!=="review"||event.repeat||event.ctrlKey||event.metaKey||event.altKey||event.shiftKey||$("clip-notes-dialog").open||$("review-context-dialog").open||$("caption-dialog").open||$("manual-caption-dialog").open||$("trim-dialog").open||$("tighten-dialog").open)return;

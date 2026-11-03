@@ -44,14 +44,17 @@ function paintTighten(){
 async function openTighten(id,fromEditor=false,mode="suggest"){
   if(!id||tightenBusy)return;
   if(fromEditor&&editing.captionFormState!==captionEditorState()){error("Save your current editor changes before checking the saved clip.");return;}
+  if(fromEditor&&!editorActionAllowed())return;
+  if(fromEditor){editorBusy=true;editorControls();}
   tightenBusy=true;tightenFromEditor=fromEditor;tightenMode=mode;tightenSession++;
   try{
     tightenClip=await api(`/api/clips/${id}`);$("tighten-note").value=activeTightenCheck()?.note||"";
     $("review-player").pause();$("source-player").pause();
+    if(fromEditor)pauseEditorPlayers();
     $("tighten-player").src=`/api/artifacts/${id}/video?revision=${tightenClip.revision}`;
     $("tighten-player").load();
     $("tighten-dialog").showModal();
-  }catch(e){error(e.message);return;}finally{tightenBusy=false;}
+  }catch(e){error(e.message);return;}finally{tightenBusy=false;if(fromEditor){editorBusy=false;editorControls();}}
   paintTighten();if(tightenClip.tighten_check?.status==="pending")await pollTighten();
 }
 async function requestTighten(){
@@ -59,7 +62,7 @@ async function requestTighten(){
   if(tightenMode==="instructed"&&!$("tighten-note").value.trim()){$("tighten-message").textContent="Describe how you want this clip edited.";return;}
   tightenBusy=true;paintTighten();
   try{
-    const result=await api(`/api/clips/${tightenClip.id}/${tightenMode==="instructed"?"instructed-edit":"tighten"}`,{method:"POST",body:JSON.stringify({expected_revision:tightenClip.revision,note:$("tighten-note").value})});
+    const result=await api(`/api/clips/${tightenClip.id}/${tightenMode==="instructed"?"instructed-edit":"tighten"}`,{method:"POST",body:JSON.stringify({...(tightenFromEditor?editorAnalysisRequest():{}),expected_revision:tightenClip.revision,note:$("tighten-note").value})});
     tightenClip.tighten_check={id:result.request_id,status:"pending",mode:tightenMode};
   }catch(e){tightenBusy=false;paintTighten();$("tighten-message").textContent=e.message;return;}
   tightenBusy=false;paintTighten();await pollTighten();
@@ -83,7 +86,8 @@ async function saveTighten(undo=false){
   try{
     const result=await api(`/api/clips/${clip.id}/${undo?"speech-cuts-undo":"speech-cuts"}`,{method:"POST",body:JSON.stringify({expected_revision:clip.revision,...(undo?{}:{check_id:clip.tighten_check.id,indices})})});
     $("tighten-dialog").close();
-    if(!tightenFromEditor&&reviewQueue[0]?.id===clip.id){reviewRendering={id:clip.id,...result};reviewQueue[0]={...clip,revision:result.revision,status:"pending",has_preview:false};paintReviewQueue();await pollReviewRender();}
+    if(tightenFromEditor)await followEditorRevision(clip,result);
+    else if(reviewQueue[0]?.id===clip.id){reviewRendering={id:clip.id,...result};reviewQueue[0]={...clip,revision:result.revision,status:"pending",has_preview:false};paintReviewQueue();await pollReviewRender();}
     else{activeRun=result.run_id;detailSignature="";await refresh();goView("results");}
   }catch(e){$("tighten-message").textContent=e.message;}
   finally{tightenBusy=false;$("tighten-request").disabled=false;$("tighten-undo").disabled=!clip.speech_cut_history?.length;updateTightenDuration();}
@@ -91,6 +95,7 @@ async function saveTighten(undo=false){
 $("review-tighten").onclick=()=>openTighten(reviewQueue[0]?.id);
 $("review-instructed-edit").onclick=()=>openTighten(reviewQueue[0]?.id,false,"instructed");
 $("edit-tighten").onclick=()=>openTighten(editing?.id,true);
+$("edit-instructed-edit").onclick=()=>openTighten(editing?.id,true,"instructed");
 $("tighten-request").onclick=requestTighten;
 $("tighten-apply").onclick=()=>saveTighten();
 $("tighten-undo").onclick=()=>saveTighten(true);

@@ -13,7 +13,7 @@ class Element{
   load(){}
   getBoundingClientRect(){return {left:0,width:100};}
 }
-function setup(){
+function setup(bounds={}){
   const dir=path.join(__dirname,"../src/vaarattu_shorts/static");
   const nodes=new Map([...fs.readFileSync(path.join(dir,"index.html"),"utf8").matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],new Element()]));
   const clip={id:"clip",revision:2,status:"ready",has_preview:true,start_us:10e6,end_us:30e6,speech_cuts:[{start_us:18e6,end_us:21e6}]};
@@ -23,7 +23,7 @@ function setup(){
     reviewQueue:[clip,{id:"next"}],reviewBusy:false,reviewRendering:null,reviewLast:{id:"previous"},reviewControls(){},paintReviewQueue(){},reviewMessage:m=>messages.push(m),
     pollReviewRender:async()=>{polls++;},api:async(url,options)=>{
       calls.push({url,body:options?JSON.parse(options.body):null});
-      if(!options)return {clip,words,min_us:5e6,max_us:35e6,origin_us:4e6};
+      if(!options)return {clip,words,min_us:5e6,max_us:35e6,origin_us:4e6,...bounds};
       if(fail)throw new Error("This edge crosses an existing speech cut.");
       return {run_id:"run",revision:3};
     }});
@@ -72,4 +72,20 @@ test("failed save keeps selected edges, and failed media disables saving",async(
 });
 test("render in progress prevents opening another trim",async()=>{
   const f=setup();f.context.reviewRendering={id:"clip"};await f.nodes.get("review-trim").onclick();assert.equal(f.calls.length,0);
+});
+
+
+test("full source ruler starts at preview zero and both edges reach the saved video boundaries",async()=>{
+  const f=setup({min_us:4e6,max_us:44e6}),n=f.nodes;await open(f);
+  assert.equal(n.get("trim-ruler").children[0].textContent,"00:00.00");
+  assert.equal(n.get("trim-ruler").children[4].textContent,"00:40.00");
+  n.get("trim-track").onclick({target:n.get("trim-track"),clientX:0});
+  assert.equal(n.get("trim-player").currentTime,0);
+  n.get("trim-set-start").onclick();
+  assert.equal(n.get("trim-start").value,"4.000");
+  assert.equal(n.get("trim-start-handle")["aria-valuetext"],"00:00.00 in preview");
+  n.get("trim-end-handle").value=44e6;n.get("trim-end-handle").onchange();
+  await submit(f);
+  assert.equal(f.calls[1].body.start_us,4e6);
+  assert.equal(f.calls[1].body.end_us,44e6);
 });

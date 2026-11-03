@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 import shutil
+import time
 from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
@@ -401,15 +402,17 @@ class Pipeline:
                     body = {**clip["body"], "status": "held", "flags": [str(exc)]}
             self.store.save_clip(clip["id"], self.run_id, clip["revision"], body)
 
-    def clip_proposal(self, clip, transcript, folder, client=None, propose=caption_correction.propose):
+    def clip_proposal(self, clip, transcript, folder, client=None, propose=caption_correction.propose, *, analysis=None, check=None):
+        config = {**self.config, **(analysis or {})}
+        check = check or self.check
         folder.mkdir(parents=True, exist_ok=True)
-        manager = local_server(self.settings, self.config, folder, self.check) if self.config["provider"] == "local" and client is None else nullcontext(client)
+        manager = local_server(self.settings, config, folder, check) if config["provider"] == "local" and client is None else nullcontext(client)
         with manager as client:
             evaluator = Evaluator(
-                self.config["provider"], self.store, self.run_id, folder, self.config["budget_usd"],
-                self.check, client, self.config.get("context_size", 16384),
-                codex_config=self.config.get("codex"),
-                verification_reasoning=self.config.get("verification_reasoning", "low"),
+                config["provider"], self.store, self.run_id, folder, config["budget_usd"],
+                check, client, config.get("context_size", 16384),
+                codex_config=config.get("codex"),
+                verification_reasoning=config.get("verification_reasoning", "low"),
             )
             return propose(clip["body"], transcript, evaluator)
 
@@ -444,7 +447,8 @@ class Pipeline:
         request = clip["body"]["caption_check"]
         transcript = json.loads((self.folder / "asr" / "transcript.json").read_text("utf-8"))
         self.store.update(self.run_id, stage="caption-check", message="Checking caption word errors.")
-        proposal = self.clip_proposal(clip, transcript, self.folder / "caption-corrections" / request["id"])
+        proposal = self.clip_proposal(clip, transcript, self.folder / "caption-corrections" / request["id"],
+                                      **({"analysis": request["analysis"]} if request.get("analysis") else {}))
         self.check()
         self.store.save_clip(clip["id"], self.run_id, clip["revision"], {
             **clip["body"], "caption_check": {**request, "status": "complete",
@@ -465,7 +469,8 @@ class Pipeline:
                 "Planning cuts from your editing instructions." if request.get("mode") == "instructed"
                 else "Looking for dispensable speech passages."
             ))
-            proposal = self.clip_proposal(clip, None, self.folder / "tighten" / request["id"], propose=tighten.propose)
+            proposal = self.clip_proposal(clip, None, self.folder / "tighten" / request["id"], propose=tighten.propose,
+                                          **({"analysis": request["analysis"]} if request.get("analysis") else {}))
             self.check()
             self.store.save_clip(clip["id"], self.run_id, clip["revision"], {
                 **clip["body"], "tighten_check": {**request, **proposal, "status": "complete"},
@@ -729,28 +734,38 @@ class Pipeline:
         clip_id = self.store.get(self.run_id)["result"]["context_repair_requested"]
         clip = self.store.clip(clip_id)
         request = clip["body"]["context_request"]
+        config = {**self.config, **(request.get("analysis") or {})}
         if request["status"] == "pending":
+            started = self.store.start_context(clip_id, clip["revision"], request["id"])
+
+            def check_context():
+                self.check()
+                if time.time() - started >= context_repair.CONTEXT_TIMEOUT_SECONDS:
+                    raise ValueError("Context search timed out after 15 minutes. Retry or keep the current clip in the editor.")
+
             transcript_path = self.folder / "asr" / "transcript.json"
             transcript = json.loads(transcript_path.read_text("utf-8"))
             self.chain = hashlib.sha256(f"{self.chain}:{digest(transcript_path)}".encode()).hexdigest()
             folder = self.folder / "context-repair" / request["id"]
 
             def operation():
+                check_context()
                 folder.mkdir(parents=True, exist_ok=True)
                 atomic_json(folder / "request.json", {"clip": clip, "transcript_sha256": digest(transcript_path)})
                 manager = (
-                    local_server(self.settings, self.config, folder, self.check)
-                    if self.config["provider"] == "local" else nullcontext(None)
+                    local_server(self.settings, config, folder, check_context)
+                    if config["provider"] == "local" else nullcontext(None)
                 )
                 with manager as client:
                     evaluator = Evaluator(
-                        self.config["provider"], self.store, self.run_id, folder,
-                        self.config["budget_usd"], self.check, client,
-                        self.config.get("context_size", 16384), codex_config=self.config.get("codex"),
-                        verification_reasoning=self.config.get("verification_reasoning", "low"),
+                        config["provider"], self.store, self.run_id, folder,
+                        config["budget_usd"], check_context, client,
+                        config.get("context_size", 16384), codex_config=config.get("codex"),
+                        verification_reasoning=config.get("verification_reasoning", "low"),
                     )
                     self.store.update(self.run_id, message="Checking surrounding speech for the missing context.")
                     proposal, revised = context_repair.propose(clip["body"], transcript, evaluator)
+                check_context()
                 result = {"proposal": proposal.model_dump(), "revised": revised}
                 atomic_json(folder / "proposal.json", result)
                 return result, [folder / "request.json", folder / "proposal.json"]

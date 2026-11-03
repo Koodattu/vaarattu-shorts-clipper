@@ -113,11 +113,17 @@ class LayoutSave(Layout):
     screenshot: LayoutScreenshot | None = None
 
 
+class ClipAnalysisOptions(Contract):
+    provider: Literal["local", "gemini", "openai", "codex", "zai", "deepseek", "meta"]
+    budget_usd: float | None = Field(default=None, ge=0, le=100)
+    local_model: Literal["gemma4-31b", "gemma4-26b-a4b"] | None = None
+
+
 class RunRequest(Contract):
     video: str
     asr: Literal["turbo"] = "turbo"
     provider: Literal["local", "gemini", "openai", "codex", "zai", "deepseek", "meta"] = "local"
-    codex_model: Literal["gpt-5.6-luna", "gpt-6-luna"] | None = None
+    codex_model: Literal["gpt-6-luna"] | None = None
     local_model: Literal["gemma4-31b", "gemma4-26b-a4b"] = "gemma4-31b"
     context_size: Literal[16384, 32768] = 16384
     budget_usd: float = Field(default=0, ge=0, le=100)

@@ -1,20 +1,22 @@
 "use strict";
 const $ = id => document.getElementById(id);
 let token = "", activeRun = null, editing = null, polling = false;
-let savedLayouts = [];
+let savedLayouts = [], providerStatus = null;
 let submittingRun = false, concurrencyLimit = 1;
-let library = null, videoPage = 0, fetchingVideos = false;
+let library = null, fetchingVideos = false, videoLimit = 12;
+let videoLoadPaused = false, videoLoadError = "", videoFilterVersion = 0;
+let videoCards = new Map();
 let matchingVideo = "", streamLookup = 0;
-const videoPageSize = 8, clipPageSize = 10;
+const videoBatchSize = 12, clipPageSize = 10;
 let clipPage = 0, displayedRun = null;
 let runList = [], detailSignature = "", clipsSignature = "", runListSignature = "", currentView = "library";
-const labels = {local:"Local · Gemma 4",gemini:"Gemini 3.8 Flash",openai:"GPT-5.6 Luna",codex:"Codex",zai:"GLM-5.3-Flash",deepseek:"DeepSeek V4 Flash",meta:"Meta Muse Spark 1.3"};
+const labels = {local:"Local · Gemma 4",gemini:"Gemini 3.8 Flash",openai:"OpenAI API - gpt-6-luna",codex:"Codex gpt-6-luna",zai:"GLM-5.3-Flash",deepseek:"DeepSeek V4 Flash",meta:"Meta Muse Spark 1.3"};
 function showView(view){
   const names={library:"Video library",gallery:"Clip gallery",review:"Review queue",process:"New run",results:"Runs & clips",layouts:"Layout presets",editor:"Edit clip",delivery:"Cleanup",publishing:"Publishing",highlights:"Highlights"};
   if(!names[view])return;
   if(currentView!==view){
     $("notice").hidden=true;
-    $("source-player").pause();
+    $("source-player").pause();$("editor-player")?.pause();
     $("review-player").pause();
     $("highlight-player")?.pause();
     for(const video of $("clips").querySelectorAll("video"))video.pause();
@@ -41,6 +43,7 @@ function showView(view){
   if(view==="delivery")loadDelivery().catch(e=>error(e.message));
   if(view==="highlights")loadHighlights();
   if(view==="publishing")loadPublishing().catch(e=>error(e.message));
+  if(view==="editor"&&typeof pollEditorRender==="function")pollEditorRender();
 }
 function goView(view){
   showView(view);
@@ -53,25 +56,38 @@ async function api(path, options={}){
   let value;
   try{value=await response.json();}
   catch{throw new Error(response.ok?"The server returned an unreadable response. Refresh the page to check its status before retrying.":serverError);}
-  if(!response.ok) throw new Error(typeof value?.detail==="string"?value.detail:response.status>=500?serverError:"Check the form fields and try again.");
+  if(!response.ok){
+    const validation=response.status===422&&Array.isArray(value?.detail)?[...new Set(value.detail.filter(item=>typeof item?.msg==="string").map(item=>item.msg.replace(/^Value error, /,"")))].join(" "):"";
+    const failure=new Error(typeof value?.detail==="string"?value.detail:validation|| (response.status>=500?serverError:"Check the form fields and try again."));failure.status=response.status;throw failure;
+  }
   return value;
 }
 function action(label, fn, secondary=true){const button=document.createElement("button");button.type="button";button.textContent=label;if(secondary)button.className="secondary";button.onclick=()=>Promise.resolve(fn()).catch(e=>error(e.message));return button;}
 function text(tag, value, className){const node=document.createElement(tag);node.textContent=value;if(className)node.className=className;return node;}
 async function layouts(){const list=await api("/api/layouts");savedLayouts=list;for(const id of ["layout","edit-layout","preset-select"]){const selected=$(id).value;$(id).replaceChildren();if(id==="preset-select"){const empty=text("option","New preset");empty.value="";$(id).append(empty);}for(const item of list){const o=document.createElement("option");o.value=item.id;o.textContent=item.body.name;$(id).append(o);}if(list.some(l=>l.id===selected))$(id).value=selected;else if(id==="edit-layout")$(id).value="";}$("layout-required").hidden=Boolean(list.length);}
 async function init(){const state=await api("/api/status");token=state.token;concurrencyLimit=state.max_concurrent_jobs||1;$("job-concurrency").value=String(concurrencyLimit);$("cache-path").textContent=`Model cache: ${state.model_cache}`;
-  for(const [key,info] of Object.entries(state.providers)){const o=document.createElement("option");o.value=key;o.textContent=(key==="codex"?`Codex · ${info.model}`:labels[key])+(!info.available?" · unavailable":!info.configured?" · key missing":"");o.disabled=!info.available||!info.configured;$("provider").append(o);if(key==="codex"){const extra=text("option","Codex · gpt-6-luna");extra.value="codex-gpt-6-luna";extra.disabled=o.disabled;$("provider").append(extra);}}
+  for(const [key,info] of Object.entries(state.providers)){const o=document.createElement("option");o.value=key;o.textContent=labels[key]+(!info.available?" · unavailable":!info.configured?" · key missing":"");o.disabled=!info.available||!info.configured;$("provider").append(o);}
+  providerStatus=state;
   $("setup-status").textContent=state.models.turbo?"Turbo is prepared.":"Prepare Turbo and your selected LLM before running. See docs/setup.md.";
   $("final-transcription").disabled=!state.models["large-v3"];
   $("final-transcription-status").textContent=state.models["large-v3"]?"Large-v3 is prepared. Refines selected clips before rendering; Turbo still scans the full recording.":"Prepare large-v3 to enable final caption refinement. See docs/setup.md.";
-  $("provider").onchange=()=>{const codex=$("provider").value.startsWith("codex"),local=$("provider").value==="local";$("budget").disabled=codex;$("budget-field").hidden=codex||local;$("local-settings").hidden=!local;$("codex-note").hidden=!codex;$("reasoning-settings").hidden=!codex&&$("provider").value!=="openai";};$("provider").onchange();
+  $("provider").onchange=()=>{const codex=$("provider").value==="codex",local=$("provider").value==="local";$("budget").disabled=codex||local;$("budget").required=!codex&&!local;$("budget-field").hidden=codex||local;$("local-settings").hidden=!local;$("codex-note").hidden=!codex;$("reasoning-settings").hidden=!codex&&$("provider").value!=="openai";};$("provider").onchange();
   await layouts();restoreLayout();await refresh();
 }
 $("job-concurrency").onchange=async()=>{const select=$("job-concurrency");select.disabled=true;try{const result=await api("/api/concurrency",{method:"POST",body:JSON.stringify({max_concurrent_jobs:Number(select.value)})});concurrencyLimit=result.max_concurrent_jobs;await refresh();}catch(e){select.value=String(concurrencyLimit);error(e.message);}finally{select.disabled=false;}};
-$("run-form").onsubmit=async event=>{event.preventDefault();if(submittingRun)return;submittingRun=true;error("");$("run-button").disabled=true;try{
+function runRequest(){
   const selectedProvider=$("provider").value;
-  const body={video:$("video").value,asr:"turbo",provider:selectedProvider.startsWith("codex")?"codex":selectedProvider,local_model:$("local-model").value,context_size:Number($("context").value),budget_usd:$("provider").value.startsWith("codex")?0:Number($("budget").value),layout_id:$("layout").value,stream_id:$("stream-id").value?Number($("stream-id").value):null,stream_offset_seconds:$("stream-offset").value?Number($("stream-offset").value):null,alignment_confirmed:$("alignment").checked,discovery_reasoning:$("discovery-reasoning").value||"low",verification_reasoning:$("verification-reasoning").value||"low",video_encoder:$("video-encoder").value||"h264_nvenc",trim_silence:$("trim-silence").checked,final_transcription:$("final-transcription").checked,correct_captions:$("correct-captions").checked};
-  if(selectedProvider==="codex-gpt-6-luna")body.codex_model="gpt-6-luna";
+  const usesApi=!["codex","local"].includes(selectedProvider),budget=usesApi?Number($("budget").value):0;
+  if(usesApi&&(!Number.isFinite(budget)||budget<=0||budget>100)){
+    $("budget").focus();
+    throw new Error("Set an API spending limit per recording above $0 and up to $100 before starting.");
+  }
+  const body={video:$("video").value,asr:"turbo",provider:selectedProvider,local_model:$("local-model").value,context_size:Number($("context").value),budget_usd:budget,layout_id:$("layout").value,stream_id:$("stream-id").value?Number($("stream-id").value):null,stream_offset_seconds:$("stream-offset").value?Number($("stream-offset").value):null,alignment_confirmed:$("alignment").checked,discovery_reasoning:$("discovery-reasoning").value||"low",verification_reasoning:$("verification-reasoning").value||"low",video_encoder:$("video-encoder").value||"h264_nvenc",trim_silence:$("trim-silence").checked,final_transcription:$("final-transcription").checked,correct_captions:$("correct-captions").checked};
+  if(selectedProvider==="codex")body.codex_model="gpt-6-luna";
+  return body;
+}
+$("run-form").onsubmit=async event=>{event.preventDefault();if(submittingRun)return;submittingRun=true;error("");$("run-button").disabled=true;try{
+  const body=runRequest();
   const result=await api("/api/runs",{method:"POST",headers:{"Idempotency-Key":crypto.randomUUID()},body:JSON.stringify(body)});activeRun=result.id;await refresh();goView("results");
 }catch(e){error(e.message);}finally{submittingRun=false;$("run-button").disabled=false;}};
 function paintRuns(){
@@ -103,53 +119,81 @@ function paintLibrary(){
   $("fetch-twitch").disabled=fetchingVideos||!library.twitch?.configured;
   const twitch=library.twitch;
   $("twitch-status").textContent=twitch?(!twitch.configured?"Twitch · Set TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET in .env and restart to fetch VODs.":`Twitch · ${twitch.channel}${twitch.fetched_at?` · Last fetched ${new Date(twitch.fetched_at*1000).toLocaleString()}`:" · Fetch VODs to begin."}`):"";
-  $("older-videos").disabled=fetchingVideos||!library.configured;
-  $("older-videos").hidden=!library.has_older;
   const heading=library.channel_title||library.channel_id;
   $("channel-status").textContent=fetchingVideos?"Fetching channel videos…":!library.configured?`${heading} · Set YOUTUBE_API_KEY in .env and restart to fetch videos.`:`${heading} · ${library.videos.filter(v=>v.provider!=="twitch").length} saved YouTube videos${library.fetched_at?` · Last fetched ${new Date(library.fetched_at*1000).toLocaleString()}`:" · Fetch the latest videos to begin."}`;
+  const items=filteredLibraryVideos(), box=$("channel-videos");
+  const nextCards=new Map();
+  const cards=items.slice(0,videoLimit).map(video=>{
+    const key=`${video.provider||"youtube"}:${video.id}`, signature=JSON.stringify(video);
+    const previous=videoCards.get(key);
+    const card=previous?.signature===signature?previous:{signature,node:createVideoCard(video)};
+    nextCards.set(key,card);return card.node;
+  });
+  videoCards=nextCards;
+  // Appending leaves existing thumbnails, disclosures and keyboard focus intact.
+  const existing=Array.from(box.children);
+  if(existing.length<=cards.length&&existing.every((node,index)=>node===cards[index]))box.append(...cards.slice(existing.length));
+  else box.replaceChildren(...cards);
+  if(!items.length){const empty=text("div","","empty-state");empty.append(text("h3",library.videos.length?"No saved videos match these filters.":"No channel videos saved yet."),text("p",library.videos.length?"Try another title, source, or shorts status.":"Fetch your channel videos, or start a new run with a video URL."));box.append(empty);}
+  $("video-count").textContent=`${items.length} saved ${items.length===1?"video":"videos"}`;
+  const moreSaved=items.length>videoLimit, more=moreSaved||canFetchOlderVideos();
+  $("load-more-videos").hidden=!more;
+  $("load-more-videos").disabled=fetchingVideos;
+  $("load-more-videos").textContent=videoLoadError?"Retry loading videos":moreSaved?"Load more videos":"Load older YouTube videos";
+  $("video-load-status").textContent=fetchingVideos?"Fetching videos…":videoLoadError||
+    (videoLoadPaused&&more?"No new matches in that batch. You can keep looking in older YouTube videos.":
+    more?`Showing ${cards.length} of ${items.length} saved videos · Scroll for more`:
+    items.length?"You’ve reached the end of your saved videos.":"");
+  if(typeof paintLibrarySelection==="function")paintLibrarySelection();
+  if(videoObserver){videoObserver.disconnect();if(more&&!fetchingVideos&&!videoLoadPaused)videoObserver.observe($("video-load-more"));}
+}
+function filteredLibraryVideos(){
   const query=$("video-search").value.trim().toLocaleLowerCase(), filter=$("video-filter").value, source=$("video-source").value||"all";
-  const items=library.videos.filter(v=>(source==="all"||(v.provider||"youtube")===source)&&(filter==="all"||(filter==="partial"?v.partially_processed:filter==="processed"?v.processed:!v.processed))&&`${v.title} ${v.id}`.toLocaleLowerCase().includes(query));
-  const box=$("channel-videos");box.replaceChildren();
-  videoPage=Math.min(videoPage,Math.max(0,Math.ceil(items.length/videoPageSize)-1));
-  if(!items.length){const empty=text("div","","empty-state");empty.append(text("h3",library.videos.length?"No saved videos match these filters.":"No channel videos saved yet."),text("p",library.videos.length?"Try another title or choose All videos.":"Fetch your channel videos, or start a new run with a video URL."));box.append(empty);}
-  for(const video of items.slice(videoPage*videoPageSize,(videoPage+1)*videoPageSize)){
-    const row=text("article","","channel-video");
-    const img=document.createElement("img");img.src=videoThumbnail(video);img.alt="";img.loading="lazy";img.width=160;img.height=90;row.append(img);
-    const info=text("div","","channel-video-info");const title=text("h3",video.title);title.title=video.title;info.append(title);
-    const provider=video.provider==="twitch"?"Twitch":"YouTube";
-    const seconds=Math.floor(video.duration||0);const duration=seconds?`${Math.floor(seconds/3600)}:${String(Math.floor(seconds/60)%60).padStart(2,"0")}:${String(seconds%60).padStart(2,"0")}`:"Duration unavailable";
-    info.append(text("p",`${provider} · ${video.published?new Date(video.published).toLocaleDateString():"Date unavailable"} · ${duration}`,"muted"));
-    const states={not_started:"Not started",queued:"Queued",running:"Processing",paused:"Paused",failed:"Failed",cancelled:"Cancelled",completed:video.outcome==="no_candidates"?"No suitable clips":video.outcome==="needs_attention"?"Clips need attention":"Completed"};
-    const matched=video.matched_sources||[];
-    if(matched.length){
-      const details=text("details","","recording-matches");
-      details.append(text("summary",`Matched ${video.provider==="twitch"?`${matched.length} YouTube ${matched.length===1?"video":"parts"}`:"Twitch VOD"}`));
-      details.append(text("p","Matched by recording date, title and complete duration.","muted"));
-      for(const other of matched){
-        const link=document.createElement("a");link.href=other.url;link.target="_blank";link.rel="noopener";link.textContent=`${other.title} · ${other.processed?"Processed":"Not yet processed"}`;
-        const line=text("p","");line.append(link);details.append(line);
-      }
-      info.append(details);
-    }else if(video.match_status==="ambiguous"||video.match_status==="incomplete_parts"){
-      info.append(text("p",video.match_status==="ambiguous"?"Multiple possible matches · History kept separate":"Recording parts missing or duplicated · History kept separate","muted"));
+  return (library?.videos||[]).filter(v=>(source==="all"||(v.provider||"youtube")===source)&&(filter==="all"||(filter==="partial"?v.partially_processed:filter==="processed"?v.processed:!v.processed))&&`${v.title} ${v.id}`.toLocaleLowerCase().includes(query));
+}
+function canFetchOlderVideos(){return Boolean(library?.configured&&library.has_older&&$("video-source").value!=="twitch");}
+function createVideoCard(video){
+  const row=text("article","","channel-video");
+  const img=document.createElement("img");img.src=videoThumbnail(video);img.alt="";img.loading="lazy";img.width=160;img.height=90;row.append(img);
+  const selection=text("label","","video-select"), checkbox=document.createElement("input");
+  checkbox.type="checkbox";checkbox.disabled=!video.available;checkbox.setAttribute("aria-label",`Select ${video.title} for batch shorts`);
+  checkbox.onchange=()=>toggleLibraryVideo(video,checkbox.checked);
+  selection.append(checkbox,text("span","Select"));row.append(selection);
+  const info=text("div","","channel-video-info");const title=text("h2",video.title);title.title=video.title;info.append(title);
+  const provider=video.provider==="twitch"?"Twitch":"YouTube";
+  const seconds=Math.floor(video.duration||0);const duration=seconds?`${Math.floor(seconds/3600)}:${String(Math.floor(seconds/60)%60).padStart(2,"0")}:${String(seconds%60).padStart(2,"0")}`:"Duration unavailable";
+  const metadata=text("p","","video-metadata");
+  const link=document.createElement("a");link.href=video.url;link.target="_blank";link.rel="noopener";link.textContent=`${provider} ↗`;link.setAttribute("aria-label",`Open ${video.title} on ${provider}`);
+  metadata.append(link,text("span",video.published?new Date(video.published).toLocaleDateString():"Date unavailable"),text("span",duration));info.append(metadata);
+  const states={not_started:"Not started",queued:"Queued",running:"Processing",paused:"Paused",failed:"Failed",cancelled:"Cancelled",completed:video.outcome==="no_candidates"?"No suitable clips":video.outcome==="needs_attention"?"Clips need attention":"Completed"};
+  const matched=video.matched_sources||[];
+  const progress=video.processed_via_match?"Processed on matching recording":video.partially_processed?`${matched.filter(v=>v.processed).length} of ${matched.length} parts processed`:`${video.processed?"Processed · ":""}${states[video.state]||video.state}`;
+  const status=text("p",`${progress}${video.run_id&&(video.processed_via_match||video.partially_processed)?` · ${states[video.state]||video.state}`:""}${video.available?"":" · Recording unavailable"}`,"video-status"+(video.outcome==="needs_attention"||video.state==="failed"?" attention":video.processed?" complete":["running","queued"].includes(video.state)?" active":""));
+  info.append(status);
+  if(matched.length){
+    const details=text("details","","recording-matches");
+    details.append(text("summary",`Matched ${video.provider==="twitch"?`${matched.length} YouTube ${matched.length===1?"video":"parts"}`:"Twitch VOD"}`));
+    details.append(text("p","Matched by recording date, title and complete duration.","muted"));
+    for(const other of matched){
+      const link=document.createElement("a");link.href=other.url;link.target="_blank";link.rel="noopener";link.textContent=`${other.title} · ${other.processed?"Processed":"Not yet processed"}`;
+      const line=text("p","");line.append(link);details.append(line);
     }
-    const progress=video.processed_via_match?"Processed on matching recording":video.partially_processed?`${matched.filter(v=>v.processed).length} of ${matched.length} parts processed`:`${video.processed?"Processed · ":""}${states[video.state]||video.state}`;
-    const status=text("p",`${progress}${video.run_id&&(video.processed_via_match||video.partially_processed)?` · ${states[video.state]||video.state}`:""}${video.available?"":" · Recording unavailable"}`,"video-status"+(video.outcome==="needs_attention"||video.state==="failed"?" attention":video.processed?" complete":["running","queued"].includes(video.state)?" active":""));
-    const buttons=text("div","","video-actions");const select=action(video.processed?"Select again":"Select video",()=>{$("video").value=video.url;paintSelectedVideo();goView("process");$("video").focus();});select.disabled=!video.available;buttons.append(select);
-    const highlight=action("Create highlight video",()=>openHighlights(video.url));highlight.disabled=!video.available;buttons.append(highlight);
-    if(video.run_id)buttons.append(action("View run",async()=>{activeRun=video.run_id;paintRuns();await detail();goView("results");}));
-    if(video.completed_run_id&&video.completed_run_id!==video.run_id)buttons.append(action("Previous results",async()=>{activeRun=video.completed_run_id;paintRuns();await detail();goView("results");}));
-    const link=document.createElement("a");link.href=video.url;link.target="_blank";link.rel="noopener";link.textContent="↗";link.title=`Open on ${provider}`;link.setAttribute("aria-label",`Open ${video.title} on ${provider}`);buttons.append(link);row.append(info,status,buttons);box.append(row);
+    info.append(details);
+  }else if(video.match_status==="ambiguous"||video.match_status==="incomplete_parts"){
+    info.append(text("p",video.match_status==="ambiguous"?"Multiple possible matches · History kept separate":"Recording parts missing or duplicated · History kept separate","muted"));
   }
-  $("show-videos").hidden=(videoPage+1)*videoPageSize>=items.length;
-  $("previous-videos").hidden=videoPage===0;
-  $("video-page").textContent=items.length?`${videoPage*videoPageSize+1}–${Math.min((videoPage+1)*videoPageSize,items.length)} of ${items.length} videos`:"0 videos";
+  const buttons=text("div","","video-actions");const select=action(video.processed?"Create shorts again":"Create shorts",()=>{if(typeof leaveBatchForSingle==="function"&&!leaveBatchForSingle())return;$("video").value=video.url;paintSelectedVideo();goView("process");$("video").focus();});select.disabled=!video.available;buttons.append(select);
+  const highlight=action("Create highlights",()=>openHighlights(video.url));highlight.disabled=!video.available;buttons.append(highlight);
+  if(video.run_id)buttons.append(action("View run",async()=>{activeRun=video.run_id;paintRuns();await detail();goView("results");}));
+  if(video.completed_run_id&&video.completed_run_id!==video.run_id)buttons.append(action("Previous results",async()=>{activeRun=video.completed_run_id;paintRuns();await detail();goView("results");}));
+  row.append(info,buttons);return row;
 }
 function paintSelectedVideo(){const video=library?.videos.find(v=>v.url===$("video").value||(v.provider!=="twitch"&&v.id===$("video").value));const box=$("selected-video");box.replaceChildren();box.hidden=!video;if(video){const img=document.createElement("img");img.src=videoThumbnail(video);img.alt="";box.append(img,text("p",video.title));if(video.processed)box.append(text("p","Already processed. Starting a new run will process this recording again.","muted"));else if(video.partially_processed)box.append(text("p","Some matching YouTube parts are already processed. This run will process the whole Twitch recording.","muted"));}
   if(matchingVideo!==$("video").value){matchingVideo=$("video").value;resetStreamMatch();$("stream-query").value=video?.title||"";}
   if(video&&!$("stream-query").value)$("stream-query").value=video.title;
 }
 function matchSelectedStream(){
+  if(typeof batchActive==="function"&&batchActive())return;
   paintSelectedVideo();
   if(library&&$("video").value.trim()&&!$("stream-id").value&&!$("find-stream").disabled)return findStream();
 }
@@ -194,13 +238,38 @@ $("check-stream").onclick=async()=>{
   }catch(e){if(request===streamLookup)$("stream-match-status").textContent=e.message;}
   finally{if(request===streamLookup)$("check-stream").disabled=false;}
 };
-async function fetchVideos(action){if(fetchingVideos)return;fetchingVideos=true;error("");paintLibrary();try{library=await api(`/api/videos/${action}`,{method:"POST"});}catch(e){error(e.message);}finally{fetchingVideos=false;paintLibrary();}}
+async function fetchVideos(action){
+  if(fetchingVideos)return false;
+  fetchingVideos=true;videoLoadError="";videoLoadPaused=false;
+  if(action!=="older")error("");
+  paintLibrary();
+  try{library=await api(`/api/videos/${action}`,{method:"POST"});return true;}
+  catch(e){
+    if(action==="older"){videoLoadError=e.message;videoLoadPaused=true;}
+    else error(e.message);
+    return false;
+  }finally{fetchingVideos=false;paintLibrary();}
+}
+async function loadMoreVideos(){
+  if(!library||fetchingVideos||currentView!=="library")return;
+  videoLoadPaused=false;videoLoadError="";
+  const count=filteredLibraryVideos().length, filterVersion=videoFilterVersion;
+  if(count>videoLimit){videoLimit+=videoBatchSize;paintLibrary();return;}
+  if(canFetchOlderVideos()&&await fetchVideos("older")){
+    if(filterVersion!==videoFilterVersion)return;
+    videoLimit+=videoBatchSize;
+    // An empty/duplicate/filtered batch must not drain the entire remote archive.
+    videoLoadPaused=filteredLibraryVideos().length<=count;
+    paintLibrary();
+  }
+}
+const videoObserver=typeof IntersectionObserver==="undefined"?null:new IntersectionObserver(entries=>{
+  if(entries.some(entry=>entry.isIntersecting)&&!videoLoadPaused)loadMoreVideos();
+},{rootMargin:"400px 0px"});
 $("fetch-videos").onclick=()=>fetchVideos("refresh");
 $("fetch-twitch").onclick=()=>fetchVideos("twitch");
-$("older-videos").onclick=()=>fetchVideos("older");
-$("show-videos").onclick=()=>{videoPage++;paintLibrary();$("channel-videos").scrollTop=0;};
-$("previous-videos").onclick=()=>{videoPage--;paintLibrary();$("channel-videos").scrollTop=0;};
-for(const id of ["video-search","video-filter","video-source"])$(id).oninput=()=>{videoPage=0;paintLibrary();};
+$("load-more-videos").onclick=loadMoreVideos;
+for(const id of ["video-search","video-filter","video-source"])$(id).oninput=()=>{videoFilterVersion++;videoLimit=videoBatchSize;videoLoadPaused=false;videoLoadError="";paintLibrary();};
 function recordingContextUrl(value,startUs){
   const seconds=Math.max(0,Math.floor(startUs/1e6)-10);
   if(value.startsWith("https://www.twitch.tv/videos/"))return `${value}?t=${Math.floor(seconds/3600)}h${Math.floor(seconds%3600/60)}m${seconds%60}s`;
@@ -222,7 +291,7 @@ async function detail(){
   usageDetails.append(text("p",`Turbo · CUDA FP16 · ${run.config.asr_batch_size?`batch size ${run.config.asr_batch_size}`:"unbatched"}${run.config.asr_flash_attention?" · Flash Attention requested":""}`,"muted"));
   if(run.config.final_transcription)usageDetails.append(text("p","Final clip captions: large-v3 · selected sections only.","muted"));
   const usage=run.usage, count=n=>n.toLocaleString();
-  if(run.config.provider==="codex")usageDetails.append(text("p",`Codex · ${run.config.codex?.model||"gpt-5.6-luna"} · subscription usage · monetary cost unavailable.`,"muted"));
+  if(run.config.provider==="codex")usageDetails.append(text("p",`Codex · ${run.config.codex?.model||"gpt-6-luna"} · subscription usage · monetary cost unavailable.`,"muted"));
   else usageDetails.append(text("p",`Estimated API cost: $${usage.estimated_cost_usd.toFixed(4)} · pending / uncertain: $${usage.reserved_usd.toFixed(4)} · limit: $${usage.budget_usd.toFixed(2)}`,"muted"));
   usageDetails.append(text("p",`${count(usage.request_count)} model requests · ${count(usage.input_tokens)} input tokens · ${count(usage.output_tokens)} output tokens (includes reasoning)`));
   const reported=field=>usage.reported_counts[field]?`${count(usage[field])} (${usage.reported_counts[field]}/${usage.request_count} requests reported)` :"not reported";
@@ -302,8 +371,7 @@ function sameLayout(a,b){
   const normalize=value=>{const v={...defaults,...value};return Object.keys(v).sort().map(key=>[key,key==="camera"||key==="gameplay"?[v[key].x,v[key].y,v[key].width,v[key].height]:v[key]]);};
   return JSON.stringify(normalize(a))===JSON.stringify(normalize(b));
 }
-async function openEditor(id){$("editor-back").href="#results";$("editor-back").textContent="← Back to clips";editing=await api(`/api/clips/${id}`);$("edit-duration-help").textContent=editing.context_expanded?"This context-expanded clip has no fixed duration cap. Keep at least 3 seconds within the recording.":"Choose a 3–90 second interval. The original recording keeps its full pacing.";const preset=savedLayouts.find(l=>sameLayout(l.body,editing.layout));if(preset)$("edit-layout").value=preset.id;else $("edit-layout").value="";$("use-source-frame").disabled=!editing.has_source;$("editor").hidden=false;$("editor-title").textContent=editing.title;$("edit-caption-coverage").hidden=!editing.caption_coverage;if(editing.caption_coverage)$("edit-caption-coverage").textContent=`Large-v3 captions: edits can use ${(editing.caption_coverage.start_us/1e6).toFixed(2)}–${(editing.caption_coverage.end_us/1e6).toFixed(2)} seconds of the original recording.`;$("edit-start").value=editing.start_us/1e6;$("edit-end").value=editing.end_us/1e6;$("edit-title").value=editing.title;$("edit-trim-silence").checked=Boolean(editing.trim_silence);$("edit-encoder").value=editing.video_encoder||"libx264";$("reviewed").checked=false;$("edit-speech-cuts").hidden=!editing.speech_cuts?.length;$("edit-speech-cuts").textContent=`This revision omits ${editing.speech_cuts?.length||0} speech passages. Caption and layout edits retain them. Undo speech cuts before changing the excerpt boundaries.`;$("edit-words").value=editing.words.map(w=>`${w.id} | ${w.text}`).join("\n");$("source-player").hidden=!editing.has_source;if(editing.has_source){$("source-player").src=`/api/artifacts/${id}/source`;$("source-player").onloadedmetadata=()=>{$("source-player").currentTime=Math.max(0,(editing.start_us-editing.section_origin_us)/1e6-3);};}$("source-unavailable").hidden=editing.has_source;if(typeof captionEditorState==="function")editing.captionFormState=captionEditorState();goView("editor");}
-$("edit-form").onsubmit=async event=>{event.preventDefault();error("");$("save-edit").disabled=true;$("save-edit").textContent="Saving revision…";try{const words=$("edit-words").value.split("\n").filter(Boolean).map(line=>{const split=line.indexOf("|");const id=line.slice(0,split).trim();const original=editing.words.find(w=>w.id===id);if(split<0||!original)throw new Error("Keep each original caption word ID before the |.");return {...original,text:line.slice(split+1).trim()};});const result=await api(`/api/clips/${editing.id}/edit`,{method:"POST",body:JSON.stringify({expected_revision:editing.revision,start_us:Math.round(Number($("edit-start").value)*1e6),end_us:Math.round(Number($("edit-end").value)*1e6),title:$("edit-title").value,words,layout_id:$("edit-layout").value,reviewed:$("reviewed").checked,trim_silence:$("edit-trim-silence").checked,video_encoder:$("edit-encoder").value})});activeRun=result.run_id;$("editor").hidden=true;detailSignature="";await refresh();goView("results");$("notice").textContent="Revision saved. Follow its render in Runs & clips.";$("notice").hidden=false;}catch(e){error(e.message);}finally{$("save-edit").disabled=false;$("save-edit").textContent="Save and render revision";}};
+
 let frame=null,frameSize=null,frameName="",frameVersion=0,frameLoading=false,drawMode="camera",gesture=null,redraw=false,rectangles={};
 let composition={camera_height:608,camera_fit:"cover",gameplay_fit:"cover",camera_ratio:"panel",gameplay_ratio:"panel"};
 const canvas=$("crop-canvas"),ctx=canvas.getContext("2d");

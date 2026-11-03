@@ -5,12 +5,16 @@ from typing import Literal
 
 from pydantic import Field
 
-from .contracts import Contract, Word
+from .contracts import ClipAnalysisOptions, Contract, Word
 from .discover import lines
 from .llm import ModelAnchorError
 
 
+CONTEXT_TIMEOUT_SECONDS = 15 * 60
+
+
 class ContextRequest(Contract):
+    analysis: ClipAnalysisOptions | None = None
     expected_revision: int = Field(ge=1)
     before: bool = False
     after: bool = False

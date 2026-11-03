@@ -1,13 +1,14 @@
 """Revision-specific posting copy, independent of clip titles and video renders."""
 
 import json
+import time
 import uuid
 
 from pydantic import Field, field_validator
 
 from . import caption_correction
 from .contracts import Contract
-from .llm import ModelAnchorError
+from .llm import ModelAnchorError, check_provider
 
 VERSION = "publishing-copy-v1"
 SYSTEM = """Write Finnish social posting copy for this finished streamer clip.
@@ -99,17 +100,31 @@ def propose(body, transcript, evaluator, *, note="", previous=None):
                           reasoning_effort=evaluator.verification_reasoning)
 
 
-def _propose(settings, store, clip, note, previous):
+def _propose(settings, store, clip, note, previous, *, analysis=None, check=None):
     from .pipeline import Pipeline
 
+    analysis = analysis or {"provider": "openai", "budget_usd": 5}
+    check_provider(analysis["provider"])
     pipeline = Pipeline(settings, store, clip["run_id"])
+    deadline = time.monotonic() + 300
+
+    def check_copy():
+        if check:
+            check()
+        pipeline.check()
+        if time.monotonic() >= deadline:
+            raise ValueError("Posting copy timed out after 5 minutes. Choose an available model and retry; saved copy is kept.")
+
     folder = settings.work / "publishing-copy" / clip["id"] / uuid.uuid4().hex
-    return pipeline.clip_proposal(clip, {}, folder,
+    result = pipeline.clip_proposal(clip, {}, folder,
+                                  analysis=analysis, check=check_copy,
                                   propose=lambda body, transcript, evaluator: propose(
                                       body, transcript, evaluator, note=note, previous=previous))
+    check_copy()
+    return result
 
 
-def generate(settings, store, clip, *, note="", regenerate=False, expected_id=None):
+def generate(settings, store, clip, *, note="", regenerate=False, expected_id=None, analysis=None, check=None):
     previous = get(store, clip)
     if previous and not regenerate:
         return previous
@@ -120,6 +135,9 @@ def generate(settings, store, clip, *, note="", regenerate=False, expected_id=No
     with store.connect() as db:
         if db.execute("SELECT 1 FROM buffer_publications WHERE clip_id=?", (clip["id"],)).fetchone():
             raise ValueError("This clip already has a publishing request. Manage the existing post in Buffer.")
-    result = _propose(settings, store, clip, note, previous)
+    options = {k: v for k, v in {"analysis": analysis, "check": check}.items() if v is not None}
+    result = _propose(settings, store, clip, note, previous, **options)
+    if check:
+        check()
     return save(store, clip, result.model_dump(), note=note, generated=True,
                 expected_id=(previous or {}).get("id"))

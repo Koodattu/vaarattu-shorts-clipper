@@ -12,7 +12,7 @@ The first workflow is: select one VOD and press **Run** → download audio → t
 - SQLite and local files on the processing PC. No separate hosted frontend, Redis, or distributed queue initially.
 - Local faster-whisper Turbo is the only implemented STT model. Other STT options remain research for later.
 - Local Gemma 4 through llama.cpp: test 31B Q4 first and 26B-A4B Q4 alongside it, aiming for the largest useful model fully on the GPU. ASR and LLM never stay resident together.
-- Implemented API transports for Gemini 3.8 Flash, GPT-5.6 Luna, GLM-5.3-Flash and DeepSeek V4 Flash. Meta Muse Spark 1.3 remains disabled pending its verified API contract; live provider tests are still pending.
+- Implemented API transports for Gemini 3.8 Flash, GPT-6 Luna, GLM-5.3-Flash and DeepSeek V4 Flash. Meta Muse Spark 1.3 remains disabled pending its verified API contract; live provider tests are still pending.
 - All downloaded models live in this project's `.cache/models/`, with adjacent project-local library caches. Downloading models is an explicit setup command; startup and Run do not download them.
 - yt-dlp for metadata/audio/range acquisition; FFmpeg for exact trimming, two-panel composition, captions and validation.
 - YouTube and Twitch video library with thumbnails, source/search filters and persistent shorts history. Matching full exports (including numbered YouTube parts) share processing status across providers. Set the provider credentials in `.env`, then fetch/select videos in the UI. See [library setup and matching rules](docs/setup.md#youtube-and-twitch-video-library).

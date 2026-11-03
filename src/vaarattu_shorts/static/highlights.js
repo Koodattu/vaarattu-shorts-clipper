@@ -59,7 +59,7 @@ async function loadHighlights(){
   try{
     if(!highlightProviders){
       const status=await api("/api/status");const select=$("highlight-provider");select.replaceChildren();
-      for(const [id,p] of Object.entries(status.providers))if(p.available&&p.configured){const option=document.createElement("option");option.value=id;option.textContent=`${id} · ${p.model}`;select.append(option);if(id==="codex"){const extra=text("option","Codex · gpt-6-luna");extra.value="codex-gpt-6-luna";select.append(extra);}}
+      for(const [id,p] of Object.entries(status.providers))if(p.available&&p.configured){const option=document.createElement("option");option.value=id;option.textContent=id==="codex"?"Codex gpt-6-luna":id==="openai"?"OpenAI API - gpt-6-luna":`${id} · ${p.model}`;select.append(option);}
       if(status.providers.codex?.configured)select.value="codex";
       highlightProviders=true;select.onchange();
     }
@@ -153,7 +153,7 @@ $("highlight-match-parts").onchange=$("highlight-urls").oninput;
 $("highlight-resolve").onclick=resolveHighlight;
 $("refresh-highlights").onclick=loadHighlights;
 $("highlight-provider").onchange=()=>{
-  const p=$("highlight-provider").value.startsWith("codex")?"codex":$("highlight-provider").value;
+  const p=$("highlight-provider").value;
   $("highlight-budget-field").hidden=p==="codex"||p==="local";
   $("highlight-local-field").hidden=p!=="local";
   $("highlight-reasoning-settings").hidden=!["codex","openai"].includes(p);
@@ -163,9 +163,9 @@ $("highlight-form").onsubmit=async event=>{
   event.preventDefault();if(highlightBusy||!highlightManifest)return;
   highlightLock(true);
   try{
-    const selectedProvider=$("highlight-provider").value,provider=selectedProvider.startsWith("codex")?"codex":selectedProvider;
+    const provider=$("highlight-provider").value;
     const body={manifest_id:highlightManifest.id,project_title:$("highlight-project-title").value.trim(),segments:collectHighlightSources(),final_score_floor:Number($("highlight-score-floor").value||75),provider,local_model:$("highlight-local").value||"gemma4-31b",context_size:32768,discovery_reasoning:$("highlight-discovery-reasoning").value||"low",verification_reasoning:$("highlight-verification-reasoning").value||"low",budget_usd:["codex","local"].includes(provider)?0:Number($("highlight-budget").value),video_encoder:$("highlight-encoder").value};
-    if(selectedProvider==="codex-gpt-6-luna")body.codex_model="gpt-6-luna";
+    if(provider==="codex")body.codex_model="gpt-6-luna";
     const signature=JSON.stringify(body);
     if(highlightStartKey?.signature!==signature)highlightStartKey={signature,key:crypto.randomUUID()};
     const run=await api("/api/highlights",{method:"POST",headers:{"Idempotency-Key":highlightStartKey.key},body:signature});

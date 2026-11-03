@@ -316,3 +316,126 @@ def test_worker_resumes_requested_action_across_stage_changes(
     monkeypatch.setattr(worker, "Pipeline", Pipeline)
     worker.run_job(settings, store, run, lambda: False)
     assert calls == [expected]
+
+
+@pytest.mark.parametrize("state", ["failed", "cancelled", "paused", "completed"])
+def test_context_recovery_keeps_original_clip_and_unlocks_editing(settings, store, context_clip, state):
+    run, original, _ = context_clip
+    queued = store.queue_context("clip", request(True))
+    store.update(run, state=state, message="Model service failed")
+    client = TestClient(create_app(settings), base_url="http://127.0.0.1:8765")
+    headers = {"x-local-token": client.get("/api/status").json()["token"]}
+    clip = client.get("/api/clips/clip").json()
+    assert clip["context_job"]["state"] == state and clip["context_recovery_available"]
+    response = client.post("/api/clips/clip/context-recovery", headers=headers, json={
+        "expected_revision": 1, "request_id": queued["request_id"], "action": "discard"})
+    assert response.status_code == 200, response.text
+    assert response.json()["context_request"]["status"] == "cancelled"
+    assert response.json()["context_job"] is None
+    saved = store.clip("clip")
+    assert saved["revision"] == 1 and saved["review_status"] == "approved"
+    assert all(saved["body"][key] == value for key, value in original.items())
+    assert (settings.ready / "clip/1/short.mp4").read_bytes() == b"original preview"
+    assert store.get(run)["state"] == "completed"
+    assert "context_repair_requested" not in store.get(run)["result"]
+    store.queue_context("clip", request())
+
+
+def test_running_context_must_stop_before_discard_or_retry(settings, store, context_clip):
+    run, original, _ = context_clip
+    queued = store.queue_context("clip", request())
+    assert store.claim() == run
+    store.recover_context("clip", 1, queued["request_id"], "stop")
+    assert store.get(run)["state"] == "running" and store.get(run)["intent"] == "cancel"
+    for action in ("discard", "retry"):
+        with pytest.raises(ValueError, match="wait"):
+            store.recover_context("clip", 1, queued["request_id"], action)
+    worker.run_job(settings, store, run, lambda: False)
+    assert store.get(run)["state"] == "cancelled"
+    store.recover_context("clip", 1, queued["request_id"], "discard")
+    assert store.get(run)["state"] == "completed"
+    assert store.clip("clip")["body"]["words"] == original["words"]
+
+
+def test_queued_context_can_stop_and_retry_with_new_model_and_stale_results_are_rejected(settings, store, context_clip, monkeypatch):
+    run, _, _ = context_clip
+    queued = store.queue_context("clip", request(True))
+    store.recover_context("clip", 1, queued["request_id"], "stop")
+    assert store.claim() is None
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    client = TestClient(create_app(settings), base_url="http://127.0.0.1:8765")
+    headers = {"x-local-token": client.get("/api/status").json()["token"]}
+    response = client.post("/api/clips/clip/context-recovery", headers=headers, json={
+        "expected_revision": 1, "request_id": queued["request_id"], "action": "retry",
+        "analysis": {"provider": "openai", "budget_usd": 2}})
+    assert response.status_code == 200, response.text
+    retry = response.json()["context_request"]
+    assert retry["id"] != queued["request_id"] and "started_at" not in retry
+    assert retry["before"] is True and retry["note"] == "Include the question"
+    assert retry["analysis"] == {"provider": "openai", "budget_usd": 2}
+    assert store.get(run)["config"]["provider"] == "local"
+    with pytest.raises(ValueError, match="changed"):
+        store.resolve_context("clip", 1, queued["request_id"], "Late response", {})
+    with pytest.raises(ValueError, match="changed"):
+        store.recover_context("clip", 1, queued["request_id"], "stop")
+    assert store.get(run)["state"] == "queued"
+
+
+def test_context_deadline_includes_retries_and_survives_resume(settings, store, context_clip, monkeypatch):
+    run, original, _ = context_clip
+    queued = store.queue_context("clip", request())
+    store.claim()
+    clock = [1000.0]
+    monkeypatch.setattr(pipeline.time, "time", lambda: clock[0])
+
+    @contextmanager
+    def server(*args):
+        yield None
+
+    class Evaluator:
+        def __init__(self, *args, **kwargs):
+            self.check = args[5]
+
+    def delayed_proposal(body, transcript, evaluator):
+        clock[0] += context_repair.CONTEXT_TIMEOUT_SECONDS
+        evaluator.check()
+        pytest.fail("An expired search must not apply a late result")
+
+    monkeypatch.setattr(pipeline, "local_server", server)
+    monkeypatch.setattr(pipeline, "Evaluator", Evaluator)
+    monkeypatch.setattr(context_repair, "propose", delayed_proposal)
+    worker.run_job(settings, store, run, lambda: False)
+    assert store.get(run)["state"] == "failed"
+    assert "timed out after 15 minutes" in store.get(run)["message"]
+    assert store.clip("clip")["body"]["words"] == original["words"]
+    assert store.start_context("clip", 1, queued["request_id"]) == 1000
+    store.recover_context("clip", 1, queued["request_id"], "retry")
+    retry = store.clip("clip")["body"]["context_request"]
+    assert store.start_context("clip", 1, retry["id"]) == clock[0]
+
+
+def test_context_recovery_cannot_undo_an_applied_revision(store, context_clip):
+    _, original, _ = context_clip
+    queued = store.queue_context("clip", request())
+    store.resolve_context("clip", 1, queued["request_id"], "Expanded", {**original, "status": "pending"})
+    with pytest.raises(ValueError, match="changed"):
+        store.recover_context("clip", 1, queued["request_id"], "discard")
+    assert store.clip("clip")["revision"] == 2
+
+
+def test_local_token_counting_honors_context_cancellation(tmp_path):
+    import httpx
+    from vaarattu_shorts.llm import Evaluator
+    from vaarattu_shorts.processes import Interrupted
+
+    class Client:
+        def post(self, url, **kwargs):
+            body = {"prompt": "test"} if url == "/apply-template" else {"tokens": [1, 2]}
+            return httpx.Response(200, json=body, request=httpx.Request("POST", "http://localhost" + url))
+
+    def cancelled():
+        raise Interrupted("cancel")
+
+    evaluator = Evaluator("local", None, "run", tmp_path, 0, cancelled, Client())
+    with pytest.raises(Interrupted):
+        evaluator.input_size("system", "prompt")

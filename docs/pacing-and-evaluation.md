@@ -50,7 +50,7 @@ Repeat `--section N` to include more sections. Both efforts receive the same tra
 
 These commands make model requests using the saved run's provider/model. They never render videos, queue production runs or alter reviews. API runs share one combined spending limit across both efforts (the saved limit, or `--budget N`); Codex subscription usage has no dollar cap. Outputs go to a separate evaluation directory/database. `manifest.json` records source/run/section identity, `comparison.json` records counts/time/usage, and each effort gets a `review.csv` with separate **would_post**, **cut_defect**, **needs_context** and **notes** columns. Not publishing a candidate is not automatically classified as a discovery mistake.
 
-No live low/medium comparison was run during implementation; no quality winner has been chosen. [Luna model documentation](https://developers.openai.com/api/docs/models/gpt-5.6-luna).
+No live low/medium comparison was run during implementation; no quality winner has been chosen. [Luna model documentation](https://developers.openai.com/api/docs/models/gpt-6-luna).
 
 ## Verification
 

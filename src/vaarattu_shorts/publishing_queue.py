@@ -92,8 +92,15 @@ def choose(store, jobs, remote_posts, limit):
     return selected, skipped_order
 
 
-def fill(settings, store):
+def fill(settings, store, *, analysis=None, progress=None, check=None):
     # The caller holds buffer-publishing.lock throughout selection and submission.
+    def report(message, **fields):
+        if check:
+            check()
+        if progress:
+            progress(message, **fields)
+
+    report("Checking Buffer channels and available queue slots…", stage="checking", scheduled=0)
     buffer.refresh(settings, store)
     api = buffer.client(settings)
     cfg, _ = buffer.selected_channels(settings, api)
@@ -113,7 +120,13 @@ def fill(settings, store):
         return {"scheduled": 0, "message": "No unposted Ready for posting clips are available in source order.",
                 "clips": [], "skipped_order": skipped_order, "attention": attention}
     # Prepare all text before creating plans or submitting any clip in this batch.
-    copies = {c["id"]: publishing_copy.generate(settings, store, c) for c in selected}
+    copies = {}
+    for index, clip in enumerate(selected, 1):
+        report(f"Preparing posting copy {index} of {len(selected)}: {clip['body']['title']}",
+               stage="copy", current=index, total=len(selected), clip_id=clip["id"])
+        options = {k: v for k, v in {"analysis": analysis, "check": check}.items() if v is not None}
+        copies[clip["id"]] = publishing_copy.generate(settings, store, clip, **options)
+    report("Planning daily posting times…", stage="planning")
     local_now = buffer.now().astimezone(ZoneInfo(ZONE))
     earliest = (local_now + timedelta(minutes=10)).replace(second=0, microsecond=0) + timedelta(minutes=1)
     day = local_now.date()
@@ -171,7 +184,9 @@ def fill(settings, store):
               "title": copies[c["id"]]["title"], "caption": copies[c["id"]]["caption"]} for c in selected]
     ticket = buffer.preview(settings, store, items, "plan")
     result = {"scheduled": 0, "clips": [], "skipped_order": skipped_order, "attention": attention, "message": ""}
-    for item in ticket["items"]:
+    for index, item in enumerate(ticket["items"], 1):
+        report(f"Uploading and scheduling clip {index} of {len(selected)}: {item['title']}",
+               stage="submitting", current=index, scheduled=result["scheduled"])
         try:
             job = buffer.send(settings, store, ticket["id"], item["clip_id"])
         except ValueError as exc:
@@ -182,6 +197,9 @@ def fill(settings, store):
             break
         result["scheduled"] += 1
         result["clips"].append({"clip_id": item["clip_id"], "title": item["title"], "due_at": item["due_at"]})
+        if progress:
+            progress(f"{result['scheduled']} clips scheduled.", scheduled=result["scheduled"])
+    report("Refreshing queue availability…", stage="refreshing", scheduled=result["scheduled"])
     try:
         cfg["remaining"] = buffer.capacity(api, cfg, buffer.publications(store))
     except buffer.RemoteError as exc:

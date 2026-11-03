@@ -21,10 +21,12 @@ function paintCaptionCheck(){
 async function openCaptionCheck(id,fromEditor=false){
   if(!id||captionBusy)return;
   if(fromEditor&&editing.captionFormState!==captionEditorState()){error("Save your current editor changes before checking the saved captions.");return;}
+  if(fromEditor&&!editorActionAllowed())return;
+  if(fromEditor){editorBusy=true;editorControls();}
   captionFromEditor=fromEditor;captionBusy=true;
-  try{captionClip=await api(`/api/clips/${id}`);$("caption-guidance").value=captionClip.caption_check?.note||"";$("caption-dialog").showModal();}
+  try{captionClip=await api(`/api/clips/${id}`);if(fromEditor)pauseEditorPlayers();$("caption-guidance").value=captionClip.caption_check?.note||"";$("caption-dialog").showModal();}
   catch(e){error(e.message);return;}
-  finally{captionBusy=false;}
+  finally{captionBusy=false;if(fromEditor){editorBusy=false;editorControls();}}
   paintCaptionCheck();
   if(captionClip.caption_check?.status==="pending")pollCaptionCheck();
 
@@ -32,7 +34,7 @@ async function openCaptionCheck(id,fromEditor=false){
 async function requestCaptionCheck(){
   if(captionBusy||!captionClip)return;captionBusy=true;paintCaptionCheck();
   try{
-    const request=await api(`/api/clips/${captionClip.id}/caption-check`,{method:"POST",body:JSON.stringify({expected_revision:captionClip.revision,note:$("caption-guidance").value})});
+    const request=await api(`/api/clips/${captionClip.id}/caption-check`,{method:"POST",body:JSON.stringify({...(captionFromEditor?editorAnalysisRequest():{}),expected_revision:captionClip.revision,note:$("caption-guidance").value})});
     captionClip.caption_check={id:request.request_id,status:"pending"};
   }catch(e){captionBusy=false;paintCaptionCheck();$("caption-message").textContent=e.message;return;}
   captionBusy=false;paintCaptionCheck();await pollCaptionCheck();
@@ -60,7 +62,8 @@ async function saveCaptionCorrections(undo=false){
   try{
     const result=await api(`/api/clips/${clip.id}/${undo?"caption-undo":"caption-corrections"}`,{method:"POST",body:JSON.stringify({expected_revision:clip.revision,...(undo?{}:{check_id:clip.caption_check.id,word_ids:ids})})});
     $("caption-dialog").close();clearTimeout(captionTimer);
-    if(!captionFromEditor&&reviewQueue[0]?.id===clip.id){
+    if(captionFromEditor)await followEditorRevision(clip,result);
+    else if(reviewQueue[0]?.id===clip.id){
       reviewRendering={id:clip.id,...result};reviewQueue[0]={...clip,revision:result.revision,status:"pending",has_preview:false};paintReviewQueue();await pollReviewRender();
     }else{activeRun=result.run_id;detailSignature="";await refresh();goView("results");}
   }catch(e){$("caption-message").textContent=e.message;}

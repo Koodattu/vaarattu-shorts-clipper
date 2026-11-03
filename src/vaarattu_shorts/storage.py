@@ -562,6 +562,59 @@ class Store:
             )
             return {"run_id": clip["run_id"], "revision": clip["revision"], "request_id": request["id"]}
 
+    def start_context(self, clip_id, expected_revision, request_id):
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            clip = self.unpack(db.execute("SELECT * FROM clips WHERE id=?", (clip_id,)).fetchone())
+            request = clip["body"].get("context_request", {})
+            if (clip["revision"] != expected_revision or request.get("id") != request_id
+                    or request.get("status") != "pending"):
+                raise ValueError("This context request changed. Reload the clip before continuing.")
+            started = request.get("started_at") or time.time()
+            body = {**clip["body"], "context_request": {**request, "started_at": started}}
+            db.execute("UPDATE clips SET body=? WHERE id=?", (json.dumps(body), clip_id))
+            return started
+
+    def recover_context(self, clip_id, expected_revision, request_id, action, analysis=None):
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            clip = self.unpack(db.execute("SELECT * FROM clips WHERE id=?", (clip_id,)).fetchone())
+            run = self.unpack(db.execute("SELECT * FROM runs WHERE id=?", (clip["run_id"],)).fetchone())
+            body = clip["body"]
+            request = body.get("context_request", {})
+            if (clip["revision"] != expected_revision or request.get("id") != request_id
+                    or request.get("status") != "pending"
+                    or run["result"].get("context_repair_requested") != clip_id):
+                raise ValueError("This context request changed. Refresh the clip before recovering it.")
+            state, intent, stage = run["state"], run["intent"], run["stage"]
+            result, progress = dict(run["result"]), run["progress"]
+            if action == "stop" and state in {"queued", "running"}:
+                if state == "running":
+                    intent = "cancel"
+                    message = "Stopping context search. Waiting for the worker to stop safely."
+                else:
+                    state, intent = "cancelled", ""
+                    message = "Context search stopped. Retry or keep the current clip."
+            elif action in {"retry", "discard"} and state in {"failed", "cancelled", "paused", "completed"}:
+                intent = ""
+                if action == "retry":
+                    request = {**request, "id": uuid.uuid4().hex, "status": "pending", "analysis": analysis}
+                    request.pop("started_at", None)
+                    request.pop("reason", None)
+                    state, stage, progress = "queued", "context-repair", 0
+                    message = "Context search queued again."
+                else:
+                    request = {**request, "status": "cancelled", "reason": "Current clip kept by user."}
+                    result.pop("context_repair_requested", None)
+                    state, stage, progress = "completed", "complete", 1
+                    message = "Current clip kept. The unfinished context search was discarded."
+                db.execute("UPDATE clips SET body=? WHERE id=?",
+                           (json.dumps({**body, "context_request": request}), clip_id))
+            else:
+                raise ValueError("Stop the context search and wait for it to finish stopping before recovering it.")
+            db.execute("UPDATE runs SET state=?,intent=?,stage=?,progress=?,message=?,result=?,updated=? WHERE id=?",
+                       (state, intent, stage, progress, message, json.dumps(result), time.time(), clip["run_id"]))
+
     def resolve_context(self, clip_id, expected_revision, request_id, reason, revised=None):
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")

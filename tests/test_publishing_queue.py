@@ -12,7 +12,8 @@ from test_posting_and_cleanup import rendered
 
 @pytest.fixture(autouse=True)
 def fixed_clock(monkeypatch):
-    monkeypatch.setattr(publishing_copy, "_propose", lambda *args: publishing_copy.Copy(
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(publishing_copy, "_propose", lambda *args, **kwargs: publishing_copy.Copy(
         title="Posting title", caption="Posting caption."))
     monkeypatch.setattr(buffer, "now", lambda: datetime(2030, 10, 26, 5, 0, tzinfo=timezone.utc))
     monkeypatch.setattr(publishing_queue.random, "randint", lambda low, high: low)
@@ -238,3 +239,50 @@ def test_remote_failed_post_does_not_block_fill_or_get_reposted(settings, store,
     again = publishing_queue.fill(settings, store)
     assert again["scheduled"] == 0 and again["attention"] == response.json()["attention"]
     assert len(remote["mutations"]) == 6
+
+
+def test_fill_stop_after_submission_keeps_receipts_and_retry_does_not_duplicate(settings, store, remote):
+    from vaarattu_shorts.publishing_jobs import FillJob, FillStopped
+    job = FillJob(settings)
+
+    def work(**options):
+        def progress(message, **fields):
+            options["progress"](message, **fields)
+            if fields.get("scheduled") == 1:
+                job.stop(job.status()["id"])
+        return publishing_queue.fill(settings, store, **{**options, "progress": progress})
+
+    with pytest.raises(FillStopped):
+        job.run(work, {"provider": "openai", "budget_usd": 5})
+    assert len(remote["mutations"]) == 3
+    assert job.status()["scheduled"] == 1
+    result = job.run(lambda **options: publishing_queue.fill(settings, store, **options),
+                     {"provider": "codex"})
+    assert result["scheduled"] == 1
+    assert len(remote["mutations"]) == 6
+    assert len({m["assets"][0]["video"]["url"] for m in remote["mutations"]}) == 2
+
+
+def test_publishing_routes_use_explicit_provider_and_default_to_api(settings, store, remote, monkeypatch):
+    seen = []
+
+    def propose(settings, store, clip, note, previous, **options):
+        seen.append(options["analysis"])
+        return publishing_copy.Copy(title="Title", caption="Caption")
+
+    monkeypatch.setattr(publishing_copy, "_propose", propose)
+    api = TestClient(create_app(settings), base_url="http://127.0.0.1:8765")
+    headers = {"x-local-token": api.get("/api/status").json()["token"]}
+    original = store.get(store.clip("early")["run_id"])["config"]
+    response = api.post("/api/publishing/copy/early/generate", headers=headers,
+                        json={"revision": 1, "analysis": {"provider": "codex"}})
+    assert response.status_code == 200, response.text
+    assert seen[0]["provider"] == "codex" and seen[0]["codex"]["model"] == "gpt-6-luna"
+    response = api.post("/api/publishing/buffer/fill", headers=headers)
+    assert response.status_code == 200, response.text
+    assert seen[1] == {"provider": "openai", "budget_usd": 5}
+    assert store.get(store.clip("early")["run_id"])["config"] == original
+    status = api.get("/api/publishing/buffer/fill/status").json()
+    assert status["state"] == "completed" and status["result"]["scheduled"] == 2
+    assert api.post("/api/publishing/buffer/fill/stop", json={"job_id": status["id"]}).status_code == 403
+    assert api.post("/api/publishing/buffer/fill/stop", headers=headers, json={"job_id": status["id"]}).status_code == 400

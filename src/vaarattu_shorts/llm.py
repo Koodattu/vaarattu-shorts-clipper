@@ -25,7 +25,7 @@ PROVIDERS = {
     "local": {"model": "selected GGUF", "key": None},
     "gemini": {"model": "gemini-3.8-flash", "key": "GEMINI_API_KEY"},
     "openai": {"model": "gpt-6-luna", "key": "OPENAI_API_KEY"},
-    "codex": {"model": "gpt-5.6-luna", "key": None},
+    "codex": {"model": "gpt-6-luna", "key": None},
     "zai": {"model": "glm-5.3-flash", "key": "ZAI_API_KEY"},
     "deepseek": {"model": "deepseek-v4-flash", "key": "DEEPSEEK_API_KEY"},
     "meta": {
@@ -53,7 +53,7 @@ class ModelRankingError(ValueError):
 
 def codex_settings(model=None):
     base_url = os.environ.get("CODEX_BASE_URL", "http://127.0.0.1:18080/v1").strip().rstrip("/")
-    model = (model if model is not None else os.environ.get("CODEX_MODEL", PROVIDERS["codex"]["model"])).strip()
+    model = (model if model is not None else PROVIDERS["codex"]["model"]).strip()
     try:
         url = urlsplit(base_url)
         valid = (
@@ -72,8 +72,8 @@ def codex_settings(model=None):
         raise ValueError(
             "Set CODEX_BASE_URL to the local bridge's base URL, such as http://127.0.0.1:18080/v1."
         )
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,119}", model):
-        raise ValueError("Set CODEX_MODEL to a model name supported by your bridge.")
+    if model != PROVIDERS["codex"]["model"]:
+        raise ValueError("Select gpt-6-luna for the Codex bridge.")
     return {"base_url": base_url, "model": model}
 
 
@@ -237,7 +237,9 @@ class Evaluator:
         self.discovery_reasoning = discovery_reasoning
         self.verification_reasoning = verification_reasoning
         self.codex = (codex_config or codex_settings()) if provider == "codex" else None
-        self.model = self.codex["model"] if self.codex else PROVIDERS[provider]["model"]
+        # New requests use the supported model, including when resuming older runs.
+        # Saved configurations and usage records retain their original provenance.
+        self.model = PROVIDERS[provider]["model"]
         # API requests use a conservative 64K envelope, independent of local GPU allocation.
         # API input_size is a UTF-8 byte bound; local input_size uses llama.cpp's tokenizer.
         self.discovery_budget = context_size - MAX_OUTPUT - 2048 if provider == "local" else 48000
@@ -272,9 +274,9 @@ class Evaluator:
         messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
         if self.provider == "local":
             template = (
-                self.client.post("/apply-template", json={"messages": messages}).raise_for_status().json()
+                self.post(self.client, "/apply-template", {}, {"messages": messages}).raise_for_status().json()
             )
-            result = self.client.post("/tokenize", json={"content": template["prompt"], "add_special": True})
+            result = self.post(self.client, "/tokenize", {}, {"content": template["prompt"], "add_special": True})
             return len(result.raise_for_status().json()["tokens"])
         # UTF-8 bytes give a deliberately conservative request bound, not a measured token count.
         return len((system + prompt).encode("utf-8")) + 2048

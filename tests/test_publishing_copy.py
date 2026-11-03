@@ -58,7 +58,7 @@ def test_saved_copy_preserves_ready_stamp_and_expires_on_revision_or_transcript_
 def test_regeneration_reuses_saved_copy_until_explicitly_requested(settings, store, completed, monkeypatch):
     calls = []
 
-    def propose(settings, store, clip, note, previous):
+    def propose(settings, store, clip, note, previous, **options):
         calls.append((note, previous))
         return sample()
 
@@ -85,7 +85,8 @@ def test_generation_cannot_save_over_concurrent_edit(settings, store, completed,
 
 
 def test_copy_api_generates_saves_and_rejects_stale_revision_without_publishing(settings, store, completed, monkeypatch):
-    monkeypatch.setattr(publishing_copy, "_propose", lambda *args: sample())
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(publishing_copy, "_propose", lambda *args, **kwargs: sample())
     client = TestClient(create_app(settings), base_url="http://127.0.0.1:8765")
     headers = {"x-local-token": client.get("/api/status").json()["token"]}
     url = "/api/publishing/copy/early"
@@ -106,7 +107,7 @@ def test_fill_uses_manual_copy_and_generates_missing_copy_before_sending(setting
     publishing_copy.save(store, store.clip("early"), {"title": "My title", "caption": "My caption."})
     calls = []
 
-    def propose(settings, store, clip, note, previous):
+    def propose(settings, store, clip, note, previous, **options):
         assert not remote["mutations"]
         calls.append(clip["id"])
         return sample()
@@ -122,7 +123,7 @@ def test_fill_uses_manual_copy_and_generates_missing_copy_before_sending(setting
 
 
 def test_generation_failure_stops_fill_before_planning_or_upload(settings, store, remote, monkeypatch):
-    def propose(settings, store, clip, note, previous):
+    def propose(settings, store, clip, note, previous, **options):
         if clip["id"] == "late":
             raise ValueError("Model unavailable")
         return sample()
@@ -142,3 +143,46 @@ def test_preview_uses_saved_copy_when_text_omitted(settings, store, remote):
     assert ticket["items"][0]["title"] == sample().title
     assert ticket["items"][0]["caption"] == sample().caption
     assert not remote["mutations"]
+
+
+def test_posting_copy_passes_model_and_deadline_to_evaluator(settings, store, completed, monkeypatch):
+    from vaarattu_shorts import pipeline
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    clip = store.clip("early")
+    now = [0]
+    monkeypatch.setattr(publishing_copy.time, "monotonic", lambda: now[0])
+    options = {"provider": "openai", "budget_usd": 5}
+    checks = []
+
+    def proposal(self, clip, transcript, folder, **kwargs):
+        assert kwargs["analysis"] == options
+        kwargs["check"]()
+        now[0] = 300
+        kwargs["check"]()
+        pytest.fail("Expired generation must not return copy")
+
+    monkeypatch.setattr(pipeline.Pipeline, "clip_proposal", proposal)
+    with pytest.raises(ValueError, match="5 minutes"):
+        publishing_copy.generate(settings, store, clip, analysis=options, check=lambda: checks.append(True))
+    assert len(checks) == 2
+    assert publishing_copy.get(store, clip) is None
+
+
+def test_implicit_publishing_copy_uses_api_even_for_old_codex_run(settings, store, completed, monkeypatch):
+    from vaarattu_shorts import pipeline
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    clip = store.clip("early")
+    original = {**store.get(completed)["config"], "provider": "codex",
+                "codex": {"model": "gpt-5.6-luna"}}
+    with store.connect() as db:
+        db.execute("UPDATE runs SET config=? WHERE id=?", (json.dumps(original), completed))
+    seen = []
+
+    def proposal(self, clip, transcript, folder, **kwargs):
+        seen.append(kwargs["analysis"])
+        return sample()
+
+    monkeypatch.setattr(pipeline.Pipeline, "clip_proposal", proposal)
+    publishing_copy.generate(settings, store, clip)
+    assert seen == [{"provider": "openai", "budget_usd": 5}]
+    assert store.get(completed)["config"] == original

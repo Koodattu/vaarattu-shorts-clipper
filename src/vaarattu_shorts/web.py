@@ -18,8 +18,8 @@ from fastapi.staticfiles import StaticFiles
 
 from . import buffer, caption_correction, clip_trim, catalog, delivery, discover, highlight_sources, highlights, r2, recordings, stream_data, tighten, twitch_catalog
 from .context_repair import ContextRequest
-from .contracts import MIN_CLIP_US, EditRequest, LayoutSave, RunRequest, Word, clip_duration_limit, source_url
-from .llm import PROVIDERS, codex_settings
+from .contracts import MIN_CLIP_US, ClipAnalysisOptions, EditRequest, LayoutSave, RunRequest, Word, clip_duration_limit, source_url
+from .llm import PROVIDERS, check_provider, codex_settings
 from .models import CATALOG, model_path
 from .pipeline import preflight
 from .storage import BusyError, Store, atomic_json
@@ -82,6 +82,8 @@ def create_app(settings):
     catalog_lock = threading.Lock()
     app = FastAPI(title="Vaarattu Shorts", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.store = store
+    from .publishing_jobs import FillJob
+    publishing_fill = FillJob(settings)
     highlights_store = highlights.store_for(settings)
     app.state.highlights_store = highlights_store
     static = Path(__file__).parent / "static"
@@ -149,9 +151,7 @@ def create_app(settings):
             "models": models,
             "providers": {
                 key: {
-                    "model": os.environ.get("CODEX_MODEL", spec["model"])
-                    if key == "codex"
-                    else spec["model"],
+                    "model": spec["model"],
                     "configured": not spec["key"] or bool(os.environ.get(spec["key"])),
                     "available": not spec.get("unavailable"),
                     "reason": spec.get("unavailable", ""),
@@ -442,7 +442,7 @@ def create_app(settings):
 
     @app.get("/api/publishing/buffer")
     def get_buffer():
-        return buffer.status(settings, store)
+        return {**buffer.status(settings, store), "analysis_available": True, "fill_job": publishing_fill.status()}
 
     @app.post("/api/publishing/copy/{clip_id}")
     def save_publishing_copy(clip_id: str, revision: int = Body(ge=1),
@@ -464,7 +464,8 @@ def create_app(settings):
     @app.post("/api/publishing/copy/{clip_id}/generate")
     def generate_publishing_copy(clip_id: str, revision: int = Body(ge=1),
                                  note: str = Body(default="", max_length=2000),
-                                 expected_id: str | None = Body(default=None, max_length=100)):
+                                 expected_id: str | None = Body(default=None, max_length=100),
+                                 analysis: ClipAnalysisOptions | None = Body(default=None)):
         from . import publishing_copy
 
         def generate():
@@ -472,7 +473,8 @@ def create_app(settings):
             if clip["revision"] != revision:
                 raise ValueError("This clip changed. Refresh before generating its posting copy.")
             return publishing_copy.generate(settings, store, clip, note=note,
-                                            regenerate=True, expected_id=expected_id)
+                                            regenerate=True, expected_id=expected_id,
+                                            analysis=analysis_options(None, analysis or ClipAnalysisOptions(provider="openai", budget_usd=5)))
 
         return publishing_action(generate)
 
@@ -497,10 +499,19 @@ def create_app(settings):
         return publishing_action(buffer.refresh, settings, store)
 
     @app.post("/api/publishing/buffer/fill")
-    def fill_buffer():
+    def fill_buffer(analysis: ClipAnalysisOptions | None = Body(default=None, embed=True)):
         from .publishing_queue import fill
 
-        return publishing_action(fill, settings, store)
+        selected = analysis_options(None, analysis or ClipAnalysisOptions(provider="openai", budget_usd=5))
+        return publishing_action(lambda: publishing_fill.run(lambda **options: fill(settings, store, **options), selected))
+
+    @app.get("/api/publishing/buffer/fill/status")
+    def fill_buffer_status():
+        return publishing_fill.status()
+
+    @app.post("/api/publishing/buffer/fill/stop")
+    def stop_buffer_fill(job_id: str = Body(embed=True, max_length=100)):
+        return publishing_fill.stop(job_id)
 
     @app.post("/api/publishing/buffer/preview")
     def preview_buffer(request: buffer.PreviewRequest):
@@ -606,7 +617,37 @@ def create_app(settings):
 
     @app.get("/api/clips/{clip_id}")
     def get_clip(clip_id: str):
-        return public_clip(store.clip(clip_id))
+        clip = store.clip(clip_id)
+        run = store.get(clip["run_id"])
+        config = run["config"]
+        return {**public_clip(clip), "context_recovery_available": True,
+                "context_job": {key: run[key] for key in ("state", "intent", "message")}
+                if (clip["body"].get("context_request") or {}).get("status") == "pending" else None,
+                "analysis_defaults": {
+            "provider": config.get("provider", "local"),
+            "budget_usd": config.get("budget_usd", 0),
+            "local_model": config.get("local_model", "gemma4-31b"),
+        }}
+
+    def analysis_options(clip_id, options):
+        if options is None:
+            return None
+        config = store.get(store.clip(clip_id)["run_id"])["config"] if clip_id is not None else {}
+        provider = options.provider
+        check_provider(provider)
+        selected = {"provider": provider}
+        if provider == "local":
+            selected["local_model"] = options.local_model or config.get("local_model", "gemma4-31b")
+            model_path(settings, selected["local_model"])
+            selected["context_size"] = config.get("context_size", 16384)
+        elif provider == "codex":
+            selected["codex"] = codex_settings()
+        else:
+            limit = options.budget_usd if options.budget_usd is not None else config.get("budget_usd", 0)
+            if limit <= 0:
+                raise ValueError("Set an API run spending limit above zero for this action.")
+            selected["budget_usd"] = limit
+        return selected
 
     def queue_render(clip_id, expected_revision, layout_id=None, trim_silence=None, video_encoder=None):
         clip = store.clip(clip_id)
@@ -635,7 +676,17 @@ def create_app(settings):
             raise ValueError("Undo the speech cuts before requesting a longer excerpt, so their original word timing is preserved.")
         if not (settings.work / "runs" / clip["run_id"] / "asr" / "transcript.json").is_file():
             raise ValueError("The saved recording transcript is missing; restore it before requesting context.")
-        return store.queue_context(clip_id, request.model_dump())
+        return store.queue_context(clip_id, {**request.model_dump(exclude_none=True),
+                                           "analysis": analysis_options(clip_id, request.analysis)})
+
+    @app.post("/api/clips/{clip_id}/context-recovery")
+    def recover_context(clip_id: str, expected_revision: int = Body(ge=1),
+                        request_id: str = Body(min_length=1, max_length=100),
+                        action: Literal["stop", "retry", "discard"] = Body(),
+                        analysis: ClipAnalysisOptions | None = Body(default=None)):
+        options = analysis_options(clip_id, analysis) if action == "retry" else None
+        store.recover_context(clip_id, expected_revision, request_id, action, options)
+        return get_clip(clip_id)
 
     @app.post("/api/clips/{clip_id}/rerender", status_code=202)
     def rerender_clip(
@@ -649,17 +700,21 @@ def create_app(settings):
 
     @app.post("/api/clips/{clip_id}/tighten", status_code=202)
     def request_tighter_edit(clip_id: str, expected_revision: int = Body(ge=1),
-                             note: str = Body(default="", max_length=2000)):
-        return store.queue_clip_analysis(clip_id, {"expected_revision": expected_revision, "note": note},
+                             note: str = Body(default="", max_length=2000),
+                             analysis: ClipAnalysisOptions | None = Body(default=None)):
+        return store.queue_clip_analysis(clip_id, {"expected_revision": expected_revision, "note": note,
+                                                  "analysis": analysis_options(clip_id, analysis)},
                                          "tighten_check", "tighten_requested", "tighten")
 
     @app.post("/api/clips/{clip_id}/instructed-edit", status_code=202)
     def request_instructed_edit(clip_id: str, expected_revision: int = Body(ge=1),
-                                note: str = Body(min_length=1, max_length=2000)):
+                                note: str = Body(min_length=1, max_length=2000),
+                                analysis: ClipAnalysisOptions | None = Body(default=None)):
         if not note.strip():
             raise ValueError("Describe how you want this clip edited.")
         return store.queue_clip_analysis(
-            clip_id, {"expected_revision": expected_revision, "note": note, "mode": "instructed"},
+            clip_id, {"expected_revision": expected_revision, "note": note, "mode": "instructed",
+                      "analysis": analysis_options(clip_id, analysis)},
             "tighten_check", "tighten_requested", "tighten",
         )
 
@@ -684,11 +739,14 @@ def create_app(settings):
         return {"revision": revision, "run_id": clip["run_id"]}
 
     @app.post("/api/clips/{clip_id}/caption-check", status_code=202)
-    def check_captions(clip_id: str, expected_revision: int = Body(ge=1), note: str = Body(default="", max_length=2000)):
+    def check_captions(clip_id: str, expected_revision: int = Body(ge=1),
+                       note: str = Body(default="", max_length=2000),
+                       analysis: ClipAnalysisOptions | None = Body(default=None)):
         clip = store.clip(clip_id)
         if not (settings.work / "runs" / clip["run_id"] / "asr" / "transcript.json").is_file():
             raise ValueError("Restore the saved transcript before checking captions.")
-        return store.queue_clip_analysis(clip_id, {"expected_revision": expected_revision, "note": note},
+        return store.queue_clip_analysis(clip_id, {"expected_revision": expected_revision, "note": note,
+                                                  "analysis": analysis_options(clip_id, analysis)},
                                          "caption_check", "caption_check_requested", "caption-check")
 
     @app.post("/api/clips/{clip_id}/caption-corrections", status_code=202)

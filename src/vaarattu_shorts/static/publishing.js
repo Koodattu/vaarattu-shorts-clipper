@@ -1,5 +1,6 @@
 "use strict";
 let publishingBusy=false,publishingData=null,publishingStorage=null,publishingPage=0,publishingPreview=null,publishingTimeClip=null,publishingResolution=null,publishingConfirmation=null;
+let publishingFillJob=null,publishingFillTimer=null;
 const publishingSelected=new Set(),publishingEdits=new Map(),publishingFields=new Map();
 const publishingNames={youtube:"YouTube",instagram:"Instagram",tiktok:"TikTok"};
 const publishingStatuses={pending:"Not submitted",failed:"Submission failed",unknown:"Check uncertain submission",submitting:"Check interrupted submission",scheduled:"Scheduled",sending:"Publishing",posted:"Published",error:"Failed in Buffer",draft:"Draft in Buffer",needs_approval:"Approval needed in Buffer",attention:"Attention needed in Buffer"};
@@ -9,11 +10,55 @@ function publishingWhen(item){return item.due_at?`${new Date(item.due_at).toLoca
 function publishingRemember(){for(const [id,fields] of publishingFields)publishingEdits.set(id,{...publishingEdits.get(id),revision:publishingData.clips.find(c=>c.id===id)?.revision,copy_id:publishingEdits.get(id)?.copy_id??publishingData.clips.find(c=>c.id===id)?.copy?.id??null,...Object.fromEntries(Object.entries(fields).map(([k,e])=>[k,e.type==="checkbox"?e.checked:e.value]))});}
 function publishingItem(clip){publishingRemember();return {clip_id:clip.id,revision:clip.revision,title:clip.copy?.title||"",caption:clip.copy?.caption||"",note:clip.copy?.note||"",copy_id:clip.copy?.id||null,category:"20",made_for_kids:false,...publishingEdits.get(clip.id)};}
 function publishingOptions(select,options,value){select.replaceChildren();for(const [id,label] of options){const o=text("option",label);o.value=id;select.append(o);}select.value=value||"";}
+function publishingFillSummary(result){return `${result.scheduled} clip${result.scheduled===1?"":"s"} scheduled at random times between 19:00 and 21:00 Finnish time (Europe/Helsinki), one per day.${result.message?` ${result.message}`:""}${result.skipped_order?` ${result.skipped_order} earlier source moments were left out to preserve posting order.`:""}${result.attention?.length?` Skipped ${result.attention.length} existing request${result.attention.length===1?"":"s"} needing attention: ${result.attention.map(a=>`${a.title} (${a.platforms.map(p=>publishingNames[p]).join(", ")})`).join("; ")}.`:""}`;}
+function publishingAnalysis(){
+  if(!publishingData?.analysis_available)throw new Error("Restart the app to enable Publishing model selection, then refresh this page.");
+  const provider=$("publishing-model").value||"openai",budget=Number($("publishing-budget").value);
+  if(provider==="openai"&&(!Number.isFinite(budget)||budget<=0||budget>100))throw new Error("Set an API run spending limit above $0 and up to $100.");
+  return provider==="openai"?{provider,budget_usd:budget}:{provider};
+}
+function publishingPaintFill(job){
+  publishingFillJob=job;
+  const running=job?.state==="running",recoverable=["failed","stopped","interrupted"].includes(job?.state);
+  $("publishing-fill-stop").hidden=!running;
+  $("publishing-fill-stop").disabled=!!job?.stopping;
+  $("publishing-model").disabled=running||publishingBusy;
+  $("publishing-budget").disabled=running||publishingBusy;
+  $("publishing-fill").disabled=running||publishingBusy||!publishingData?.analysis_available||!publishingStorage?.connected||!publishingData?.connected||!Object.keys(publishingData?.mapping||{}).length;
+  $("publishing-fill").textContent=recoverable?"Retry remaining queue":"Fill scheduled queue";
+  if(job&&job.state!=="idle"){
+    const model=job.provider==="codex"?"Codex gpt-6-luna":"OpenAI API - gpt-6-luna";
+    $("publishing-fill-message").textContent=job.result?publishingFillSummary(job.result):`${model} · ${job.message} ${job.scheduled||0} clips scheduled so far.${recoverable?" Existing submissions will not be sent again. Check any requests needing attention below.":""}`;
+  }
+  if(running)publishingPollFill();
+}
+function publishingPollFill(){
+  if(publishingFillTimer!==null)return;
+  publishingFillTimer=setTimeout(async()=>{
+    publishingFillTimer=null;
+    try{
+      const job=await api("/api/publishing/buffer/fill/status");
+      publishingPaintFill(job);
+      if(job.state!=="running"&&!publishingBusy)await loadPublishing();
+      else if(publishingBusy)publishingPollFill();
+    }catch(e){
+      $("publishing-fill-message").textContent=`Cannot read queue progress: ${e.message}. Reconnecting; do not start another fill yet.`;
+      publishingPollFill();
+    }
+  },1500);
+}
+$("publishing-model").onchange=()=>{$("publishing-budget-field").hidden=$("publishing-model").value!=="openai";};
+$("publishing-fill-stop").onclick=async()=>{
+  if(!publishingFillJob?.id)return;
+  $("publishing-fill-stop").disabled=true;
+  try{publishingPaintFill(await api("/api/publishing/buffer/fill/stop",{method:"POST",body:JSON.stringify({job_id:publishingFillJob.id})}));}
+  catch(e){$("publishing-fill-message").textContent=e.message;$("publishing-fill-stop").disabled=false;publishingPollFill();}
+};
 async function publishingSaveCopy(clip){
   const value=publishingItem(clip);
   const body={revision:clip.revision,title:value.title,caption:value.caption,note:value.note,expected_id:value.copy_id};
   if(!value.title.trim()&&!value.caption.trim()){
-    clip.copy=await api(`/api/publishing/copy/${clip.id}/generate`,{method:"POST",body:JSON.stringify({revision:clip.revision,note:value.note,expected_id:value.copy_id})});
+    clip.copy=await api(`/api/publishing/copy/${clip.id}/generate`,{method:"POST",body:JSON.stringify({revision:clip.revision,note:value.note,expected_id:value.copy_id,analysis:publishingAnalysis()})});
   }else if(!clip.copy||["title","caption","note"].some(k=>value[k]!==clip.copy[k])){
     clip.copy=await api(`/api/publishing/copy/${clip.id}`,{method:"POST",body:JSON.stringify(body)});
   }
@@ -24,7 +69,7 @@ async function publishingSaveCopy(clip){
   }
 }
 async function publishingWork(fn){
-  if(publishingBusy)return;publishingBusy=true;
+  if(publishingBusy||publishingFillJob?.state==="running")return;publishingBusy=true;
   try{await fn();}catch(e){$("publishing-message").textContent=e.message;}
   finally{publishingBusy=false;try{await loadPublishing();}catch(e){$("publishing-message").textContent=e.message;}}
 }
@@ -44,7 +89,8 @@ async function loadPublishing(){
   publishingOptions($("publishing-organization"),data.organizations.map(o=>[o.id,o.name]),data.organization_id);
   for(const p of Object.keys(publishingNames))publishingOptions($("publishing-"+p),[["","Do not publish here"],...data.channels.filter(c=>c.service===p).map(c=>[c.id,`${c.displayName||c.name}${c.isDisconnected?" · Reconnect in Buffer":""}${c.isLocked?" · Locked":""}${c.isQueuePaused?" · Paused":""}`])],data.mapping[p]);
   $("publishing-save-channels").disabled=!data.connected;$("publishing-refresh-buffer").disabled=!data.connected;
-  $("publishing-fill").disabled=!storage.connected||!data.connected||!Object.keys(data.mapping).length;
+  publishingPaintFill(data.fill_job||{state:"idle"});
+  $("publishing-model-status").textContent=data.analysis_available?"Used for all posting copy, including Fill scheduled queue. Saved copy is reused. API limit is per source run, including its earlier usage.":"Restart the app to enable Publishing model selection and queue recovery.";
   $("publishing-cleanup").disabled=!storage.connected||!data.connected;
   $("publishing-capacity").textContent=data.remaining?`${Object.entries(data.remaining).map(([p,n])=>`${publishingNames[p]}: ${n}/10 queue slots available`).join(" · ")}. Last checked ${new Date(data.refreshed_at).toLocaleString()}.`:"Buffer Free: three channels, ten queued posts per channel. Sync with Buffer to check availability; it is checked again before submission.";
   for(const id of publishingSelected)if(!data.clips.some(c=>c.id===id&&c.ready&&c.plan&&!c.publication))publishingSelected.delete(id);
@@ -116,7 +162,7 @@ function publishingClipCard(clip,storage){
       row.append(text("p",clip.copy?"Saved for this final version. Editing the video requires new posting copy.":"Generate posting copy or enter your own. Blank fields are generated when preparing a post."));
       row.append(action(clip.copy?"Regenerate posting copy":"Generate posting copy",()=>publishingWork(async()=>{
         const value=publishingItem(clip);$("publishing-message").textContent="Writing a title and caption from the final clip…";
-        clip.copy=await api(`/api/publishing/copy/${clip.id}/generate`,{method:"POST",body:JSON.stringify({revision:clip.revision,note:value.note,expected_id:value.copy_id})});
+        clip.copy=await api(`/api/publishing/copy/${clip.id}/generate`,{method:"POST",body:JSON.stringify({revision:clip.revision,note:value.note,expected_id:value.copy_id,analysis:publishingAnalysis()})});
         publishingEdits.set(clip.id,{...value,copy_id:clip.copy.id});
         for(const key of ["title","caption","note"])fields[key].value=clip.copy[key];
         publishingRemember();$("publishing-message").textContent="Posting copy generated and saved. You can edit it before scheduling.";
@@ -182,17 +228,21 @@ $("publishing-previous").onclick=()=>{if(!publishingBusy){publishingPage--;retur
 $("publishing-next").onclick=()=>{if(!publishingBusy){publishingPage++;return loadPublishing().catch(e=>error(e.message));}};
 $("refresh-publishing").onclick=()=>loadPublishing().catch(e=>error(e.message));
 $("publishing-fill").onclick=()=>publishingWork(async()=>{
+  const analysis=publishingAnalysis();
+  $("publishing-message").textContent="";
   $("publishing-fill").disabled=true;
-  $("publishing-fill-message").textContent="Preparing posting copy, checking available slots and scheduling daily posts… Keep this page open until submission finishes.";
+  $("publishing-model").disabled=true;$("publishing-budget").disabled=true;
+  $("publishing-fill-message").textContent="Saving posting text before filling the queue…";
   try{
     publishingRemember();
     for(const clip of publishingData.clips){
       const edits=publishingEdits.get(clip.id);
       if(!clip.publication&&edits&&(edits.title.trim()||edits.caption.trim()||edits.note.trim()))await publishingSaveCopy(clip);
     }
-    const result=await api("/api/publishing/buffer/fill",{method:"POST"});
-    $("publishing-fill-message").textContent=`${result.scheduled} clip${result.scheduled===1?"":"s"} scheduled at random times between 19:00 and 21:00 Finnish time (Europe/Helsinki), one per day.${result.message?` ${result.message}`:""}${result.skipped_order?` ${result.skipped_order} earlier source moments were left out to preserve posting order.`:""}${result.attention?.length?` Skipped ${result.attention.length} existing request${result.attention.length===1?"":"s"} needing attention: ${result.attention.map(a=>`${a.title} (${a.platforms.map(p=>publishingNames[p]).join(", ")})`).join("; ")}.`:""}`;
-  }catch(e){$("publishing-fill-message").textContent=e.message;}
+    publishingPollFill();
+    const result=await api("/api/publishing/buffer/fill",{method:"POST",body:JSON.stringify({analysis})});
+    $("publishing-fill-message").textContent=publishingFillSummary(result);
+  }catch(e){$("publishing-fill-message").textContent=e.message;$("publishing-message").textContent=e.message;}
 });
 $("publishing-refresh-buffer").onclick=()=>publishingWork(async()=>{await api("/api/publishing/buffer/refresh",{method:"POST"});$("publishing-message").textContent="Buffer channels and delivery status refreshed.";});
 $("publishing-organization").onchange=()=>publishingWork(async()=>{await api("/api/publishing/buffer/channels",{method:"POST",body:JSON.stringify({organization_id:$("publishing-organization").value,mapping:{}})});});

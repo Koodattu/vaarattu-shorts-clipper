@@ -14,14 +14,18 @@ class Element{
 function fixture(){
   const directory=path.join(__dirname,"../src/vaarattu_shorts/static");
   const nodes=new Map([...fs.readFileSync(path.join(directory,"index.html"),"utf8").matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],new Element()]));
+  const timers=[];
   const writes=[],state={storage:false,buffer:false,fail:false};
   const clips=[{id:"clip",revision:3,title:"Clip",ready:true,source_title:"Recording",plan:null,publication:null,copy:{id:"copy-1",title:"Posting title",caption:"Posting caption.",note:""}}];
-  const data={connected:false,organizations:[{id:"org",name:"My account"}],organization_id:"org",channels:[{id:"yt",service:"youtube",name:"Channel"}],mapping:{youtube:"yt"},clips};
+  nodes.get("publishing-budget").value="5";nodes.get("publishing-model").value="openai";
+  const data={analysis_available:true,connected:false,organizations:[{id:"org",name:"My account"}],organization_id:"org",channels:[{id:"yt",service:"youtube",name:"Channel"}],mapping:{youtube:"yt"},clips};
   const find=(node,label)=>{if(node.textContent===label)return node;for(const c of node.children||[]){const match=find(c,label);if(match)return match;}};
   const context=vm.createContext({
+    setTimeout:fn=>{timers.push(fn);return timers.length;},
     $:id=>nodes.get(id),document:{createElement:tag=>Object.assign(new Element(),{tagName:tag})},text:(tag,value,className)=>Object.assign(new Element(),{textContent:value,tagName:tag,className}),
     action:(label,onclick)=>Object.assign(new Element(),{textContent:label,onclick}),error:message=>assert.fail(message),
     api:async(url,options)=>{
+      if(!options&&url.endsWith("fill/status"))return data.fill_job||{state:"idle"};
       if(!options)return url.endsWith("storage")?{connected:state.storage,bucket:"bucket",storage_limit:8e9,uploads:{}}:{...data,connected:state.buffer};
       const body=options.body?JSON.parse(options.body):null;writes.push({url,body});
       if(url.endsWith("storage/connect")){
@@ -52,7 +56,7 @@ function fixture(){
     },
   });
   for(const file of ["publishing-calendar.js","publishing.js"])vm.runInContext(fs.readFileSync(path.join(directory,file),"utf8"),context);
-  return {nodes,writes,state,data,context,find:(label)=>find(nodes.get("publishing-videos"),label),findIn:find};
+  return {nodes,writes,state,data,context,timers,find:(label)=>find(nodes.get("publishing-videos"),label),findIn:find};
 }
 test("publishing requires an explicit upload and clears credential inputs before sending",async()=>{
   const {nodes,writes,find}=fixture();
@@ -287,4 +291,52 @@ test("already published action keeps input on failure and saves only explicit lo
   const calendar=vm.runInContext('publishingCalendarModel(publishingData.clips,"posted")',context);
   assert.equal(calendar[0].day,"2026-10-06");
   assert.equal(calendar[0].estimated,true);
+});
+
+
+test("Publishing sends its selected model for fill and individual copy, never the source run default",async()=>{
+  const {nodes,writes,state,find}=fixture();state.storage=true;state.buffer=true;
+  await nodes.get("refresh-publishing").onclick();
+  await nodes.get("publishing-fill").onclick();
+  assert.deepEqual(writes[0].body,{analysis:{provider:"openai",budget_usd:5}});
+  nodes.get("publishing-model").value="codex";nodes.get("publishing-model").onchange();
+  assert.equal(nodes.get("publishing-budget-field").hidden,true);
+  await find("Regenerate posting copy").onclick();
+  assert.deepEqual(writes[1].body.analysis,{provider:"codex"});
+  nodes.get("publishing-model").value="openai";nodes.get("publishing-budget").value="0";
+  await nodes.get("publishing-fill").onclick();
+  assert.equal(writes.length,2);
+  assert.match(nodes.get("publishing-message").textContent,/spending limit/);
+});
+
+test("reload reconnects to fill progress, blocks duplicates, and exposes stop and safe retry",async()=>{
+  const {nodes,writes,state,data,timers}=fixture();state.storage=true;state.buffer=true;
+  data.fill_job={id:"active",state:"running",provider:"openai",message:"Preparing posting copy 2 of 4",scheduled:0};
+  await nodes.get("refresh-publishing").onclick();
+  assert.equal(writes.length,0);
+  assert.equal(nodes.get("publishing-fill").disabled,true);
+  assert.equal(nodes.get("publishing-fill-stop").hidden,false);
+  assert.equal(nodes.get("publishing-model").disabled,true);
+  assert.match(nodes.get("publishing-fill-message").textContent,/Preparing posting copy 2 of 4/);
+  await nodes.get("publishing-fill").onclick();
+  assert.equal(writes.length,0);
+  await nodes.get("publishing-fill-stop").onclick();
+  assert.deepEqual(writes[0],{url:"/api/publishing/buffer/fill/stop",body:{job_id:"active"}});
+  data.fill_job={...data.fill_job,state:"failed",message:"Model unavailable"};
+  await timers.shift()();
+  assert.equal(nodes.get("publishing-fill").disabled,false);
+  assert.equal(nodes.get("publishing-fill").textContent,"Retry remaining queue");
+  assert.match(nodes.get("publishing-fill-message").textContent,/Model unavailable/);
+  assert.match(nodes.get("publishing-fill-message").textContent,/will not be sent again/);
+  assert.equal(nodes.get("publishing-fill-stop").hidden,true);
+});
+
+test("old backend cannot silently ignore the Publishing model selector",async()=>{
+  const {nodes,writes,state,data,find}=fixture();state.storage=true;state.buffer=true;
+  delete data.analysis_available;
+  await nodes.get("refresh-publishing").onclick();
+  assert.equal(nodes.get("publishing-fill").disabled,true);
+  await find("Regenerate posting copy").onclick();
+  assert.equal(writes.length,0);
+  assert.match(nodes.get("publishing-message").textContent,/Restart the app/);
 });

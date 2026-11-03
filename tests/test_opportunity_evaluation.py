@@ -85,7 +85,7 @@ def test_comparison_uses_identical_sections_and_isolated_ledger(settings, store,
         {
             "provider": "codex",
             "budget_usd": 0,
-            "codex": {"model": "gpt-5.6-luna", "base_url": "http://localhost:18080/v1"},
+            "codex": {"model": "gpt-6-luna", "base_url": "http://localhost:18080/v1"},
         },
         "original",
     )

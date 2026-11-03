@@ -8,8 +8,8 @@ class Element {
   constructor(tag="div") { this.tagName=tag; this.children=[]; this.value=""; this.textContent=""; }
   append(...nodes) { this.children.push(...nodes); }
   replaceChildren(...nodes) { this.children=nodes; }
-  scrollIntoView() {}
-  focus() {}
+  scrollIntoView(options) { this.scrollOptions=options; }
+  focus() { this.focused=true; }
   pause() {}
   querySelectorAll() { return []; }
   setAttribute(name, value) { this[name]=value; }
@@ -67,7 +67,7 @@ test("Twitch library fetch, source filters, split status and selection preserve 
   assert.ok(find(list,"Matched 2 YouTube parts"));
   assert.equal(list.children[0].children[0].src,whole.thumbnail);
   assert.equal(calls.length,before,"Source filtering must not fetch metadata");
-  await find(list,"Select video").onclick();
+  await find(list,"Create shorts").onclick();
   assert.equal(nodes.get("video").value,twitchUrl);
   assert.ok(find(nodes.get("selected-video"),"Twitch recording"));
   assert.ok(find(nodes.get("selected-video"),"Some matching YouTube parts are already processed. This run will process the whole Twitch recording."));
@@ -407,6 +407,7 @@ test("gallery reviews persist in the UI, filter across runs and preserve playbac
   const html=fs.readFileSync(path.join(staticPath,"index.html"),"utf8");
   const nodes=new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],new Element()]));
   nodes.get("gallery-filter").value="all";
+  nodes.get("gallery-posting-filter").value="all";
   nodes.get("video-filter").value="all";
   const clips=Array.from({length:14},(_,i)=>({id:`clip-${i}`,run_id:`run-${i%2}`,title:`Moment ${i}`,
     status:"ready",review_status:"unreviewed",start_us:0,end_us:15000000,revision:1,has_preview:true,
@@ -420,6 +421,7 @@ test("gallery reviews persist in the UI, filter across runs and preserve playbac
       else if(url==="/api/layouts"||url==="/api/runs")result=[];
       else if(url==="/api/videos")result={configured:false,videos:[{id:"source-1",title:"Second recording",url:clips[1].source_url}]};
       else if(url==="/api/clips")result=clips.map(c=>({...c}));
+      else if(url==="/api/publishing/buffer")result={clips:[]};
       else if(url.endsWith("/review")){
         if(failReview)return {ok:false,json:async()=>({detail:"Review could not be saved."})};
         const body=JSON.parse(options.body),clip=clips.find(c=>url===`/api/clips/${c.id}/review`);
@@ -493,7 +495,7 @@ test("gallery reviews persist in the UI, filter across runs and preserve playbac
   assert.ok(find(grid,"No rendered clips yet."));
 });
 
-test("channel selection, local filters and explicit page fetching", async()=>{
+test("channel selection, local filters and continuous loading preserve existing cards", async()=>{
   const staticPath=path.join(__dirname,"../src/vaarattu_shorts/static");
   const html=fs.readFileSync(path.join(staticPath,"index.html"),"utf8");
   const nodes=new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],new Element()]));
@@ -527,7 +529,7 @@ test("channel selection, local filters and explicit page fetching", async()=>{
   const list=nodes.get("channel-videos");
   assert.equal(list.children.length,2);
   assert.ok(calls.every(c=>c.method==="GET"));
-  await find(list,"Select video").onclick();
+  await find(list,"Create shorts").onclick();
   assert.equal(nodes.get("video").value,videos[0].url);
   assert.equal(nodes.get("view-process").hidden,false);
   assert.equal(nodes.get("view-library").hidden,true);
@@ -540,40 +542,108 @@ test("channel selection, local filters and explicit page fetching", async()=>{
   assert.equal(list.children.length,1);
   assert.ok(find(list,"Vanha keskustelu"));
   assert.ok(find(list,"Processed · No suitable clips"));
-  await find(list,"Select again").onclick();
+  await find(list,"Create shorts again").onclick();
   assert.equal(nodes.get("video").value,videos[1].url);
   nodes.get("video-search").value="no match";
   nodes.get("video-search").oninput();
   assert.ok(find(list,"No saved videos match these filters."));
   assert.equal(calls.length,before,"Filtering must not use API quota");
   assert.equal(streamSearches.length,2,"Each selected recording gets one read-only stream lookup");
-  await nodes.get("older-videos").onclick();
+  vm.runInContext('goView("library")',context);
+  await nodes.get("load-more-videos").onclick();
   assert.deepEqual(calls.at(-1),{url:"/api/videos/older",method:"POST"});
-  assert.equal(nodes.get("older-videos").hidden,true);
+  assert.equal(nodes.get("load-more-videos").hidden,true);
   nodes.get("video-search").value="";
   nodes.get("video-filter").value="all";
-  for(let i=0;i<9;i++)videos.push({...videos[0],id:`fixture-${i}`,title:`Recording ${i}`});
+  for(let i=0;i<24;i++)videos.push({...videos[0],id:`fixture-${i}`,title:`Recording ${i}`});
   nodes.get("video-filter").oninput();
-  assert.equal(list.children.length,8);
-  assert.equal(nodes.get("video-page").textContent,"1–8 of 11 videos");
-  const pageCalls=calls.length;
-  nodes.get("show-videos").onclick();
-  assert.equal(list.children.length,3);
-  assert.equal(nodes.get("video-page").textContent,"9–11 of 11 videos");
-  assert.equal(nodes.get("show-videos").hidden,true);
-  nodes.get("previous-videos").onclick();
-  assert.equal(list.children.length,8);
-  assert.equal(calls.length,pageCalls,"Paging saved recordings must not call the API");
+  assert.equal(list.children.length,12);
+  assert.equal(nodes.get("video-count").textContent,"26 saved videos");
+  const pageCalls=calls.length, firstCard=list.children[0];
+  await nodes.get("load-more-videos").onclick();
+  assert.equal(list.children.length,24);
+  assert.equal(list.children[0],firstCard,"Loading more must preserve existing card elements");
+  await nodes.get("load-more-videos").onclick();
+  assert.equal(list.children.length,26);
+  assert.equal(nodes.get("load-more-videos").hidden,true);
+  assert.equal(calls.length,pageCalls,"Revealing saved recordings must not call the API");
   nodes.get("video-search").value="Recording 8";
   nodes.get("video-search").oninput();
   assert.equal(list.children.length,1);
-  assert.equal(nodes.get("previous-videos").hidden,true);
-  assert.equal(nodes.get("video-page").textContent,"1–1 of 1 videos");
+  assert.equal(nodes.get("video-count").textContent,"1 saved video");
+  assert.equal(nodes.get("video-count").focused,undefined,"Typing a filter must retain input focus");
   vm.runInContext('editing={};goView("editor");goView("layouts");',context);
   assert.equal(nodes.get("layout-return").href,"#editor");
   vm.runInContext('goView("process");goView("layouts");',context);
   assert.equal(nodes.get("layout-return").href,"#process");
   assert.equal(nodes.get("video").value,videos[1].url,"Navigation must preserve the selected source");
+});
+
+test("scroll loading appends cached cards, serializes remote fetches and stops on errors or empty batches",async()=>{
+  const directory=path.join(__dirname,"../src/vaarattu_shorts/static");
+  const nodes=new Map([...fs.readFileSync(path.join(directory,"index.html"),"utf8").matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],new Element()]));
+  nodes.get("video-filter").value="all";
+  const videos=Array.from({length:25},(_,i)=>({id:`video-${i}`,provider:"youtube",title:`Recording ${i}`,
+    url:`https://www.youtube.com/watch?v=video-${i}`,available:true,state:"not_started"}));
+  let library={configured:true,has_older:true,videos};
+  let intersect,finishFetch,requests=0,observing=false;
+  const context=vm.createContext({
+    document:{getElementById:id=>nodes.get(id),createElement:tag=>new Element(tag)},
+    IntersectionObserver:class {
+      constructor(callback){intersect=()=>callback([{isIntersecting:true}]);}
+      observe(node){assert.equal(node,nodes.get("video-load-more"));observing=true;}
+      disconnect(){observing=false;}
+    },
+    fetch:async(url,options)=>{
+      if(url==="/api/videos/older"){
+        requests++;assert.equal(options.method,"POST");
+        return new Promise(resolve=>{finishFetch=resolve;});
+      }
+      const initial={"/api/status":{token:"fixture",models:{turbo:true},providers:{}},"/api/layouts":[],"/api/runs":[],"/api/videos":library};
+      assert.ok(url in initial,url);return {ok:true,json:async()=>initial[url]};
+    },
+  });
+  vm.runInContext(fs.readFileSync(path.join(directory,"app.js"),"utf8"),context);
+  await new Promise(setImmediate);
+  const list=nodes.get("channel-videos"), first=list.children[0];
+  assert.equal(list.children.length,12);assert.equal(observing,true);
+  vm.runInContext('goView("gallery")',context);intersect();
+  assert.equal(list.children.length,12,"A hidden library must not load more");
+  vm.runInContext('goView("library")',context);
+  intersect();assert.equal(list.children.length,24);assert.equal(requests,0);
+  intersect();assert.equal(list.children.length,25);assert.equal(requests,0);
+  assert.equal(list.children[0],first);
+  intersect();intersect();await nodes.get("load-more-videos").onclick();
+  assert.equal(requests,1,"Repeated intersections and clicks share one pending request");
+  assert.equal(nodes.get("fetch-videos").disabled,true);
+  finishFetch({ok:false,json:async()=>({detail:"YouTube temporarily unavailable"})});
+  await new Promise(setImmediate);
+  assert.match(nodes.get("video-load-status").textContent,/temporarily unavailable/);
+  assert.equal(nodes.get("load-more-videos").textContent,"Retry loading videos");
+  assert.equal(list.children[0],first);assert.equal(observing,false);
+  assert.equal(nodes.get("error").scrollOptions,undefined,"Background failure must not scroll to the page header");
+  intersect();assert.equal(requests,1,"An error must not trigger automatic retries");
+  const retry=nodes.get("load-more-videos").onclick();
+  library={...library,videos:[...videos,{...videos[0],id:"older",title:"Older recording"}]};
+  finishFetch({ok:true,json:async()=>library});await retry;
+  assert.equal(requests,2);assert.equal(list.children.length,26);assert.equal(list.children[0],first);
+  assert.equal(observing,true);
+  intersect();finishFetch({ok:true,json:async()=>library});await new Promise(setImmediate);
+  assert.equal(observing,false);intersect();assert.equal(requests,3,"An empty batch must not drain the remote archive");
+  assert.match(nodes.get("video-load-status").textContent,/No new matches/);
+  const pending=nodes.get("load-more-videos").onclick();
+  nodes.get("video-search").value="Recording";nodes.get("video-search").oninput();
+  finishFetch({ok:true,json:async()=>library});await pending;
+  assert.equal(list.children.length,12,"A delayed load cannot expand a newly changed filter");
+  nodes.get("video-source").value="twitch";nodes.get("video-source").oninput();
+  assert.equal(nodes.get("load-more-videos").hidden,true);
+  intersect();assert.equal(requests,4,"A Twitch-only filter must not fetch YouTube pages");
+  nodes.get("video-search").value="";nodes.get("video-source").value="all";
+  nodes.get("video-source").oninput();intersect();intersect();
+  const last=nodes.get("load-more-videos").onclick();
+  finishFetch({ok:true,json:async()=>({...library,has_older:false})});await last;
+  assert.equal(nodes.get("load-more-videos").hidden,true);assert.equal(observing,false);
+  assert.match(nodes.get("video-load-status").textContent,/reached the end/);
 });
 
 test("opening the process page waits for the saved title and automatically matches once", async()=>{
@@ -665,7 +735,7 @@ test("Codex selection disables dollar cap and renders unknown costs", async()=>{
   const html=fs.readFileSync(path.join(staticPath,"index.html"),"utf8");
   const nodes=new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],new Element()]));
   const run={id:"fixture-run",state:"completed",stage:"complete",message:"",clips:[],
-    config:{video:"abc_def-ghI",provider:"codex",final_transcription:true,codex:{model:"gpt-5.6-luna"}},result:{coverage:"complete"},
+    config:{video:"abc_def-ghI",provider:"codex",final_transcription:true,codex:{model:"gpt-6-luna"}},result:{coverage:"complete"},
     usage:{estimated_cost_usd:null,reserved_usd:null,budget_usd:null,request_count:1,input_tokens:800,
       output_tokens:120,cached_input_tokens:100,reasoning_tokens:20,unreported_requests:0,
       reported_counts:{cached_input_tokens:1,reasoning_tokens:1}}};
@@ -677,7 +747,7 @@ test("Codex selection disables dollar cap and renders unknown costs", async()=>{
     fetch:async(url,options)=>{
       let result;
       if(url==="/api/status")result={token:"fixture",max_concurrent_jobs:2,models:{turbo:true,"large-v3":true},providers:{
-        codex:{model:"gpt-5.6-luna",configured:true,available:true}}};
+        codex:{model:"gpt-6-luna",configured:true,available:true},openai:{model:"gpt-6-luna",configured:true,available:true}}};
       else if(url==="/api/concurrency"){
         assert.equal(options.method,"POST");
         assert.deepEqual(JSON.parse(options.body),{max_concurrent_jobs:3});
@@ -701,7 +771,7 @@ test("Codex selection disables dollar cap and renders unknown costs", async()=>{
   nodes.get("job-concurrency").value="3";
   await nodes.get("job-concurrency").onchange();
   assert.equal(nodes.get("job-concurrency").disabled,false);
-  assert.ok(find(nodes.get("provider"),"Codex · gpt-5.6-luna"));
+  assert.ok(find(nodes.get("provider"),"Codex gpt-6-luna"));
   nodes.get("provider").value="codex";
   nodes.get("provider").onchange();
   assert.equal(nodes.get("budget").disabled,true);
@@ -713,10 +783,13 @@ test("Codex selection disables dollar cap and renders unknown costs", async()=>{
   await nodes.get("run-form").onsubmit({preventDefault(){}});
   assert.equal(submitted.provider,"codex");
   assert.equal(submitted.final_transcription,true);
+  assert.ok(find(nodes.get("provider"),"OpenAI API - gpt-6-luna"));
+  assert.equal(nodes.get("provider").children.filter(o=>o.value==="codex").length,1);
+  assert.equal(nodes.get("provider").children.length,2);
   assert.ok(find(nodes.get("run-detail"),"Final clip captions: large-v3 · selected sections only."));
   assert.equal(submitted.budget_usd,0);
-  assert.ok(find(nodes.get("provider"),"Codex · gpt-6-luna"));
-  nodes.get("provider").value="codex-gpt-6-luna";nodes.get("provider").onchange();
+  assert.ok(find(nodes.get("provider"),"Codex gpt-6-luna"));
+  nodes.get("provider").value="codex";nodes.get("provider").onchange();
   assert.equal(nodes.get("budget-field").hidden,true);
   assert.equal(nodes.get("codex-note").hidden,false);
   await nodes.get("run-form").onsubmit({preventDefault(){}});
@@ -725,7 +798,7 @@ test("Codex selection disables dollar cap and renders unknown costs", async()=>{
   assert.equal(nodes.get("error").textContent,"");
   assert.equal(nodes.get("view-results").hidden,false);
   assert.equal(nodes.get("view-process").hidden,true);
-  assert.ok(find(nodes.get("run-detail"),"Codex · gpt-5.6-luna · subscription usage · monetary cost unavailable."));
+  assert.ok(find(nodes.get("run-detail"),"Codex · gpt-6-luna · subscription usage · monetary cost unavailable."));
   nodes.get("provider").value="openai";
   nodes.get("provider").onchange();
   assert.equal(nodes.get("budget").disabled,false);
@@ -777,6 +850,9 @@ test("API errors preserve JSON messages and report plain-text server failures wi
   await assert.rejects(request(),/HTTP 502/);assert.equal(calls,3);
   response={ok:true,status:200,json:async()=>{throw new SyntaxError("truncated");}};
   await assert.rejects(request(),/unreadable response/);assert.equal(calls,4);
+  response={ok:false,status:422,json:async()=>({detail:[{msg:"Value error, Set a spending limit for the selected API provider.",loc:["body"],input:{private:"do not display"}}]})};
+  await assert.rejects(request(),e=>e.message==="Set a spending limit for the selected API provider."&&e.status===422);assert.equal(calls,5);
+
 });
 
 

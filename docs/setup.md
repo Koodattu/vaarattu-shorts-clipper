@@ -114,8 +114,8 @@ Existing process environment variables take precedence, including empty values. 
 |---|---|
 | Local · Gemma 4 | None |
 | Gemini 3.8 Flash | `GEMINI_API_KEY` |
-| GPT-6 Luna | `OPENAI_API_KEY` |
-| Codex · gpt-5.6-luna | No Platform key; optional `CODEX_API_KEY` for a protected local bridge |
+| OpenAI API - gpt-6-luna | `OPENAI_API_KEY` |
+| Codex gpt-6-luna | No Platform key; optional `CODEX_API_KEY` for a protected local bridge |
 | GLM-5.3-Flash | `ZAI_API_KEY` |
 | DeepSeek V4 Flash | `DEEPSEEK_API_KEY` |
 
@@ -129,9 +129,9 @@ Remove-Variable clipperApiKey
 
 The PowerShell override lasts for that terminal session and its child processes; `.env` persists your saved configuration. Once launched, the provider selector indicates missing keys. Set a positive API spending limit in the form (for example `$1.00` as a first-run ceiling, not a predicted VOD price); local mode can keep it at zero. Codex uses a separate subscription allowance and disables this dollar cap.
 
-To use the already-running local Codex bridge instead of the Platform API, select **Codex · gpt-5.6-luna**. Defaults are `CODEX_BASE_URL=http://127.0.0.1:18080/v1` and `CODEX_MODEL=gpt-5.6-luna` in `.env`; leave `CODEX_API_KEY` empty unless your bridge requires its own local key. Token usage is still recorded, while subscription/credit costs are shown as unavailable. See [Codex provider setup and limitations](codex-provider.md).
+To use the already-running local Codex bridge instead of the Platform API, select **Codex gpt-6-luna**. The model is fixed to `gpt-6-luna` and the default endpoint is `CODEX_BASE_URL=http://127.0.0.1:18080/v1` in `.env`; leave `CODEX_API_KEY` empty unless your bridge requires its own local key. Token usage is still recorded, while subscription/credit costs are shown as unavailable. See [Codex provider setup and limitations](codex-provider.md).
 
-Gemini 3.8 Flash, GPT-5.6 Luna, GLM-5.3-Flash and DeepSeek V4 Flash have implemented provider-specific request/response paths. They have fixture validation, not live API certification. Meta Muse Spark 1.3 appears as unavailable because its exact API contract remains unverified; entering a Meta key does not enable a guessed endpoint. This is the one requested provider whose implementation is deferred pending accessible documentation.
+Gemini 3.8 Flash, GPT-6 Luna, GLM-5.3-Flash and DeepSeek V4 Flash have implemented provider-specific request/response paths. They have fixture validation, not live API certification. Meta Muse Spark 1.3 appears as unavailable because its exact API contract remains unverified; entering a Meta key does not enable a guessed endpoint. This is the one requested provider whose implementation is deferred pending accessible documentation.
 
 Select a positive spend cap for API runs. Accounting uses conservative standard uncached rates, and peak rates for DeepSeek, so it can overestimate the provider's final invoice. Response usage includes reported reasoning where applicable. A timed-out or otherwise ambiguously billed request retains its reservation. There is one JSON repair attempt. Temporary model request failures (HTTP 408, 429, 500, 502, 503, 504, network errors, transport timeouts and remote protocol errors) automatically retry up to four times, waiting 30, 60, 120 and 240 seconds. The progress message shows a countdown, and pause/cancel remain available. A longer `Retry-After` is respected up to 15 minutes; longer requested waits stop for manual retry rather than retrying early. Access/configuration failures still stop immediately. Every retry reserves its own estimated cost under the existing cap and uses the same provider, model and request. The retry allowance is shared across the original request and its JSON repair. The application watchdog does not retry a request that may still be running. Exhaustion preserves completed work for Resume / retry. A run's cap is immutable; choose a sufficient cap initially or start a new run with a revised cap. There is no automatic paid fallback from local mode.
 
@@ -297,3 +297,35 @@ In restricted Windows environments, pytest's shared user temp folder can be inac
 Use `vaarattu-shorts status` to inspect saved local state without processing. Use `vaarattu-shorts backup` with the launcher/worker stopped to create a SQLite-backup-API snapshot plus durable artifacts/checksum manifest under `workdir/backups/`. Backup excludes downloaded audio/sections, scratch WAVs and logs. Model files remain in `.cache/models/`. Restore into the same project workdir with the app stopped and verify the manifest; stored absolute paths need migration before a restore to a different project path. A full restore drill is not yet performed.
 
 Before production use, authorize and perform the separate live validation checklist in [implementation-status.md](implementation-status.md): model fit, actual YouTube partial-transfer behavior, two-anchor timing, visual crop/caption QC and creator quality. These remain intentionally unrun at the user's request.
+
+
+### Choosing a model in the clip editor
+
+Under **Edit & context**, **AI model for actions** defaults to the clip's original
+run. Choose a provider to override it for finding context, suggesting tighter
+edits, editing with instructions, and checking captions. OpenAI API and Codex
+are separate choices, both using `gpt-6-luna`. The original run configuration
+stays unchanged; each queued action stores its choice for retries and restarts.
+API overrides use the entered run spending limit, including existing usage for
+that run. Codex uses subscription usage; local inference offers the installed
+Gemma models. Manual trims and caption changes do not call an LLM.
+
+Restart the app and worker after installing this backend update. Until then,
+the editor disables model selection rather than submitting an override that an
+older server would ignore.
+
+
+### Recovering a context search
+
+The clip editor shows the run's actual error if a context search fails or stops.
+Use **Retry context** to start a fresh request with the model selected in the
+editor, preserving the previous direction and guidance. **Keep current clip**
+discards the unfinished search and unlocks editing without changing the rendered
+revision or its review decision. **Stop search** requests cancellation; wait for
+the worker to acknowledge it before retrying or keeping the clip.
+
+Context processing has a 15-minute deadline shared by model calls and automatic
+retries, starting when the worker begins the search. Queue time does not count.
+The deadline survives a resume; Retry context starts a new request and deadline.
+Failure never automatically discards the original clip. Restart the app and
+worker to enable the recovery endpoints and deadline for future processing.

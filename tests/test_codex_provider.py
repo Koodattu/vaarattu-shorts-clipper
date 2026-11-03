@@ -56,7 +56,7 @@ def test_codex_responses_auth_schema_reasoning_cache_and_usage(settings, store, 
     assert str(request.url) == "http://127.0.0.1:18080/v1/responses"
     assert request.headers.get("authorization") == (f"Bearer {local_key}" if local_key else None)
     body = json.loads(request.content)
-    assert body["model"] == "gpt-5.6-luna" and body["reasoning"] == {"effort": "low"}
+    assert body["model"] == "gpt-6-luna" and body["reasoning"] == {"effort": "low"}
     assert not body["stream"] and not body["store"]
     assert "max_output_tokens" not in body and "service_tier" not in body
     assert body["text"]["format"]["schema"] == Proposals.model_json_schema()
@@ -123,6 +123,7 @@ def test_codex_snapshot_pins_model_endpoint_and_cache_identity(settings, store, 
     monkeypatch.setenv("CODEX_BASE_URL", "http://localhost:19090/v1/")
     changed = codex_settings()
     assert changed["base_url"] == "http://localhost:19090/v1"
+    assert changed["model"] == saved["model"] == "gpt-6-luna"
     run = store.admit({"provider": "codex"}, "snapshot")
     calls = []
 
@@ -137,9 +138,21 @@ def test_codex_snapshot_pins_model_endpoint_and_cache_identity(settings, store, 
             )
             evaluator.call("rules", "speech", Proposals, "scan")
     assert calls == [
-        ("http://127.0.0.1:18080/v1/responses", "gpt-5.6-luna"),
-        ("http://localhost:19090/v1/responses", "fixture-model"),
+        ("http://127.0.0.1:18080/v1/responses", "gpt-6-luna"),
+        ("http://localhost:19090/v1/responses", "gpt-6-luna"),
     ]
+
+
+def test_resumed_codex_run_uses_current_model_without_rewriting_saved_provenance(settings, store):
+    saved = {"base_url": "http://localhost:19090/v1", "model": "retired-model"}
+    run = store.admit({"provider": "codex", "codex": saved}, "retired-model")
+    evaluator = Evaluator("codex", store, run, settings.work, 0, lambda: None, codex_config=saved)
+    url, _, body = evaluator._request("rules", "speech", Proposals.model_json_schema(), "low")
+    assert url == "http://localhost:19090/v1/responses"
+    assert body["model"] == "gpt-6-luna"
+    assert saved["model"] == store.get(run)["config"]["codex"]["model"] == "retired-model"
+    with pytest.raises(ValueError, match="gpt-6-luna"):
+        codex_settings("unsupported-model")
 
 
 @pytest.mark.parametrize(
@@ -163,12 +176,15 @@ def test_codex_base_url_rejects_credentials_and_nonlocal_endpoints(monkeypatch, 
 def test_codex_admission_needs_no_platform_key_and_snapshots_no_secrets(settings, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY")
     monkeypatch.setenv("CODEX_API_KEY", "fixture-private-local-key")
+    monkeypatch.setenv("CODEX_MODEL", "retired-model")
     monkeypatch.setattr("vaarattu_shorts.web.preflight", lambda *_: {})
     app = create_app(settings)
-    layout = app.state.store.add_layout({})
+    layout = app.state.store.add_layout({"name": "Test layout"})
     with TestClient(app, base_url="http://127.0.0.1:8765") as client:
         status = client.get("/api/status")
         assert status.json()["providers"]["codex"]["configured"]
+        assert status.json()["providers"]["codex"]["model"] == "gpt-6-luna"
+        assert status.json()["providers"]["openai"]["model"] == "gpt-6-luna"
         assert not status.json()["providers"]["openai"]["configured"]
         assert "fixture-private-local-key" not in status.text
         headers = {"X-Local-Token": status.json()["token"], "Idempotency-Key": "codex-new-run"}
@@ -186,7 +202,7 @@ def test_codex_admission_needs_no_platform_key_and_snapshots_no_secrets(settings
         RunRequest(video="abc_def-ghI", provider="openai", layout_id=layout)
 
 
-@pytest.mark.parametrize("model", ["gpt-5.6-luna", "gpt-6-luna"])
+@pytest.mark.parametrize("model", [None, "gpt-6-luna"])
 @pytest.mark.parametrize("effort", ["none", "low", "medium", "high", "xhigh"])
 def test_explicit_codex_choice_is_saved_for_both_run_types(settings, monkeypatch, model, effort):
     from vaarattu_shorts import highlights
@@ -207,13 +223,13 @@ def test_explicit_codex_choice_is_saved_for_both_run_types(settings, monkeypatch
                 "discovery_reasoning": effort, "verification_reasoning": effort})
             assert response.status_code == 202, response.text
             config = store.get(response.json()["id"])["config"]
-            assert config["codex"]["model"] == model and config["budget_usd"] == 0
+            assert config["codex"]["model"] == "gpt-6-luna" and config["budget_usd"] == 0
             assert config["discovery_reasoning"] == config["verification_reasoning"] == effort
             monkeypatch.setenv("CODEX_MODEL", "changed-default")
             evaluator = Evaluator("codex", store, response.json()["id"], settings.work, 0, lambda: None,
                                   codex_config=config["codex"], discovery_reasoning=config["discovery_reasoning"],
                                   verification_reasoning=config["verification_reasoning"])
             url, _, body = evaluator._request("rules", "speech", Proposals.model_json_schema(), evaluator.discovery_reasoning)
-            assert body["model"] == model and body["reasoning"]["effort"] == effort
+            assert body["model"] == "gpt-6-luna" and body["reasoning"]["effort"] == effort
             assert url.endswith("/v1/responses") and "max_output_tokens" not in body
             assert client.post(endpoint, headers=headers, json={**fields, "provider": "codex", "codex_model": "unknown"}).status_code == 422

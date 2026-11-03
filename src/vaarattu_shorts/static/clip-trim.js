@@ -1,8 +1,11 @@
 "use strict";
-let clipTrim=null,trimBusy=false,trimPlaying=false,trimMediaReady=false;
+let clipTrim=null,trimBusy=false,trimPlaying=false,trimMediaReady=false,trimFromEditor=false;
 function trimClock(us){
   const seconds=Math.max(0,us/1e6),whole=Math.floor(seconds);
   return `${Math.floor(whole/3600)}:${String(Math.floor(whole%3600/60)).padStart(2,"0")}:${(seconds%60).toFixed(2).padStart(5,"0")}`;
+}
+function trimPreviewClock(us){
+  return trimClock(us-clipTrim.origin_us).replace(/^0:/,"");
 }
 function trimSnap(value,edge,words){
   for(;;){
@@ -26,10 +29,10 @@ function paintTrim(){
   const {start,end,words}=clipTrim;
   for(const edge of ["start","end"]){
     $("trim-"+edge).value=(clipTrim[edge]/1e6).toFixed(3);
-    const handle=$("trim-"+edge+"-handle");handle.value=clipTrim[edge];handle.setAttribute("aria-valuetext",trimClock(clipTrim[edge]));
+    const handle=$("trim-"+edge+"-handle");handle.value=clipTrim[edge];handle.setAttribute("aria-valuetext",`${trimPreviewClock(clipTrim[edge])} in preview`);
   }
   trimPosition($("trim-selected"),start,end);
-  $("trim-summary").textContent=`${trimClock(start)} – ${trimClock(end)} · ${((end-start)/1e6).toFixed(2)} seconds before internal cuts`;
+  $("trim-summary").textContent=`${trimPreviewClock(start)} – ${trimPreviewClock(end)} in preview · ${((end-start)/1e6).toFixed(2)} seconds before internal cuts`;
   const spoken=words.filter(w=>start<=w.start_us&&w.end_us<=end&&!(clipTrim.clip.speech_cuts||[]).some(c=>c.start_us<=w.start_us&&w.end_us<=c.end_us));
   $("trim-speech-summary").textContent=spoken.length?`Opening: ${spoken.slice(0,8).map(w=>w.text).join(" ")} … Ending: ${spoken.slice(-8).map(w=>w.text).join(" ")}`:"No speech in this range.";
   trimControls();
@@ -44,21 +47,25 @@ function setTrimEdge(edge,value,snap=true){
   if(trimMediaReady)$("trim-player").currentTime=Math.max(0,(value-clipTrim.origin_us)/1e6-(edge==="end"?0.8:0));
   $("trim-message").textContent="";paintTrim();
 }
-async function openClipTrim(){
-  const queued=reviewQueue[0];
-  if(reviewBusy||reviewRendering||!queued||queued.status!=="ready"||!queued.has_preview)return;
-  reviewBusy=true;reviewControls();$("review-player").pause();trimBusy=true;
+async function openClipTrim(fromEditor=false){
+  const queued=fromEditor?editing:reviewQueue[0];
+  if(fromEditor?!editorActionAllowed():reviewBusy||reviewRendering)return;
+  if(!queued||queued.status!=="ready"||!queued.has_preview)return;
+  trimFromEditor=fromEditor;
+  if(fromEditor){editorBusy=true;editorControls();pauseEditorPlayers();}
+  else{reviewBusy=true;reviewControls();$("review-player").pause();}
+  trimBusy=true;
   try{
     const data=await api(`/api/clips/${queued.id}/trim`);
     clipTrim={...data,start:data.clip.start_us,end:data.clip.end_us};trimPlaying=false;trimMediaReady=false;
     $("trim-message").textContent="Loading the original recording…";
-    $("trim-availability").textContent=`Available: ${trimClock(data.min_us)} – ${trimClock(data.max_us)} in the original recording.`;
+    $("trim-availability").textContent=`Available: ${trimPreviewClock(data.min_us)} – ${trimPreviewClock(data.max_us)} in preview (${trimClock(data.min_us)} – ${trimClock(data.max_us)} in the original recording).`;
     for(const edge of ["start","end"]){
       const handle=$("trim-"+edge+"-handle");handle.min=data.min_us;handle.max=data.max_us;
       $("trim-"+edge).min=data.min_us/1e6;$("trim-"+edge).max=data.max_us/1e6;
     }
     $("trim-ruler").replaceChildren();$("trim-speech").replaceChildren();$("trim-cuts").replaceChildren();
-    for(let i=0;i<=4;i++)$("trim-ruler").append(text("span",trimClock(data.min_us+(data.max_us-data.min_us)*i/4)));
+    for(let i=0;i<=4;i++)$("trim-ruler").append(text("span",trimPreviewClock(data.min_us+(data.max_us-data.min_us)*i/4)));
     trimPosition($("trim-original"),data.clip.start_us,data.clip.end_us);
     for(const word of data.words){const bar=document.createElement("span");trimPosition(bar,Math.max(data.min_us,word.start_us),Math.min(data.max_us,word.end_us));$("trim-speech").append(bar);}
     for(const cut of data.clip.speech_cuts||[]){const bar=document.createElement("span");trimPosition(bar,cut.start_us,cut.end_us);$("trim-cuts").append(bar);}
@@ -70,7 +77,11 @@ async function openClipTrim(){
     };
     player.src=`/api/artifacts/${data.clip.id}/source?revision=${data.clip.revision}`;player.load();
     $("trim-dialog").showModal();paintTrim();
-  }catch(e){reviewMessage(e.message,true);clipTrim=null;reviewBusy=false;reviewControls();}
+  }catch(e){
+    clipTrim=null;
+    if(fromEditor){editorMessage(e.message,true);editorBusy=false;editorControls();}
+    else{reviewMessage(e.message,true);reviewBusy=false;reviewControls();}
+  }
   finally{trimBusy=false;trimControls();}
 }
 async function previewTrim(){
@@ -86,14 +97,19 @@ async function saveClipTrim(event){
   try{
     const clip=clipTrim.clip;
     const result=await api(`/api/clips/${clip.id}/trim`,{method:"POST",body:JSON.stringify({expected_revision:clip.revision,start_us:clipTrim.start,end_us:clipTrim.end})});
-    reviewLast=null;reviewRendering={id:clip.id,...result};
-    reviewQueue[0]={...clip,revision:result.revision,status:"pending",has_preview:false};
-    $("trim-dialog").close();paintReviewQueue();reviewMessage("Trim saved. Rendering the new revision; your place in the queue is kept.");
+    $("trim-dialog").close();
+    if(trimFromEditor)await followEditorRevision(clip,result);
+    else{
+      reviewLast=null;reviewRendering={id:clip.id,...result};
+      reviewQueue[0]={...clip,revision:result.revision,status:"pending",has_preview:false};
+      paintReviewQueue();reviewMessage("Trim saved. Rendering the new revision; your place in the queue is kept.");
+    }
   }catch(e){$("trim-message").textContent=e.message;}
   finally{trimBusy=false;trimControls();}
-  if(reviewRendering)await pollReviewRender();
+  if(!trimFromEditor&&reviewRendering)await pollReviewRender();
 }
-$("review-trim").onclick=openClipTrim;
+$("review-trim").onclick=()=>openClipTrim();
+$("edit-trim").onclick=()=>openClipTrim(true);
 $("trim-form").onsubmit=saveClipTrim;
 for(const edge of ["start","end"]){
   const handle=$("trim-"+edge+"-handle");
@@ -129,5 +145,5 @@ $("trim-dialog").oncancel=event=>{if(trimBusy)event.preventDefault();};
 $("trim-dialog").onclose=()=>{
   clipTrim=null;trimPlaying=false;trimMediaReady=false;
   $("trim-player").pause();$("trim-player").removeAttribute("src");$("trim-player").load();
-  reviewBusy=false;reviewControls();
+  if(trimFromEditor){editorBusy=false;editorControls();}else{reviewBusy=false;reviewControls();}
 };

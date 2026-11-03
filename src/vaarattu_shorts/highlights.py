@@ -33,7 +33,7 @@ class Start(Contract):
     segments: list[SourceRange] | None = Field(default=None, min_length=1, max_length=30)
     target_minutes: int | None = Field(default=None, exclude=True, description="Legacy setting; ignored. Length follows the selected content.")
     provider: Literal["local", "gemini", "openai", "codex", "zai", "deepseek", "meta"] = "codex"
-    codex_model: Literal["gpt-5.6-luna", "gpt-6-luna"] | None = None
+    codex_model: Literal["gpt-6-luna"] | None = None
     local_model: Literal["gemma4-31b", "gemma4-26b-a4b"] = "gemma4-31b"
     context_size: Literal[16384, 32768] = 32768
     budget_usd: float = Field(default=0, ge=0, le=100)
