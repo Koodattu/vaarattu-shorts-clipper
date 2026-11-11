@@ -4,30 +4,29 @@ let editorAnalysisClip=null;
 function initEditorModels(state){
   const select=$("editor-provider");
   select.replaceChildren(Object.assign(text("option","Original run"),{value:""}));
-  for(const [key,info] of Object.entries(state.providers)){
-    const option=text("option",labels[key]+(!info.available?" · unavailable":!info.configured?" · key missing":""));
-    option.value=key;option.disabled=!info.available||!info.configured;select.append(option);
+  for(const item of modelOptions(state)){
+    const option=text("option",item.label);option.value=item.key;option.disabled=item.disabled;select.append(option);
   }
   for(const option of $("editor-local-model").options)option.disabled=!state.models[option.value];
 }
 function editorModelFields(){
-  const selected=$("editor-provider").value,defaults=editing?.analysis_defaults;
+  const selected=effectiveModel($("editor-provider").value).provider,defaults=editing?.analysis_defaults;
   $("editor-analysis-budget-field").hidden=!selected||["local","codex"].includes(selected);
   $("editor-local-model-field").hidden=selected!=="local";
   $("editor-provider-note").textContent=!defaults?"Restart the app to enable model selection for editing actions.":
-    !selected?`Uses ${labels[defaults.provider]} from the original run.`:
+    !selected?`Uses ${modelLabel(defaults)} from the original run.`:
     selected==="codex"?"Uses Codex subscription usage for AI actions. Plan limits apply.":
     selected==="local"?"Runs AI actions locally using the selected model.":
     "Applies to AI actions here. Existing API usage for this run counts toward the limit.";
 }
 function editorAnalysisRequest(){
-  const provider=$("editor-provider").value;
+  const profile=effectiveModel($("editor-provider").value),provider=profile.provider;
   if(!provider)return {};
   if(!editing?.analysis_defaults)throw new Error("Restart the app before choosing a model for editing actions.");
-  const analysis={provider};
-  if(provider==="local")analysis.local_model=$("editor-local-model").value;
+  const analysis={provider,...modelFields(profile)};
+  if(provider==="local")analysis.local_model=profile.local_model||$("editor-local-model").value;
   else if(provider!=="codex"){
-    const limit=Number($("editor-analysis-budget").value);
+    const limit=modelBudget("editor-analysis-budget");
     if(!Number.isFinite(limit)||limit<=0||limit>100)throw new Error("Set an API run spending limit above zero and at most $100.");
     analysis.budget_usd=limit;
   }
@@ -89,7 +88,7 @@ function fillEditor(clip){
     $("editor-local-model").value=clip.analysis_defaults?.local_model||"gemma4-31b";
   }
   const inherited=$("editor-provider").children[0];
-  if(inherited)inherited.textContent=clip.analysis_defaults?`Original run · ${labels[clip.analysis_defaults.provider]}`:"Original run";
+  if(inherited)inherited.textContent=clip.analysis_defaults?`Original run · ${modelLabel(clip.analysis_defaults)}`:"Original run";
   editorModelFields();
   $("editor-title").textContent=clip.title;
   $("edit-duration-help").textContent=clip.context_expanded?"This context-expanded clip has no fixed duration cap. Keep at least 3 seconds within the recording.":"Choose a 3–90 second interval. The original recording keeps its full pacing.";

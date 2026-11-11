@@ -56,7 +56,7 @@ function fixture(){
       state.clip={...state.clip,status:"pending",has_preview:false,revision:3};return {run_id:"run",revision:3};
     },
   });
-  for(const name of ["gallery","review","captions","manual-captions","clip-trim","tighten","editor"])vm.runInContext(fs.readFileSync(path.join(dir,name+".js"),"utf8"),context);
+  for(const name of ["model-choices","gallery","review","captions","manual-captions","clip-trim","tighten","editor"])vm.runInContext(fs.readFileSync(path.join(dir,name+".js"),"utf8"),context);
   vm.runInContext('reviewQueue=[{id:"queue-clip",revision:7,status:"ready",has_preview:true}];reviewLast={id:"previous"};',context);
   const queue=()=>JSON.parse(vm.runInContext('JSON.stringify([reviewQueue,reviewLast,reviewRendering,reviewBusy])',context));
   const open=()=>context.openEditor("edited");

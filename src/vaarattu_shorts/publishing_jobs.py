@@ -62,7 +62,7 @@ class FillJob:
             self.cancel.clear()
             atomic_json(self.path, {"id": uuid.uuid4().hex, "state": "running", "stage": "checking",
                                    "message": "Starting queue fill…", "started_at": time.time(),
-                                   "provider": analysis["provider"], "scheduled": 0})
+                                   "provider": analysis["provider"], "model": (analysis.get("codex") or {}).get("model") or analysis.get("openai_model") or analysis.get("local_model"), "scheduled": 0})
 
         def check():
             if self.cancel.is_set():

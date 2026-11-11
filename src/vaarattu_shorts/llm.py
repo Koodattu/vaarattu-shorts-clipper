@@ -14,9 +14,11 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit
+from typing import get_args
 
 import httpx
 
+from .contracts import ResponsesModel
 from .models import model_path
 from .processes import OwnedProcess, ToolError, waiting_lock
 from .storage import atomic_json
@@ -72,17 +74,17 @@ def codex_settings(model=None):
         raise ValueError(
             "Set CODEX_BASE_URL to the local bridge's base URL, such as http://127.0.0.1:18080/v1."
         )
-    if model != PROVIDERS["codex"]["model"]:
-        raise ValueError("Select gpt-6-luna for the Codex bridge.")
+    if model not in get_args(ResponsesModel):
+        raise ValueError("Select gpt-6-luna or gpt-6.1-terra for the Codex bridge.")
     return {"base_url": base_url, "model": model}
 
 
-def rates(provider, now=None):
+def rates(provider, now=None, *, model=None):
     now = now or datetime.now(timezone.utc)
     if provider == "gemini":
         return (0.75, 3.75) if now.year == 2026 else (1.50, 7.50)
     if provider == "openai":
-        return 0.10, 0.50
+        return (1.00, 5.00) if model == "gpt-6.1-terra" else (0.10, 0.50)
     if provider == "zai":
         return (0.075, 0.25) if now < datetime(2026, 9, 9, 16, tzinfo=timezone.utc) else (0.15, 0.50)
     if provider == "deepseek":
@@ -228,6 +230,7 @@ class Evaluator:
         context_size=16384,
         *,
         codex_config=None,
+        model=None,
         discovery_reasoning="low",
         verification_reasoning="low",
     ):
@@ -237,9 +240,13 @@ class Evaluator:
         self.discovery_reasoning = discovery_reasoning
         self.verification_reasoning = verification_reasoning
         self.codex = (codex_config or codex_settings()) if provider == "codex" else None
-        # New requests use the supported model, including when resuming older runs.
-        # Saved configurations and usage records retain their original provenance.
+        # Retired models in historical snapshots continue to fall back to the provider default.
+        requested = self.codex.get("model") if self.codex else model
         self.model = PROVIDERS[provider]["model"]
+        if provider == "local" and model:
+            self.model = model
+        elif provider in {"openai", "codex"} and requested in get_args(ResponsesModel):
+            self.model = requested
         # API requests use a conservative 64K envelope, independent of local GPU allocation.
         # API input_size is a UTF-8 byte bound; local input_size uses llama.cpp's tokenizer.
         self.discovery_budget = context_size - MAX_OUTPUT - 2048 if provider == "local" else 48000
@@ -490,12 +497,12 @@ class Evaluator:
             url, headers, body = self._request(
                 self.request_system(system, schema), prompt, schema, reasoning_effort
             )
-            input_rate, output_rate = rates(self.provider)
+            input_rate, output_rate = rates(self.provider, model=self.model)
             reserve = 0
             if self.provider != "local":
                 reserve = (size * input_rate + MAX_OUTPUT * output_rate) / 1e6
             model = self.model
-            if self.provider == "local":
+            if self.provider == "local" and model == PROVIDERS["local"]["model"]:
                 model = self.store.get(self.run_id)["config"].get("local_model", "local")
             request_id = self.store.reserve(
                 self.run_id,
@@ -509,7 +516,8 @@ class Evaluator:
                     "service_retries": service_retries,
                     "input_usd_per_million": None if self.codex else input_rate,
                     "output_usd_per_million": None if self.codex else output_rate,
-                    "pricing_checked": "2026-09-22" if self.provider == "openai" else "2026-09-06",
+                    "budget_usd": self.cap,
+                    "pricing_checked": "2026-11-11" if model == "gpt-6.1-terra" else "2026-09-22" if self.provider == "openai" else "2026-09-06",
                     "prompt_sha256": fingerprint,
                     "request_sha256": hashlib.sha256(
                         json.dumps(body, ensure_ascii=False, sort_keys=True).encode("utf-8")

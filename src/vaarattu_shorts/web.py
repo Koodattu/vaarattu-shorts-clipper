@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import base64
 import binascii
 import json
@@ -9,17 +7,19 @@ import threading
 from tempfile import TemporaryDirectory
 import uuid
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 from urllib.parse import urlparse
 
 from fastapi import Body, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from pydantic import BeforeValidator, Field, TypeAdapter
 
 from . import buffer, caption_correction, clip_trim, catalog, delivery, discover, highlight_sources, highlights, r2, recordings, stream_data, tighten, twitch_catalog
 from .context_repair import ContextRequest
 from .contracts import MIN_CLIP_US, ClipAnalysisOptions, EditRequest, LayoutSave, RunRequest, Word, clip_duration_limit, source_url
 from .llm import PROVIDERS, check_provider, codex_settings
+from .model_choices import preference, profiles, save_preference, with_override
 from .models import CATALOG, model_path
 from .pipeline import preflight
 from .storage import BusyError, Store, atomic_json
@@ -149,6 +149,8 @@ def create_app(settings):
             "token": token,
             "max_concurrent_jobs": store.concurrency(),
             "models": models,
+            "llm_profiles": profiles(),
+            "llm_preference": preference(settings),
             "providers": {
                 key: {
                     "model": spec["model"],
@@ -162,6 +164,10 @@ def create_app(settings):
             "model_cache": str(settings.models),
             "asr": {"batch_size": settings.asr_batch_size, "flash_attention": settings.asr_flash_attention},
         }
+
+    @app.post("/api/llm-preference")
+    def select_workspace_model(choice: str = Body(max_length=100), budget_usd: float | None = Body(default=None, gt=0, le=100, allow_inf_nan=False)):
+        return save_preference(settings, choice, budget_usd)
 
     @app.post("/api/concurrency")
     def concurrency(max_concurrent_jobs: int = Body(embed=True, ge=1, le=4)):
@@ -234,8 +240,19 @@ def create_app(settings):
         atomic_json(folder / "manifest.json", manifest)
         return {"id": identity, **manifest}
 
+    limit = TypeAdapter(Annotated[float, Field(ge=0, le=100, allow_inf_nan=False)])
+
+    def resolve_requested_model(raw):
+        pref = preference(settings)
+        if pref["choice"] == "default" or not isinstance(raw, dict):
+            return raw
+        # Apply the effective route before its budget and local-model requirements are checked.
+        return with_override({**raw, "budget_usd": limit.validate_python(raw.get("budget_usd", 0))}, pref)
+
+    workspace_choice = BeforeValidator(resolve_requested_model)
+
     @app.post("/api/highlights", status_code=202)
-    def start_highlight(body: highlights.Start, idempotency_key: str = Header(min_length=8, max_length=100)):
+    def start_highlight(body: Annotated[highlights.Start, workspace_choice], idempotency_key: str = Header(min_length=8, max_length=100)):
         path = settings.work / "highlights" / "manifests" / body.manifest_id / "manifest.json"
         if not path.is_file():
             raise ValueError("Load the recordings before starting.")
@@ -361,7 +378,7 @@ def create_app(settings):
         return store.runs()
 
     @app.post("/api/runs", status_code=202)
-    def start_run(body: RunRequest, idempotency_key: str = Header(min_length=8, max_length=100)):
+    def start_run(body: Annotated[RunRequest, workspace_choice], idempotency_key: str = Header(min_length=8, max_length=100)):
         manifests = preflight(settings, body)
         layout = store.layout(body.layout_id)
         config = {
@@ -625,14 +642,19 @@ def create_app(settings):
                 if (clip["body"].get("context_request") or {}).get("status") == "pending" else None,
                 "analysis_defaults": {
             "provider": config.get("provider", "local"),
+            **{k: config[k] for k in ("openai_model", "codex_model") if config.get(k)},
             "budget_usd": config.get("budget_usd", 0),
             "local_model": config.get("local_model", "gemma4-31b"),
         }}
 
     def analysis_options(clip_id, options):
-        if options is None:
+        pref = preference(settings)
+        if options is None and pref["choice"] == "default":
             return None
         config = store.get(store.clip(clip_id)["run_id"])["config"] if clip_id is not None else {}
+        options = ClipAnalysisOptions.model_validate(with_override(
+            options.model_dump() if options else {"budget_usd": config.get("budget_usd")}, pref
+        ))
         provider = options.provider
         check_provider(provider)
         selected = {"provider": provider}
@@ -641,8 +663,10 @@ def create_app(settings):
             model_path(settings, selected["local_model"])
             selected["context_size"] = config.get("context_size", 16384)
         elif provider == "codex":
-            selected["codex"] = codex_settings()
+            selected["codex"] = codex_settings(options.codex_model)
         else:
+            if provider == "openai" and options.openai_model:
+                selected["openai_model"] = options.openai_model
             limit = options.budget_usd if options.budget_usd is not None else config.get("budget_usd", 0)
             if limit <= 0:
                 raise ValueError("Set an API run spending limit above zero for this action.")

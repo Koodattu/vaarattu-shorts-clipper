@@ -6,6 +6,7 @@ from contextlib import nullcontext
 from pydantic import Field
 
 from . import publishing_copy
+from .model_choices import effective_config, evaluator_options, preference
 from .llm import ModelAnchorError, local_server
 from .processes import Interrupted, LockBusyError, lock
 from .storage import atomic_json, digest
@@ -145,7 +146,7 @@ def _generate(settings, store, run_id, revision, *, note="", expected_id=None, a
         return previous
     if (previous or {}).get("id") != expected_id:
         raise ValueError("Posting text changed elsewhere. Refresh before regenerating it.")
-    config = run["config"]
+    config = effective_config(run["config"], preference(settings))
     plan = json.loads((folder / "plan.json").read_text("utf-8"))
     transcripts = {asset: json.loads((run_folder(settings, run_id) / asset / "asr" / "transcript.json").read_text("utf-8"))
                    for asset in {s["asset"] for s in plan["retained"]}}
@@ -162,7 +163,7 @@ def _generate(settings, store, run_id, revision, *, note="", expected_id=None, a
     manager = local_server(settings, config, inference, check) if config["provider"] == "local" else nullcontext(None)
     with manager as client:
         evaluator = Evaluator(config["provider"], store, run_id, inference, config["budget_usd"],
-                              check, client, config["context_size"], codex_config=config.get("codex"),
+                              check, client, config["context_size"], **evaluator_options(config),
                               discovery_reasoning="low", verification_reasoning="low")
         value = propose(plan, transcripts, evaluator, note)
     check()

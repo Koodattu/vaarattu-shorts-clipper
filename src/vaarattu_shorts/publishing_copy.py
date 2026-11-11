@@ -103,9 +103,9 @@ def propose(body, transcript, evaluator, *, note="", previous=None):
 def _propose(settings, store, clip, note, previous, *, analysis=None, check=None):
     from .pipeline import Pipeline
 
-    analysis = analysis or {"provider": "openai", "budget_usd": 5}
-    check_provider(analysis["provider"])
     pipeline = Pipeline(settings, store, clip["run_id"])
+    analysis = analysis or {"provider": "openai", "budget_usd": 5}
+    check_provider(pipeline.analysis_config(analysis)["provider"])
     deadline = time.monotonic() + 300
 
     def check_copy():

@@ -34,6 +34,7 @@ async function setup({post,search}={}){
       assert.ok(url in data,url);return {ok:true,json:async()=>data[url]};
     },
   });
+  vm.runInContext(fs.readFileSync(path.join(directory,"model-choices.js"),"utf8"),context);
   vm.runInContext(fs.readFileSync(path.join(directory,"app.js"),"utf8"),context);
   await new Promise(setImmediate);
   vm.runInContext(fs.readFileSync(path.join(directory,"batch.js"),"utf8"),context);

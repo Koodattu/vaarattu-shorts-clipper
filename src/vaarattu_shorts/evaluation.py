@@ -11,6 +11,7 @@ from pathlib import Path
 
 from . import discover, render
 from .contracts import Candidate, Word
+from .model_choices import effective_config, evaluator_options, preference
 from .llm import Evaluator
 from .processes import ToolError
 from .storage import Store, atomic_json, digest
@@ -35,7 +36,8 @@ def comparison_folder(settings, name):
 
 def compare_reasoning(settings, run_id, sections, stage="discovery", budget=None):
     saved = saved_record(settings, "runs", run_id)
-    config = json.loads(saved["config"])
+    pref = preference(settings)
+    config = effective_config(json.loads(saved["config"]), pref)
     if config["provider"] not in {"openai", "codex"}:
         raise ValueError("Low/medium comparisons require an OpenAI or Codex run.")
     path = settings.work / "runs" / run_id / "transcript.checkpoint.json"
@@ -71,6 +73,8 @@ def compare_reasoning(settings, run_id, sections, stage="discovery", budget=None
     cap = config.get("budget_usd", 0) if budget is None else budget
     if not 0 <= cap <= 100 or (config["provider"] == "openai" and cap <= 0):
         raise ValueError("Choose a combined API spending limit above zero and at most $100.")
+    if pref["budget_usd"] is not None:
+        cap = min(cap, pref["budget_usd"])
     folder = comparison_folder(settings, f"reasoning-{stage}")
     atomic_json(folder / "transcript.json", transcript)
     atomic_json(
@@ -97,7 +101,7 @@ def compare_reasoning(settings, run_id, sections, stage="discovery", budget=None
             output,
             cap,
             lambda: None,
-            codex_config=config.get("codex"),
+            **evaluator_options(config),
             discovery_reasoning=effort if stage == "discovery" else "low",
             verification_reasoning=effort if stage == "verification" else "low",
         )

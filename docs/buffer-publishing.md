@@ -82,8 +82,8 @@ batch, retaining accepted posts; the next fill skips the affected clip. The butt
 does not start a recurring worker: press it again as slots become available.
 
 **Posting copy model** applies to queue filling, individual generation and blank text in
-previews. It defaults to **OpenAI API - gpt-6-luna**; **Codex gpt-6-luna** is an explicit
-alternative. It does not inherit the provider saved in the source recording. The API
+previews. It defaults to **OpenAI API - gpt-6-luna**; both Luna and Terra can use the direct API or the Codex bridge.
+An active **Workspace LLM** takes precedence. It does not inherit the provider saved in the source recording. The API
 spending limit applies to each source run's cumulative usage, including earlier processing;
 it does not change that run's saved configuration. Existing posting copy is reused.
 

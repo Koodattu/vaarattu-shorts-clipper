@@ -55,7 +55,7 @@ function fixture(){
       return {};
     },
   });
-  for(const file of ["publishing-calendar.js","publishing.js"])vm.runInContext(fs.readFileSync(path.join(directory,file),"utf8"),context);
+  for(const file of ["model-choices.js","publishing-calendar.js","publishing.js"])vm.runInContext(fs.readFileSync(path.join(directory,file),"utf8"),context);
   return {nodes,writes,state,data,context,timers,find:(label)=>find(nodes.get("publishing-videos"),label),findIn:find};
 }
 test("publishing requires an explicit upload and clears credential inputs before sending",async()=>{

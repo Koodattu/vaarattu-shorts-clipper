@@ -13,7 +13,8 @@ from typing import Literal
 from pydantic import Field, model_validator
 
 from . import highlight_copy, highlight_episode as editing, highlight_sources as sources, transcribe, youtube
-from .contracts import Contract
+from .contracts import Contract, ResponsesModel
+from .model_choices import evaluator_options
 from .llm import Evaluator, ModelOutputError
 from .pipeline import Pipeline, check_space
 from .llm import local_server
@@ -33,7 +34,8 @@ class Start(Contract):
     segments: list[SourceRange] | None = Field(default=None, min_length=1, max_length=30)
     target_minutes: int | None = Field(default=None, exclude=True, description="Legacy setting; ignored. Length follows the selected content.")
     provider: Literal["local", "gemini", "openai", "codex", "zai", "deepseek", "meta"] = "codex"
-    codex_model: Literal["gpt-6-luna"] | None = None
+    openai_model: ResponsesModel | None = None
+    codex_model: ResponsesModel | None = None
     local_model: Literal["gemma4-31b", "gemma4-26b-a4b"] = "gemma4-31b"
     context_size: Literal[16384, 32768] = 32768
     budget_usd: float = Field(default=0, ge=0, le=100)
@@ -300,7 +302,7 @@ class Highlights(Pipeline):
             with manager as client:
                 evaluator = Evaluator(self.config["provider"], self.store, self.run_id, inference,
                     self.config["budget_usd"], self.check, client, self.config["context_size"],
-                    codex_config=self.config.get("codex"), discovery_reasoning=result.get("editing_reasoning", self.config["discovery_reasoning"]),
+                    **evaluator_options(self.config), discovery_reasoning=result.get("editing_reasoning", self.config["discovery_reasoning"]),
                     verification_reasoning=result.get("editing_reasoning", self.config["verification_reasoning"]))
                 plan = editing.plan(items, evaluator, self.progress, previous=previous, guidance=result.get("guidance", ""),
                                     final_score_floor=result.get("final_score_floor", self.config.get("final_score_floor", editing.FINAL_SCORE_FLOOR)))
@@ -392,7 +394,7 @@ class Highlights(Pipeline):
                 with manager as client:
                     evaluator = Evaluator(self.config["provider"], self.store, self.run_id, inference,
                         self.config["budget_usd"], self.check, client, self.config["context_size"],
-                        codex_config=self.config.get("codex"),
+                        **evaluator_options(self.config),
                         discovery_reasoning=result.get("editing_reasoning", self.config["discovery_reasoning"]),
                         verification_reasoning=result.get("editing_reasoning", self.config["verification_reasoning"]))
                     reviewed = highlight_selection.review_plan(plan, editing.units(transcripts), evaluator, self.progress)

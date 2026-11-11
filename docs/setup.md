@@ -114,8 +114,8 @@ Existing process environment variables take precedence, including empty values. 
 |---|---|
 | Local · Gemma 4 | None |
 | Gemini 3.8 Flash | `GEMINI_API_KEY` |
-| OpenAI API - gpt-6-luna | `OPENAI_API_KEY` |
-| Codex gpt-6-luna | No Platform key; optional `CODEX_API_KEY` for a protected local bridge |
+| OpenAI API · Luna or Terra | `OPENAI_API_KEY` |
+| Codex · Luna or Terra | No Platform key; optional `CODEX_API_KEY` for a protected local bridge |
 | GLM-5.3-Flash | `ZAI_API_KEY` |
 | DeepSeek V4 Flash | `DEEPSEEK_API_KEY` |
 
@@ -129,9 +129,11 @@ Remove-Variable clipperApiKey
 
 The PowerShell override lasts for that terminal session and its child processes; `.env` persists your saved configuration. Once launched, the provider selector indicates missing keys. Set a positive API spending limit in the form (for example `$1.00` as a first-run ceiling, not a predicted VOD price); local mode can keep it at zero. Codex uses a separate subscription allowance and disables this dollar cap.
 
-To use the already-running local Codex bridge instead of the Platform API, select **Codex gpt-6-luna**. The model is fixed to `gpt-6-luna` and the default endpoint is `CODEX_BASE_URL=http://127.0.0.1:18080/v1` in `.env`; leave `CODEX_API_KEY` empty unless your bridge requires its own local key. Token usage is still recorded, while subscription/credit costs are shown as unavailable. See [Codex provider setup and limitations](codex-provider.md).
+**Workspace LLM** at the bottom of the sidebar overrides the individual model pickers for shorts, highlights, clip editing and publishing copy. Choose a model and select **Apply**. Paid API choices require a spending limit per recording; smaller existing limits still apply. The choice survives a restart. Choose **Default** and apply it to use each tool’s own model again. In-flight requests and completed results are kept. Speech transcription and thumbnail image generation use separate models.
 
-Gemini 3.8 Flash, GPT-6 Luna, GLM-5.3-Flash and DeepSeek V4 Flash have implemented provider-specific request/response paths. They have fixture validation, not live API certification. Meta Muse Spark 1.3 appears as unavailable because its exact API contract remains unverified; entering a Meta key does not enable a guessed endpoint. This is the one requested provider whose implementation is deferred pending accessible documentation.
+To use the already-running local Codex bridge instead of the Platform API, select **Codex gpt-6-luna**. Both `gpt-6-luna` (default) and `gpt-6.1-terra` are available. The default endpoint is `CODEX_BASE_URL=http://127.0.0.1:18080/v1` in `.env`; leave `CODEX_API_KEY` empty unless your bridge requires its own local key. Token usage is still recorded, while subscription/credit costs are shown as unavailable. See [Codex provider setup and limitations](codex-provider.md).
+
+Gemini 3.8 Flash, GPT-6 Luna, GPT-6.1 Terra, GLM-5.3-Flash and DeepSeek V4 Flash have implemented provider-specific request/response paths. They have fixture validation, not live API certification. Meta Muse Spark 1.3 appears as unavailable because its exact API contract remains unverified; entering a Meta key does not enable a guessed endpoint. This is the one requested provider whose implementation is deferred pending accessible documentation.
 
 Select a positive spend cap for API runs. Accounting uses conservative standard uncached rates, and peak rates for DeepSeek, so it can overestimate the provider's final invoice. Response usage includes reported reasoning where applicable. A timed-out or otherwise ambiguously billed request retains its reservation. There is one JSON repair attempt. Temporary model request failures (HTTP 408, 429, 500, 502, 503, 504, network errors, transport timeouts and remote protocol errors) automatically retry up to four times, waiting 30, 60, 120 and 240 seconds. The progress message shows a countdown, and pause/cancel remain available. A longer `Retry-After` is respected up to 15 minutes; longer requested waits stop for manual retry rather than retrying early. Access/configuration failures still stop immediately. Every retry reserves its own estimated cost under the existing cap and uses the same provider, model and request. The retry allowance is shared across the original request and its JSON repair. The application watchdog does not retry a request that may still be running. Exhaustion preserves completed work for Resume / retry. A run's cap is immutable; choose a sufficient cap initially or start a new run with a revised cap. There is no automatic paid fallback from local mode.
 
@@ -304,7 +306,7 @@ Before production use, authorize and perform the separate live validation checkl
 Under **Edit & context**, **AI model for actions** defaults to the clip's original
 run. Choose a provider to override it for finding context, suggesting tighter
 edits, editing with instructions, and checking captions. OpenAI API and Codex
-are separate choices, both using `gpt-6-luna`. The original run configuration
+are separate choices, each offering Luna and Terra. The original run configuration
 stays unchanged; each queued action stores its choice for retries and restarts.
 API overrides use the entered run spending limit, including existing usage for
 that run. Codex uses subscription usage; local inference offers the installed

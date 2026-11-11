@@ -66,6 +66,10 @@ The NVIDIA runtime now documents Windows/CUDA support, so test its native path b
 
 All adapters must emit the same canonical source timeline, coverage, raw words and model provenance. Unsupported confidence fields remain null. They may use model-specific chunk/decode settings, but never silently remove gaps or fabricate word times. whisper.cpp's experimental word-timestamp mode needs separate timing validation. A smaller ASR model is acceptable if it wins accuracy/timing on these recordings; the preference for the largest local LLM is not evidence that ASR parameter count predicts Finnish accuracy.
 
+## GPT-6.1 Terra (2026-11-11)
+
+The studio offers [`gpt-6.1-terra`](https://developers.openai.com/api/docs/models/gpt-6.1-terra) alongside Luna for both direct OpenAI and the Codex bridge. Direct Terra requests use the [standard short-context rates](https://developers.openai.com/api/docs/pricing) of $1 input and $5 output per million tokens. Bridge access depends on the installed bridge and account. Select a model per tool or set **Workspace LLM** in the sidebar.
+
 ## Direct OpenAI update (2026-09-22)
 
 The OpenAI provider now uses `gpt-6-luna` through Responses with strict structured output.

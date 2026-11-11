@@ -10,7 +10,6 @@ let matchingVideo = "", streamLookup = 0;
 const videoBatchSize = 12, clipPageSize = 10;
 let clipPage = 0, displayedRun = null;
 let runList = [], detailSignature = "", clipsSignature = "", runListSignature = "", currentView = "library";
-const labels = {local:"Local · Gemma 4",gemini:"Gemini 3.8 Flash",openai:"OpenAI API - gpt-6-luna",codex:"Codex gpt-6-luna",zai:"GLM-5.3-Flash",deepseek:"DeepSeek V4 Flash",meta:"Meta Muse Spark 1.3"};
 function showView(view){
   const names={library:"Video library",gallery:"Clip gallery",review:"Review queue",process:"New run",results:"Runs & clips",layouts:"Layout presets",editor:"Edit clip",delivery:"Cleanup",publishing:"Publishing",highlights:"Highlights"};
   if(!names[view])return;
@@ -65,26 +64,69 @@ async function api(path, options={}){
 function action(label, fn, secondary=true){const button=document.createElement("button");button.type="button";button.textContent=label;if(secondary)button.className="secondary";button.onclick=()=>Promise.resolve(fn()).catch(e=>error(e.message));return button;}
 function text(tag, value, className){const node=document.createElement(tag);node.textContent=value;if(className)node.className=className;return node;}
 async function layouts(){const list=await api("/api/layouts");savedLayouts=list;for(const id of ["layout","edit-layout","preset-select"]){const selected=$(id).value;$(id).replaceChildren();if(id==="preset-select"){const empty=text("option","New preset");empty.value="";$(id).append(empty);}for(const item of list){const o=document.createElement("option");o.value=item.id;o.textContent=item.body.name;$(id).append(o);}if(list.some(l=>l.id===selected))$(id).value=selected;else if(id==="edit-layout")$(id).value="";}$("layout-required").hidden=Boolean(list.length);}
+function addModelOption(select,{key,label,disabled}){
+  const option=text("option",label);option.value=key;option.disabled=disabled;select.append(option);
+}
+function initWorkspaceModel(state){
+  const select=$("workspace-model"),form=$("workspace-model-form");
+  if(!state.llm_preference)return;
+  for(const item of modelOptions(state,true)){
+    const {provider,codex_model,openai_model}=item.profile,model=codex_model||openai_model;
+    const label=model?model+" · "+(provider==="codex"?"Codex":"API")+(item.disabled?" · unavailable":""):item.label;
+    addModelOption(select,{...item,label});
+  }
+  const publishing=$("publishing-model");
+  publishing.replaceChildren();
+  for(const item of modelOptions(state).filter(item=>["openai","codex"].includes(item.profile.provider)))addModelOption(publishing,item);
+  publishing.value="openai";
+  workspaceModel=state.llm_preference;
+  select.value=workspaceModel.choice;select.disabled=false;
+  $("workspace-budget").value=workspaceModel.budget_usd??"";
+  function paint(){
+    const active=workspaceModel.choice!=="default",draft=select.value;
+    const paid=draft!=="default"&&usesApi(modelProfiles[draft].provider);
+    $("workspace-budget-field").hidden=!paid;$("workspace-budget").required=paid;$("workspace-budget").disabled=!paid;
+    $("workspace-model-save").hidden=draft===workspaceModel.choice&&(!paid||Number($("workspace-budget").value)===workspaceModel.budget_usd);
+    $("workspace-model-help").textContent=paid?"Each recording has its own spending limit.":draft==="default"?"Default uses each tool’s model.":"Applies to all LLM tasks.";
+    document.body.classList.toggle("workspace-override",active);
+    for(const note of document.querySelectorAll(".workspace-model-info")){
+      note.hidden=!active;note.textContent=active?"Workspace LLM: "+modelLabel(effectiveModel("")):"";
+    }
+    $("provider").onchange?.();$("highlight-provider").onchange?.();$("publishing-model").onchange?.();
+    if(typeof editorModelFields==="function")editorModelFields();
+  }
+  select.onchange=paint;$("workspace-budget").oninput=paint;
+  form.onsubmit=async event=>{
+    event.preventDefault();select.disabled=true;$("workspace-model-save").disabled=true;
+    try{
+      const budget=$("workspace-budget-field").hidden?null:Number($("workspace-budget").value);
+      workspaceModel=await api("/api/llm-preference",{method:"POST",body:JSON.stringify({choice:select.value,budget_usd:budget})});
+      paint();$("notice").textContent="Workspace model saved.";$("notice").hidden=false;
+    }catch(e){error(e.message);}finally{select.disabled=false;$("workspace-model-save").disabled=false;}
+  };
+  paint();
+}
 async function init(){const state=await api("/api/status");token=state.token;concurrencyLimit=state.max_concurrent_jobs||1;$("job-concurrency").value=String(concurrencyLimit);$("cache-path").textContent=`Model cache: ${state.model_cache}`;
-  for(const [key,info] of Object.entries(state.providers)){const o=document.createElement("option");o.value=key;o.textContent=labels[key]+(!info.available?" · unavailable":!info.configured?" · key missing":"");o.disabled=!info.available||!info.configured;$("provider").append(o);}
+  for(const item of modelOptions(state))addModelOption($("provider"),item);
   providerStatus=state;
+  initWorkspaceModel(state);
   $("setup-status").textContent=state.models.turbo?"Turbo is prepared.":"Prepare Turbo and your selected LLM before running. See docs/setup.md.";
   $("final-transcription").disabled=!state.models["large-v3"];
   $("final-transcription-status").textContent=state.models["large-v3"]?"Large-v3 is prepared. Refines selected clips before rendering; Turbo still scans the full recording.":"Prepare large-v3 to enable final caption refinement. See docs/setup.md.";
-  $("provider").onchange=()=>{const codex=$("provider").value==="codex",local=$("provider").value==="local";$("budget").disabled=codex||local;$("budget").required=!codex&&!local;$("budget-field").hidden=codex||local;$("local-settings").hidden=!local;$("codex-note").hidden=!codex;$("reasoning-settings").hidden=!codex&&$("provider").value!=="openai";};$("provider").onchange();
+  $("provider").onchange=()=>{const p=effectiveModel($("provider").value).provider,codex=p==="codex",local=p==="local";$("budget").disabled=codex||local||workspaceModel.choice!=="default";$("budget").required=!codex&&!local;$("budget-field").hidden=codex||local;$("local-settings").hidden=!local;$("codex-note").hidden=!codex;$("reasoning-settings").hidden=!codex&&p!=="openai";};$("provider").onchange();
   await layouts();restoreLayout();await refresh();
 }
 $("job-concurrency").onchange=async()=>{const select=$("job-concurrency");select.disabled=true;try{const result=await api("/api/concurrency",{method:"POST",body:JSON.stringify({max_concurrent_jobs:Number(select.value)})});concurrencyLimit=result.max_concurrent_jobs;await refresh();}catch(e){select.value=String(concurrencyLimit);error(e.message);}finally{select.disabled=false;}};
 function runRequest(){
-  const selectedProvider=$("provider").value;
-  const usesApi=!["codex","local"].includes(selectedProvider),budget=usesApi?Number($("budget").value):0;
-  if(usesApi&&(!Number.isFinite(budget)||budget<=0||budget>100)){
+  const profile=effectiveModel($("provider").value),selectedProvider=profile.provider;
+  const paid=usesApi(selectedProvider),budget=paid?modelBudget("budget"):0;
+  if(paid&&(!Number.isFinite(budget)||budget<=0||budget>100)){
     $("budget").focus();
     throw new Error("Set an API spending limit per recording above $0 and up to $100 before starting.");
   }
   const body={video:$("video").value,asr:"turbo",provider:selectedProvider,local_model:$("local-model").value,context_size:Number($("context").value),budget_usd:budget,layout_id:$("layout").value,stream_id:$("stream-id").value?Number($("stream-id").value):null,stream_offset_seconds:$("stream-offset").value?Number($("stream-offset").value):null,alignment_confirmed:$("alignment").checked,discovery_reasoning:$("discovery-reasoning").value||"low",verification_reasoning:$("verification-reasoning").value||"low",video_encoder:$("video-encoder").value||"h264_nvenc",trim_silence:$("trim-silence").checked,final_transcription:$("final-transcription").checked,correct_captions:$("correct-captions").checked};
-  if(selectedProvider==="codex")body.codex_model="gpt-6-luna";
-  return body;
+  if(selectedProvider==="codex")body.codex_model=profile.codex_model||"gpt-6-luna";
+  return {...body,...modelFields(profile)};
 }
 $("run-form").onsubmit=async event=>{event.preventDefault();if(submittingRun)return;submittingRun=true;error("");$("run-button").disabled=true;try{
   const body=runRequest();
@@ -291,13 +333,13 @@ async function detail(){
   usageDetails.append(text("p",`Turbo · CUDA FP16 · ${run.config.asr_batch_size?`batch size ${run.config.asr_batch_size}`:"unbatched"}${run.config.asr_flash_attention?" · Flash Attention requested":""}`,"muted"));
   if(run.config.final_transcription)usageDetails.append(text("p","Final clip captions: large-v3 · selected sections only.","muted"));
   const usage=run.usage, count=n=>n.toLocaleString();
-  if(run.config.provider==="codex")usageDetails.append(text("p",`Codex · ${run.config.codex?.model||"gpt-6-luna"} · subscription usage · monetary cost unavailable.`,"muted"));
+  if(usage.estimated_cost_usd==null)usageDetails.append(text("p",`Codex · ${usage.models_used?.join(", ")||run.config.codex?.model||"gpt-6-luna"} · subscription usage · monetary cost unavailable.`,"muted"));
   else usageDetails.append(text("p",`Estimated API cost: $${usage.estimated_cost_usd.toFixed(4)} · pending / uncertain: $${usage.reserved_usd.toFixed(4)} · limit: $${usage.budget_usd.toFixed(2)}`,"muted"));
   usageDetails.append(text("p",`${count(usage.request_count)} model requests · ${count(usage.input_tokens)} input tokens · ${count(usage.output_tokens)} output tokens (includes reasoning)`));
   const reported=field=>usage.reported_counts[field]?`${count(usage[field])} (${usage.reported_counts[field]}/${usage.request_count} requests reported)` :"not reported";
   usageDetails.append(text("p",`Cached input: ${reported("cached_input_tokens")} · reasoning: ${reported("reasoning_tokens")}. These are included in the input/output totals.`,"muted"));
   if(usage.unreported_requests)usageDetails.append(text("p",`${usage.unreported_requests} requests have incomplete usage. Token totals include only reported counts.`,"muted"));
-  usageDetails.append(text("p",run.config.provider==="codex"?"Token counts are reported by the bridge. Codex plan limits and any credit charges apply separately; no dollar spending cap is enforced here.":"Costs use conservative rates; provider discounts and taxes can change the invoice. Local inference has no API charge.","muted"));
+  usageDetails.append(text("p",usage.estimated_cost_usd==null?"Token counts are reported by the bridge. Codex plan limits and any credit charges apply separately; no dollar spending cap is enforced here.":"Costs use conservative rates; provider discounts and taxes can change the invoice. Local inference has no API charge.","muted"));
   const usageLink=document.createElement("a");usageLink.href=`/api/runs/${run.id}/usage`;usageLink.download=`usage-${run.id}.json`;usageLink.textContent="Download usage report";usageDetails.append(usageLink);
   box.append(usageDetails);
   const controls=text("div","","actions");for(const [label,op,states] of [["Pause","pause",["running","queued"]],["Resume / retry","resume",["paused","failed","cancelled"]],["Cancel","cancel",["running","queued","paused"]]])if(states.includes(run.state))controls.append(action(label,async()=>{await api(`/api/runs/${run.id}/${op}`,{method:"POST"});await refresh();}));box.append(controls);

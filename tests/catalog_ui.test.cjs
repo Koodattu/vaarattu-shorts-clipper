@@ -55,6 +55,7 @@ test("Twitch library fetch, source filters, split status and selection preserve 
       return {ok:true,json:async()=>responses[url]};
     },
   });
+  vm.runInContext(fs.readFileSync(path.join(staticPath,"model-choices.js"),"utf8"),context);
   vm.runInContext(fs.readFileSync(path.join(staticPath,"app.js"),"utf8"),context);
   await new Promise(setImmediate);
   assert.equal(nodes.get("fetch-videos").disabled,true);
@@ -241,7 +242,7 @@ test("queue rerenders the selected layout and waits on the same clip for the new
       return {ok:true,json:async()=>result};
     },
   });
-  for(const file of ["app.js","gallery.js","review.js"])vm.runInContext(fs.readFileSync(path.join(staticPath,file),"utf8"),context);
+  for(const file of ["model-choices.js","app.js","gallery.js","review.js"])vm.runInContext(fs.readFileSync(path.join(staticPath,file),"utf8"),context);
   await new Promise(setImmediate);
   vm.runInContext('goView("review")',context);await new Promise(setImmediate);
   const select=nodes.get("review-layout"),button=nodes.get("review-rerender");
@@ -319,7 +320,7 @@ test("manual review queue advances only after saving, supports undo and guards s
       return {ok:true,json:async()=>result};
     },
   });
-  for(const file of ["app.js","gallery.js","review.js"])vm.runInContext(fs.readFileSync(path.join(staticPath,file),"utf8"),context);
+  for(const file of ["model-choices.js","app.js","gallery.js","review.js"])vm.runInContext(fs.readFileSync(path.join(staticPath,file),"utf8"),context);
   await new Promise(setImmediate);
   vm.runInContext('goView("review")',context);await new Promise(setImmediate);
   assert.equal(nodes.get("view-review").hidden,false);
@@ -431,6 +432,7 @@ test("gallery reviews persist in the UI, filter across runs and preserve playbac
       return {ok:true,json:async()=>result};
     },
   });
+  vm.runInContext(fs.readFileSync(path.join(staticPath,"model-choices.js"),"utf8"),context);
   vm.runInContext(fs.readFileSync(path.join(staticPath,"app.js"),"utf8"),context);
   vm.runInContext(fs.readFileSync(path.join(staticPath,"gallery.js"),"utf8"),context);
   await new Promise(setImmediate);
@@ -524,6 +526,7 @@ test("channel selection, local filters and continuous loading preserve existing 
       return {ok:true,json:async()=>responses[url]};
     },
   });
+  vm.runInContext(fs.readFileSync(path.join(staticPath,"model-choices.js"),"utf8"),context);
   vm.runInContext(fs.readFileSync(path.join(staticPath,"app.js"),"utf8"),context);
   await new Promise(setImmediate);
   const list=nodes.get("channel-videos");
@@ -603,6 +606,7 @@ test("scroll loading appends cached cards, serializes remote fetches and stops o
       assert.ok(url in initial,url);return {ok:true,json:async()=>initial[url]};
     },
   });
+  vm.runInContext(fs.readFileSync(path.join(directory,"model-choices.js"),"utf8"),context);
   vm.runInContext(fs.readFileSync(path.join(directory,"app.js"),"utf8"),context);
   await new Promise(setImmediate);
   const list=nodes.get("channel-videos"), first=list.children[0];
@@ -663,6 +667,7 @@ test("opening the process page waits for the saved title and automatically match
       assert.ok(url in responses,url);return {ok:true,json:async()=>responses[url]};
     },
   });
+  vm.runInContext(fs.readFileSync(path.join(staticPath,"model-choices.js"),"utf8"),context);
   vm.runInContext(fs.readFileSync(path.join(staticPath,"app.js"),"utf8"),context);
   vm.runInContext('goView("process")',context);await new Promise(setImmediate);
   assert.equal(searches.length,0,"Wait for saved metadata before attempting the automatic lookup");
@@ -696,6 +701,7 @@ test("stream matching fills clear suggestions, preserves manual input and discar
       assert.ok(url in responses,url);return {ok:true,json:async()=>responses[url]};
     },
   });
+  vm.runInContext(fs.readFileSync(path.join(staticPath,"model-choices.js"),"utf8"),context);
   vm.runInContext(fs.readFileSync(path.join(staticPath,"app.js"),"utf8"),context);await new Promise(setImmediate);
   const match={id:254,startTime:"2026-07-09T12:00:00Z",titles:["Title"],reason:"Saved YouTube association",streamOffsetSeconds:12000};
   const result={status:"ready",matches:[match],suggestedStreamId:254};
@@ -743,10 +749,11 @@ test("Codex selection disables dollar cap and renders unknown costs", async()=>{
   const context=vm.createContext({
     crypto:{randomUUID:()=>"fixture-request"},
     setTimeout:()=>0,
-    document:{getElementById:id=>nodes.get(id),createElement:tag=>new Element(tag)},
+    document:{getElementById:id=>nodes.get(id),createElement:tag=>new Element(tag),body:{classList:{toggle(){}}},querySelectorAll:()=>[]},
     fetch:async(url,options)=>{
       let result;
-      if(url==="/api/status")result={token:"fixture",max_concurrent_jobs:2,models:{turbo:true,"large-v3":true},providers:{
+      if(url==="/api/llm-preference")result=JSON.parse(options.body);
+      else if(url==="/api/status")result={llm_preference:{choice:"default",budget_usd:null},llm_profiles:{codex:{provider:"codex"},openai:{provider:"openai"},"codex:gpt-6.1-terra":{provider:"codex",codex_model:"gpt-6.1-terra"}},token:"fixture",max_concurrent_jobs:2,models:{turbo:true,"large-v3":true},providers:{
         codex:{model:"gpt-6-luna",configured:true,available:true},openai:{model:"gpt-6-luna",configured:true,available:true}}};
       else if(url==="/api/concurrency"){
         assert.equal(options.method,"POST");
@@ -763,6 +770,7 @@ test("Codex selection disables dollar cap and renders unknown costs", async()=>{
       return {ok:true,json:async()=>result};
     },
   });
+  vm.runInContext(fs.readFileSync(path.join(staticPath,"model-choices.js"),"utf8"),context);
   vm.runInContext(fs.readFileSync(path.join(staticPath,"app.js"),"utf8"),context);
   await new Promise(setImmediate);
   assert.equal(nodes.get("job-concurrency").value,"2");
@@ -785,7 +793,7 @@ test("Codex selection disables dollar cap and renders unknown costs", async()=>{
   assert.equal(submitted.final_transcription,true);
   assert.ok(find(nodes.get("provider"),"OpenAI API - gpt-6-luna"));
   assert.equal(nodes.get("provider").children.filter(o=>o.value==="codex").length,1);
-  assert.equal(nodes.get("provider").children.length,2);
+  assert.equal(nodes.get("provider").children.length,3);
   assert.ok(find(nodes.get("run-detail"),"Final clip captions: large-v3 · selected sections only."));
   assert.equal(submitted.budget_usd,0);
   assert.ok(find(nodes.get("provider"),"Codex gpt-6-luna"));
@@ -803,6 +811,16 @@ test("Codex selection disables dollar cap and renders unknown costs", async()=>{
   nodes.get("provider").onchange();
   assert.equal(nodes.get("budget").disabled,false);
   assert.equal(nodes.get("budget-field").hidden,false);
+
+  const workspace=nodes.get("workspace-model"),apply=nodes.get("workspace-model-form").onsubmit;
+  workspace.value="codex:gpt-6.1-terra";workspace.onchange();
+  await apply({preventDefault(){}});
+  await nodes.get("run-form").onsubmit({preventDefault(){}});
+  assert.deepEqual([submitted.provider,submitted.codex_model,submitted.budget_usd],["codex","gpt-6.1-terra",0]);
+  workspace.value="default";workspace.onchange();
+  await apply({preventDefault(){}});
+  await nodes.get("run-form").onsubmit({preventDefault(){}});
+  assert.deepEqual([submitted.provider,submitted.budget_usd],["openai",9],"Default restores the individual choice and cap");
   run.clips=Array.from({length:12},(_,i)=>({id:`clip-${i}`,title:`Moment ${i}`,status:"pending",
     start_us:0,end_us:15000000,revision:1,has_preview:false,source_url:"https://www.youtube.com/watch?v=abc_def-ghI"}));
   await vm.runInContext('detail()',context);
@@ -840,6 +858,7 @@ test("API errors preserve JSON messages and report plain-text server failures wi
       assert.ok(url in initial,url);return {ok:true,json:async()=>initial[url]};
     },
   });
+  vm.runInContext(fs.readFileSync(path.join(staticPath,"model-choices.js"),"utf8"),context);
   vm.runInContext(fs.readFileSync(path.join(staticPath,"app.js"),"utf8"),context);await new Promise(setImmediate);
   const request=()=>vm.runInContext('api("/api/publishing/buffer/fill",{method:"POST"})',context);
   response={ok:false,status:500,json:async()=>{throw new SyntaxError("Unexpected token I");}};
@@ -869,6 +888,7 @@ test("held clips can still be rejected from their recording after cleanup contro
       assert.ok(url in data,url);return {ok:true,json:async()=>data[url]};
     },
   });
+  vm.runInContext(fs.readFileSync(path.join(directory,"model-choices.js"),"utf8"),context);
   vm.runInContext(fs.readFileSync(path.join(directory,"app.js"),"utf8"),context);await new Promise(setImmediate);
   vm.runInContext('displayedRun=run;paintClips()',context);
   assert.equal(writes.length,0);await find(nodes.get("clips"),"Mark not approved").onclick();

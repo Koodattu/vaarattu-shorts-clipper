@@ -311,3 +311,12 @@ kbd{font-family:inherit;font-size:.85em;font-weight:400;opacity:.8;border:1px so
 @media(max-width:800px){.publishing-calendar-toolbar{align-items:flex-start}.publishing-calendar-toolbar .actions{gap:var(--space-sm)}.publishing-calendar-toolbar h2{min-width:120px}.publishing-calendar-filters{width:100%}.publishing-calendar-filters label{flex:1}.publishing-calendar-day{min-height:120px}.publishing-command-bar>div{gap:var(--space-sm)}}
 
 .publishing-ai-controls{display:flex;flex-wrap:wrap;gap:12px;align-items:end}.publishing-ai-controls label{margin:0}.publishing-ai-controls select{width:260px;max-width:100%}.publishing-ai-controls input{width:130px}
+
+.workspace-model-form{margin-top:auto;padding:var(--space-lg) var(--space-sm) 0}
+.workspace-model-form select{width:100%;min-width:0}
+.workspace-model-form p{font-size:.82rem;margin:var(--space-xs) 0}
+.workspace-model-form button{margin-top:var(--space-sm)}
+.sidebar-foot{margin-top:0}
+.sidebar{overflow-y:auto}
+body.workspace-override :is(.feature-model,#budget-field,#highlight-budget-field,#editor-analysis-budget-field,#publishing-budget-field,#editor-local-model-field,#highlight-local-field,#local-settings label:first-child){display:none}
+@media(max-width:800px){.workspace-model-form{display:flex;align-items:end;flex-wrap:wrap;gap:var(--space-sm);padding:var(--space-sm) 0}.workspace-model-form label{min-width:0}.workspace-model-form p{max-width:22ch}.sidebar{max-height:50vh}}

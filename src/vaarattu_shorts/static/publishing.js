@@ -13,9 +13,9 @@ function publishingOptions(select,options,value){select.replaceChildren();for(co
 function publishingFillSummary(result){return `${result.scheduled} clip${result.scheduled===1?"":"s"} scheduled at random times between 19:00 and 21:00 Finnish time (Europe/Helsinki), one per day.${result.message?` ${result.message}`:""}${result.skipped_order?` ${result.skipped_order} earlier source moments were left out to preserve posting order.`:""}${result.attention?.length?` Skipped ${result.attention.length} existing request${result.attention.length===1?"":"s"} needing attention: ${result.attention.map(a=>`${a.title} (${a.platforms.map(p=>publishingNames[p]).join(", ")})`).join("; ")}.`:""}`;}
 function publishingAnalysis(){
   if(!publishingData?.analysis_available)throw new Error("Restart the app to enable Publishing model selection, then refresh this page.");
-  const provider=$("publishing-model").value||"openai",budget=Number($("publishing-budget").value);
-  if(provider==="openai"&&(!Number.isFinite(budget)||budget<=0||budget>100))throw new Error("Set an API run spending limit above $0 and up to $100.");
-  return provider==="openai"?{provider,budget_usd:budget}:{provider};
+  const profile=effectiveModel($("publishing-model").value||"openai"),provider=profile.provider,budget=modelBudget("publishing-budget");
+  if(usesApi(provider)&&(!Number.isFinite(budget)||budget<=0||budget>100))throw new Error("Set an API run spending limit above $0 and up to $100.");
+  return {provider,...modelFields(profile),...(usesApi(provider)?{budget_usd:budget}:{})};
 }
 function publishingPaintFill(job){
   publishingFillJob=job;
@@ -27,7 +27,7 @@ function publishingPaintFill(job){
   $("publishing-fill").disabled=running||publishingBusy||!publishingData?.analysis_available||!publishingStorage?.connected||!publishingData?.connected||!Object.keys(publishingData?.mapping||{}).length;
   $("publishing-fill").textContent=recoverable?"Retry remaining queue":"Fill scheduled queue";
   if(job&&job.state!=="idle"){
-    const model=job.provider==="codex"?"Codex gpt-6-luna":"OpenAI API - gpt-6-luna";
+    const model=modelLabel({provider:job.provider,[job.provider+"_model"]:job.model});
     $("publishing-fill-message").textContent=job.result?publishingFillSummary(job.result):`${model} · ${job.message} ${job.scheduled||0} clips scheduled so far.${recoverable?" Existing submissions will not be sent again. Check any requests needing attention below.":""}`;
   }
   if(running)publishingPollFill();
@@ -47,7 +47,7 @@ function publishingPollFill(){
     }
   },1500);
 }
-$("publishing-model").onchange=()=>{$("publishing-budget-field").hidden=$("publishing-model").value!=="openai";};
+$("publishing-model").onchange=()=>{$("publishing-budget-field").hidden=!usesApi(effectiveModel($("publishing-model").value).provider);};
 $("publishing-fill-stop").onclick=async()=>{
   if(!publishingFillJob?.id)return;
   $("publishing-fill-stop").disabled=true;

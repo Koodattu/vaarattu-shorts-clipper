@@ -308,7 +308,7 @@ class Store:
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT spent,reserved FROM runs WHERE id=?", (run_id,)).fetchone()
-            if row["spent"] + row["reserved"] + amount > cap + 1e-10:
+            if amount > 0 and row["spent"] + row["reserved"] + amount > cap + 1e-10:
                 raise ValueError("Spending limit reached. Completed work is saved.")
             request_id = uuid.uuid4().hex
             db.execute("INSERT INTO requests VALUES(?,?,?,NULL,'reserved')", (request_id, run_id, amount))
@@ -368,14 +368,22 @@ class Store:
                 )
         fields = ("input_tokens", "output_tokens", "cached_input_tokens", "reasoning_tokens")
         totals = {field: sum(r.get(field) or 0 for r in requests) for field in fields}
-        codex = run["config"].get("provider") == "codex"
+        paid = [r for r in requests if r.get("provider") not in {None, "local", "codex"}]
+        providers = {r["provider"] for r in requests if r.get("provider")}
+        codex = not (run["spent"] or run["reserved"]) and (
+            providers == {"codex"} or (not providers and run["config"].get("provider") == "codex")
+        )
+        limit = paid[-1].get("budget_usd") if paid else None
+        if limit is None:
+            limit = run["config"].get("budget_usd", 0)
         return {
             "run_id": run_id,
             "currency": "USD",
+            "models_used": sorted({r["model"] for r in requests if r.get("model")}),
             "pricing_basis": "codex_subscription" if codex else "standard_uncached_conservative",
             "estimated_cost_usd": None if codex else run["spent"],
             "reserved_usd": None if codex else run["reserved"],
-            "budget_usd": None if codex else run["config"].get("budget_usd", 0),
+            "budget_usd": None if codex else limit,
             "request_count": len(requests),
             "unreported_requests": sum(any(r.get(f) is None for f in fields[:2]) for r in requests),
             "reported_counts": {field: sum(r.get(field) is not None for r in requests) for field in fields},

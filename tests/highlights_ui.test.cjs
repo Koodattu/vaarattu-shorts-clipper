@@ -26,7 +26,7 @@ function fixture(){
     window:{location:{hostname:"localhost"}},currentView:'highlights',setTimeout:()=>1,clearTimeout:()=>{},crypto:{randomUUID:()=> 'request-key'},
     goView:view=>{context.currentView=view;},
     api:async(url,options)=>{
-      if(!options){reads.push(url);if(url.includes('/plan?'))return plan;if(url.includes('/selection?'))return {revision:run.revision,plan_hash:'f'.repeat(64),current_floor:75,previews:Array.from({length:101},(_,score)=>({score_floor:score,duration:score>90?0:score>=80?120:360,scenes:score>90?0:score>=80?2:6,sections:score>90?0:score>=80?4:12,added:0,removed:score>90?6:score>=80?4:0}))};if(url==='/api/status')return {providers:{codex:{available:true,configured:true,model:'gpt-6-luna'},openai:{available:true,configured:true,model:'gpt-6-luna'}}};return [run];}
+      if(!options){reads.push(url);if(url.includes('/plan?'))return plan;if(url.includes('/selection?'))return {revision:run.revision,plan_hash:'f'.repeat(64),current_floor:75,previews:Array.from({length:101},(_,score)=>({score_floor:score,duration:score>90?0:score>=80?120:360,scenes:score>90?0:score>=80?2:6,sections:score>90?0:score>=80?4:12,added:0,removed:score>90?6:score>=80?4:0}))};if(url==='/api/status')return {llm_profiles:{codex:{provider:'codex'},openai:{provider:'openai'},'codex:gpt-6.1-terra':{provider:'codex',codex_model:'gpt-6.1-terra'},'openai:gpt-6.1-terra':{provider:'openai',openai_model:'gpt-6.1-terra'}},providers:{codex:{available:true,configured:true,model:'gpt-6-luna'},openai:{available:true,configured:true,model:'gpt-6-luna'}}};return [run];}
       const body=JSON.parse(options.body);writes.push({url,body});
       if(url.endsWith('/resolve'))return {id:'b'.repeat(32),title:'Recording',sources:[{asset:'s0',id:'abc_def-ghI',provider:'youtube',url:'https://youtu.be/abc_def-ghI',title:'Part 1',duration:100},{asset:'s1',id:'123',provider:'twitch',url:'https://www.twitch.tv/videos/123',title:'Part 2',duration:200}],duration:300,notes:[]};
       if(url.endsWith('/copy/generate'))return {id:'generated',title:'Generated title',caption:'Generated description'};
@@ -41,6 +41,7 @@ function fixture(){
   vm.runInContext(fs.readFileSync(path.join(directory,'highlight-thumbnails.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(path.join(directory,'highlight-selection.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(path.join(directory,'highlight-sources.js'),'utf8'),context);
+  vm.runInContext(fs.readFileSync(path.join(directory,"model-choices.js"),"utf8"),context);
   vm.runInContext(fs.readFileSync(path.join(directory,'highlights.js'),'utf8'),context);
   return {nodes,writes,errors,run,context,reads,plan};
 }
@@ -481,18 +482,18 @@ test('thumbnail reference limit permits removing a selection without starting ge
 });
 
 
-test('highlight picker distinguishes Codex and OpenAI API with one Luna model each',async()=>{
+test('highlight picker offers both models through each route and submits Terra',async()=>{
   const {nodes,context,writes}=fixture();
   await vm.runInContext('loadHighlights()',context);
   assert.ok(nodes.get('highlight-provider').children.some(o=>o.value==='codex'));
-  assert.deepEqual(nodes.get('highlight-provider').children.map(o=>[o.value,o.textContent]),[['codex','Codex gpt-6-luna'],['openai','OpenAI API - gpt-6-luna']]);
+  assert.deepEqual(nodes.get('highlight-provider').children.map(o=>[o.value,o.textContent]),[['codex','Codex gpt-6-luna'],['codex:gpt-6.1-terra','Codex gpt-6.1-terra'],['openai','OpenAI API - gpt-6-luna'],['openai:gpt-6.1-terra','OpenAI API - gpt-6.1-terra']]);
   await vm.runInContext('openHighlights("https://youtu.be/abc_def-ghI")',context);
-  nodes.get('highlight-provider').value='codex';nodes.get('highlight-provider').onchange();
+  nodes.get('highlight-provider').value='codex:gpt-6.1-terra';nodes.get('highlight-provider').onchange();
   assert.equal(nodes.get('highlight-budget-field').hidden,true);
   assert.match(nodes.get('highlight-provider-note').textContent,/Codex bridge/);
   await nodes.get('highlight-form').onsubmit({preventDefault(){}});
   const body=writes.find(w=>w.url==='/api/highlights').body;
-  assert.equal(body.provider,'codex');assert.equal(body.codex_model,'gpt-6-luna');assert.equal(body.budget_usd,0);
+  assert.equal(body.provider,'codex');assert.equal(body.codex_model,'gpt-6.1-terra');assert.equal(body.budget_usd,0);
 });
 
 

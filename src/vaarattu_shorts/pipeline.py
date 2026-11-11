@@ -11,6 +11,7 @@ from pathlib import Path
 
 from . import caption_correction, context_repair, discover, recordings, render, selection as review_selection, stream_data, tighten, transcribe, twitch_catalog, youtube
 from .contracts import CHANNEL_ID, Candidate, RunRequest, Word, source_url
+from .model_choices import effective_config, evaluator_options, preference
 from .llm import Evaluator, ModelAnchorError, ModelOutputError, check_provider, local_server
 from .models import model_path
 from .processes import Interrupted, ToolError
@@ -58,6 +59,16 @@ class Pipeline:
         self.folder = folder or settings.work / "runs" / run_id
         self.folder.mkdir(parents=True, exist_ok=True)
         self.chain = hashlib.sha256(json.dumps(self.config, sort_keys=True).encode()).hexdigest()
+        self.model_preference = preference(settings)
+        self.config = effective_config(self.config, self.model_preference)
+
+    def analysis_config(self, analysis):
+        if not analysis:
+            return self.config
+        config = effective_config({**self.config, "openai_model": None, **analysis}, self.model_preference)
+        if self.model_preference["choice"] != "default" and self.config.get("budget_usd"):
+            config["budget_usd"] = min(config["budget_usd"], self.config["budget_usd"])
+        return config
 
     def check(self):
         if self.stopping():
@@ -160,7 +171,7 @@ class Pipeline:
                     self.check,
                     client,
                     self.config.get("context_size", 16384),
-                    codex_config=self.config.get("codex"),
+                    **evaluator_options(self.config),
                     discovery_reasoning=self.config.get("discovery_reasoning", "low"),
                     verification_reasoning=self.config.get("verification_reasoning", "low"),
                 )
@@ -403,7 +414,7 @@ class Pipeline:
             self.store.save_clip(clip["id"], self.run_id, clip["revision"], body)
 
     def clip_proposal(self, clip, transcript, folder, client=None, propose=caption_correction.propose, *, analysis=None, check=None):
-        config = {**self.config, **(analysis or {})}
+        config = self.analysis_config(analysis)
         check = check or self.check
         folder.mkdir(parents=True, exist_ok=True)
         manager = local_server(self.settings, config, folder, check) if config["provider"] == "local" and client is None else nullcontext(client)
@@ -411,7 +422,7 @@ class Pipeline:
             evaluator = Evaluator(
                 config["provider"], self.store, self.run_id, folder, config["budget_usd"],
                 check, client, config.get("context_size", 16384),
-                codex_config=config.get("codex"),
+                **evaluator_options(config),
                 verification_reasoning=config.get("verification_reasoning", "low"),
             )
             return propose(clip["body"], transcript, evaluator)
@@ -501,7 +512,7 @@ class Pipeline:
                     self.check,
                     client,
                     self.config.get("context_size", 16384),
-                    codex_config=self.config.get("codex"),
+                    **evaluator_options(self.config),
                     verification_reasoning=self.config.get("verification_reasoning", "low"),
                 )
                 result = review_selection.prioritize(selection, transcript["words"], evaluator)
@@ -715,7 +726,7 @@ class Pipeline:
                     self.check,
                     client,
                     self.config.get("context_size", 16384),
-                    codex_config=self.config.get("codex"),
+                    **evaluator_options(self.config),
                     discovery_reasoning=self.config.get("discovery_reasoning", "low"),
                     verification_reasoning=self.config.get("verification_reasoning", "low"),
                 )
@@ -734,7 +745,7 @@ class Pipeline:
         clip_id = self.store.get(self.run_id)["result"]["context_repair_requested"]
         clip = self.store.clip(clip_id)
         request = clip["body"]["context_request"]
-        config = {**self.config, **(request.get("analysis") or {})}
+        config = self.analysis_config(request.get("analysis"))
         if request["status"] == "pending":
             started = self.store.start_context(clip_id, clip["revision"], request["id"])
 
@@ -760,7 +771,7 @@ class Pipeline:
                     evaluator = Evaluator(
                         config["provider"], self.store, self.run_id, folder,
                         config["budget_usd"], check_context, client,
-                        config.get("context_size", 16384), codex_config=config.get("codex"),
+                        config.get("context_size", 16384), **evaluator_options(config),
                         verification_reasoning=config.get("verification_reasoning", "low"),
                     )
                     self.store.update(self.run_id, message="Checking surrounding speech for the missing context.")

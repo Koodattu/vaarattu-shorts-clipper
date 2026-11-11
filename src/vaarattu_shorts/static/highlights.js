@@ -59,7 +59,7 @@ async function loadHighlights(){
   try{
     if(!highlightProviders){
       const status=await api("/api/status");const select=$("highlight-provider");select.replaceChildren();
-      for(const [id,p] of Object.entries(status.providers))if(p.available&&p.configured){const option=document.createElement("option");option.value=id;option.textContent=id==="codex"?"Codex gpt-6-luna":id==="openai"?"OpenAI API - gpt-6-luna":`${id} · ${p.model}`;select.append(option);}
+      for(const item of modelOptions(status))if(!item.disabled){const option=document.createElement("option");option.value=item.key;option.textContent=item.label;select.append(option);}
       if(status.providers.codex?.configured)select.value="codex";
       highlightProviders=true;select.onchange();
     }
@@ -153,19 +153,21 @@ $("highlight-match-parts").onchange=$("highlight-urls").oninput;
 $("highlight-resolve").onclick=resolveHighlight;
 $("refresh-highlights").onclick=loadHighlights;
 $("highlight-provider").onchange=()=>{
-  const p=$("highlight-provider").value;
-  $("highlight-budget-field").hidden=p==="codex"||p==="local";
+  const p=effectiveModel($("highlight-provider").value).provider;
+  $("highlight-budget-field").hidden=!usesApi(p);
+  $("highlight-budget").disabled=!usesApi(p)||workspaceModel.choice!=="default";
   $("highlight-local-field").hidden=p!=="local";
   $("highlight-reasoning-settings").hidden=!["codex","openai"].includes(p);
-  $("highlight-provider-note").textContent=p==="codex"?"Uses the configured Codex bridge. Subscription allowance applies.":p==="local"?"Local AI stages share the GPU with transcription.":"Model calls use the API spending limit below.";
+  $("highlight-provider-note").textContent=p==="codex"?"Uses the configured Codex bridge. Subscription allowance applies.":p==="local"?"Local AI stages share the GPU with transcription.":workspaceModel.choice==="default"?"Model calls use the API spending limit below.":"Model calls use the workspace spending limit.";
 };
 $("highlight-form").onsubmit=async event=>{
   event.preventDefault();if(highlightBusy||!highlightManifest)return;
   highlightLock(true);
   try{
-    const provider=$("highlight-provider").value;
-    const body={manifest_id:highlightManifest.id,project_title:$("highlight-project-title").value.trim(),segments:collectHighlightSources(),final_score_floor:Number($("highlight-score-floor").value||75),provider,local_model:$("highlight-local").value||"gemma4-31b",context_size:32768,discovery_reasoning:$("highlight-discovery-reasoning").value||"low",verification_reasoning:$("highlight-verification-reasoning").value||"low",budget_usd:["codex","local"].includes(provider)?0:Number($("highlight-budget").value),video_encoder:$("highlight-encoder").value};
-    if(provider==="codex")body.codex_model="gpt-6-luna";
+    const profile=effectiveModel($("highlight-provider").value),provider=profile.provider;
+    const body={manifest_id:highlightManifest.id,project_title:$("highlight-project-title").value.trim(),segments:collectHighlightSources(),final_score_floor:Number($("highlight-score-floor").value||75),provider,local_model:$("highlight-local").value||"gemma4-31b",context_size:32768,discovery_reasoning:$("highlight-discovery-reasoning").value||"low",verification_reasoning:$("highlight-verification-reasoning").value||"low",budget_usd:["codex","local"].includes(provider)?0:modelBudget("highlight-budget"),video_encoder:$("highlight-encoder").value};
+    Object.assign(body,modelFields(profile));
+    if(provider==="codex")body.codex_model=profile.codex_model||"gpt-6-luna";
     const signature=JSON.stringify(body);
     if(highlightStartKey?.signature!==signature)highlightStartKey={signature,key:crypto.randomUUID()};
     const run=await api("/api/highlights",{method:"POST",headers:{"Idempotency-Key":highlightStartKey.key},body:signature});
