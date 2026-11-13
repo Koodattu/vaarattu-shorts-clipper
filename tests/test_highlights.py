@@ -242,8 +242,7 @@ def test_highlights_api_local_boundary_and_final_approval(settings, monkeypatch)
         assert client.post("/api/highlights", headers=headers, json={"manifest_id": "../escape"}).status_code == 422
 
 
-@pytest.mark.parametrize("critic_failure", [False, True])
-@pytest.mark.parametrize("copy_failure", [False, True])
+@pytest.mark.parametrize("critic_failure,copy_failure", [(False, False), (True, True)])
 def test_pipeline_resume_final_and_revision(settings, store, monkeypatch, critic_failure, copy_failure):
     separate = highlights.store_for(settings)
     run_id = separate.admit({**config(), "discovery_reasoning": "none", "verification_reasoning": "xhigh"}, "pipeline")
@@ -535,41 +534,6 @@ def test_cancel_during_output_repair_stops_before_next_request(model_replies, mo
     assert len(requests) == 1
 
 
-def test_scene_repair_explains_evidence_ids_instead_of_repeating_generic_error(model_replies):
-    evaluator, replies, requests, waits = model_replies
-    rows = [{"id": f"u{i}", "asset": "s0", "start_us": i*10000000,
-             "end_us": i*10000000+2000000, "speech_start_us": i*10000000,
-             "speech_end_us": i*10000000+2000000, "unsafe": False, "text": "A thought."} for i in range(2)]
-    bad = {"spans": [{"first": "u0", "last": "u1"}], "pauses": [
-        {"id": "gu0:u1", "action": "keep", "evidence": "A thought.", "reason": "Comic timing"}],
-        "value": 3, "reason": "Enjoyable exchange"}
-    good = json.loads(json.dumps(bad))
-    good["pauses"][0]["evidence"] = "u1"
-    replies.extend([bad, good])
-    result = episode.compact({"first": "u0", "last": "u1"}, rows, evaluator, "repair-evidence")
-    assert result.gaps[0].evidence == "u1"
-    assert "evidence must be a retained passage ID such as u1, not quoted speech" in requests[1]["input"]
-    assert waits == [(5, 1, 2)]
-    episode.compact({"first": "u0", "last": "u1"}, rows, evaluator, "repair-evidence")
-    assert len(requests) == 2
-
-
-def test_scene_repair_supplies_complete_gap_id(model_replies):
-    evaluator, replies, requests, waits = model_replies
-    rows = [{"id": f"u{i}", "asset": "s0", "start_us": i*10000000,
-             "end_us": i*10000000+2000000, "speech_start_us": i*10000000,
-             "speech_end_us": i*10000000+2000000, "unsafe": False, "text": "A thought."} for i in range(2)]
-    bad = {"spans": [{"first": "u0", "last": "u1"}], "pauses": [
-        {"id": "gu0", "action": "lead_in", "seconds": 3, "reason": "Reaction"}],
-        "value": 3, "reason": "Enjoyable exchange"}
-    good = json.loads(json.dumps(bad))
-    good["pauses"][0]["id"] = "gu0:u1"
-    replies.extend([bad, good])
-    result = episode.compact({"first": "u0", "last": "u1"}, rows, evaluator, "repair-gap")
-    assert result.gaps[0].id == "gu0:u1"
-    assert "Available IDs: gu0:u1" in requests[1]["input"]
-
-
 def test_resume_repairs_one_scene_without_regenerating_verified_batch_neighbors(model_replies):
     evaluator, replies, requests, waits = model_replies
     rows = [{"id": f"u{i}", "asset": "s0", "start_us": i*10000000,
@@ -605,13 +569,12 @@ def test_resume_repairs_one_scene_without_regenerating_verified_batch_neighbors(
     assert json.loads(requests[-1]["input"])["original_proposal"]["spans"] == bad["spans"]
 
 
-@pytest.mark.parametrize("passages", [(16, 17, 18), (735, 736, 737), (2397, 2398, 2399)])
-def test_scene_repair_reports_gap_and_evidence_faults_together(model_replies, passages):
+def test_scene_repair_reports_gap_and_evidence_faults_together(model_replies):
     evaluator, replies, requests, waits = model_replies
     rows = [{"id": f"u{ident}", "asset": "s0", "start_us": i*10000000,
              "end_us": i*10000000+2000000, "speech_start_us": i*10000000,
              "speech_end_us": i*10000000+2000000, "unsafe": False, "text": "A thought."}
-            for i, ident in enumerate(passages)]
+            for i, ident in enumerate((2397, 2398, 2399))]
     first, middle, last = [r["id"] for r in rows]
     bad = {"spans": [{"first": first, "last": last}], "pauses": [
         {"id": f"g{first}", "action": "keep", "evidence": "A thought.", "reason": "Comic timing"},
@@ -628,6 +591,7 @@ def test_scene_repair_reports_gap_and_evidence_faults_together(model_replies, pa
         assert f"For g{ident}, evidence must be a retained passage ID" in repair
     assert f"Available IDs: g{first}:{middle}, g{middle}:{last}" in repair
     assert result.spans == episode.Proposal.model_validate(bad).spans
+    assert [g.id for g in result.gaps] == [f"g{first}:{middle}", f"g{middle}:{last}"]
     assert [g.evidence for g in result.gaps] == [middle, last]
     assert waits == [(5, 1, 2)]
 

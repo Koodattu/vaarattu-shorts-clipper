@@ -84,17 +84,17 @@ def test_trim_preserves_captions_cuts_and_layout_and_queues_only_render(settings
         assert stale.status_code == 400 and store.clip("clip")["revision"] == 2
 
 
-@pytest.mark.parametrize("start,end", [(0, 41000000), (25000000, 20000000), (10000000, 11000000),
-                                       (10000000, 30000000), (18400000, 28000000)])
-def test_invalid_trim_does_not_mutate_clip(settings, store, trim_fixture, start, end):
+def test_invalid_trim_does_not_mutate_clip(settings, store, trim_fixture):
     _, original, _ = trim_fixture
     with TestClient(create_app(settings), base_url="http://127.0.0.1:8765") as client:
         headers = {"X-Local-Token": client.get("/api/status").json()["token"]}
-        response = client.post("/api/clips/clip/trim", headers=headers,
-                               json=dict(expected_revision=1, start_us=start, end_us=end))
-        assert response.status_code == 400, response.text
-        assert store.clip("clip")["body"] == original
-        assert store.clip("clip")["revision"] == 1
+        for start, end in [(0, 41000000), (25000000, 20000000), (10000000, 11000000),
+                           (10000000, 30000000), (18400000, 28000000)]:
+            response = client.post("/api/clips/clip/trim", headers=headers,
+                                   json=dict(expected_revision=1, start_us=start, end_us=end))
+            assert response.status_code == 400, (start, end, response.text)
+            saved = store.clip("clip")
+            assert saved["body"] == original and saved["revision"] == 1
 
 
 def test_missing_source_is_actionable(settings, store, trim_fixture):
@@ -123,6 +123,36 @@ def test_manual_trim_skips_asr_and_llm_during_rerender(settings, store, trim_fix
     monkeypatch.setattr(instance, "finish", lambda *args: None)
     instance.rerender()
     assert len(delivered) == 1 and delivered[0]["body"]["start_us"] == 0
+
+
+def test_exact_trim_inside_words_preserves_caption_edits_and_can_be_extended(settings, store, trim_fixture):
+    run, original, transcript = trim_fixture
+    start, end = 12456789, 27432109
+    with TestClient(create_app(settings), base_url="http://127.0.0.1:8765") as client:
+        headers = {"X-Local-Token": client.get("/api/status").json()["token"]}
+        result = client.post("/api/clips/clip/trim", headers=headers, json=dict(
+            expected_revision=1, start_us=start, end_us=end, snap_to_words=False))
+        assert result.status_code == 202, result.text
+        saved = store.clip("clip")["body"]
+        assert (saved["start_us"], saved["end_us"]) == (start, end)
+        first, last = saved["words"][0], saved["words"][-1]
+        assert first == {**original["words"][2], "start_us": start}
+        assert last == {**original["words"][17], "end_us": end}
+        assert saved["speech_cuts"] == original["speech_cuts"]
+        assert saved["pacing"]["retained"][0]["source_start_us"] == start
+        assert saved["pacing"]["retained"][-1]["source_end_us"] == end
+
+        # A later caption-only edit must still accept the partial edge words.
+        store.update(run, state="completed")
+        edit = dict(expected_revision=2, start_us=start, end_us=end, title="Clip", reviewed=True,
+                    words=[{**first, "text": "New opening"}, *saved["words"][1:]])
+        result = client.post("/api/clips/clip/edit", headers=headers, json=edit)
+        assert result.status_code == 202, result.text
+        edited = store.clip("clip")["body"]
+        assert edited["words"][0] == {**first, "text": "New opening"}
+        extended = clip_trim.apply(edited, clip_trim.context(edited, transcript), 10000000, 30000000)
+        assert extended["words"][2] == {**original["words"][2], "text": "New opening"}
+        assert extended["words"][17] == original["words"][17]
 
 
 def test_overlapping_words_snap_to_outer_edge():

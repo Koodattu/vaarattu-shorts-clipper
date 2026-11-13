@@ -11,22 +11,25 @@ from vaarattu_shorts.web import create_app
 
 
 @pytest.fixture
-def caption_clip(settings, store):
-    run = store.admit({"video": "aaaaaaaaaaa", "provider": "codex", "budget_usd": 0}, "captions")
+def body():
     words = [
         {"id": f"w{i}", "text": word, "start_us": i * 1000000, "end_us": i * 1000000 + 800000}
         for i, word in enumerate(["minä", "revin", "mun", "pelihausta", "taas"])
     ]
+    return dict(words=words, start_us=0, end_us=5000000, title="Unrelated title", status="ready")
+
+
+@pytest.fixture
+def caption_clip(settings, store, body):
+    run = store.admit({"video": "aaaaaaaaaaa", "provider": "codex", "budget_usd": 0}, "captions")
     folder = settings.ready / "clip" / "1"
     folder.mkdir(parents=True)
     (folder / "short.mp4").write_bytes(b"preview")
-    body = dict(
-        words=words, start_us=0, end_us=5000000, title="Unrelated title", status="ready", folder=str(folder)
-    )
+    body = {**body, "folder": str(folder)}
     store.save_clip("clip", run, 1, body)
     store.update(run, state="completed", result={"outcome": "clips_ready"})
     atomic_json(
-        settings.work / "runs" / run / "asr" / "transcript.json", {"words": words, "duration_us": 6000000}
+        settings.work / "runs" / run / "asr" / "transcript.json", {"words": body["words"], "duration_us": 6000000}
     )
     return run, body
 
@@ -54,15 +57,13 @@ def change(**kwargs):
         {"replacement": "x" * 60},
     ],
 )
-def test_invalid_word_changes_never_apply(caption_clip, patch):
-    _, body = caption_clip
+def test_invalid_word_changes_never_apply(body, patch):
     with pytest.raises(ValueError):
         captions.apply(body, [change(**patch)])
     assert body["words"][3]["text"] == "pelihausta"
 
 
-def test_originals_timing_order_and_undo_are_preserved(caption_clip):
-    _, body = caption_clip
+def test_originals_timing_order_and_undo_are_preserved(body):
     revised = captions.apply(body, [change()], automatic=True)
     assert revised["words"][3]["text"] == "pelihousut"
     assert revised["words"][:3] == body["words"][:3]
@@ -79,8 +80,7 @@ def test_originals_timing_order_and_undo_are_preserved(caption_clip):
         captions.apply(body, [change(), change()])
 
 
-def test_prompt_contains_speech_and_guidance_and_empty_changes_are_valid(caption_clip):
-    _, body = caption_clip
+def test_prompt_contains_speech_and_guidance_and_empty_changes_are_valid(body):
     body = {**body, "caption_check": {"note": "Check names; retain slang"}}
 
     class Evaluator:

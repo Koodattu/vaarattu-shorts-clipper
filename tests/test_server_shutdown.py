@@ -28,6 +28,9 @@ def test_ctrl_c_cancels_stuck_request_and_releases_worker(settings, monkeypatch,
             cancelled.append(True)
 
     async def startup(server, sockets=None):
+        # Exercise the production shutdown path with a shorter grace period for the stuck request.
+        assert 0 < server.config.timeout_graceful_shutdown < 8
+        server.config.timeout_graceful_shutdown = 0.05
         await server.lifespan.startup()
         server.servers = []
         server.started = True

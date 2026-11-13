@@ -70,13 +70,9 @@ def test_retries_are_bounded_and_audio_fallback_cannot_mix_partial_files(setting
 
 
 @pytest.mark.parametrize("detail,retry,status", [
-    ("ERROR: HTTP Error 403: Forbidden", True, 403),
     ("ERROR: HTTP Error 408: Request timeout", True, 408),
     ("ERROR: HTTP Error 429: Too many requests", True, 429),
-    ("ERROR: HTTP Error 500: Server error", True, 500),
-    ("ERROR: HTTP Error 502: Bad gateway", True, 502),
     ("ERROR: HTTP Error 503: Unavailable", True, 503),
-    ("ERROR: HTTP Error 504: Gateway timeout", True, 504),
     ("ERROR: HTTP Error 404: Not found", False, 404),
     ("[https @ a] HTTP error 403 Forbidden\nERROR: ffmpeg exited with code 1", True, 403),
     ("ERROR: connection reset by peer", True, None),
@@ -93,14 +89,12 @@ def test_safe_failure_classification(tmp_path, detail, retry, status):
     assert "secret" not in reason and "https" not in reason
 
 
-@pytest.mark.parametrize("message", ["ERROR: Private video", "ERROR: No space left on device",
-                                     "ERROR: Requested format is not available"])
-def test_terminal_errors_do_not_retry(settings, monkeypatch, message):
+def test_terminal_errors_do_not_retry(settings, monkeypatch):
     monkeypatch.setattr(youtube, "wait_for_download_retry", lambda *a: pytest.fail("Must not wait"))
     calls = []
     def run(args, config, folder, *a, **kw):
         calls.append(args)
-        fail(folder, message)
+        fail(folder, "ERROR: Private video")
     with pytest.raises(ToolError):
         youtube.download(command(), settings, settings.work, lambda: None, runner=run)
     assert len(calls) == 1

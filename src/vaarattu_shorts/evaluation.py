@@ -38,6 +38,7 @@ def compare_reasoning(settings, run_id, sections, stage="discovery", budget=None
     saved = saved_record(settings, "runs", run_id)
     pref = preference(settings)
     config = effective_config(json.loads(saved["config"]), pref)
+    config.pop("reasoning_effort", None)  # This comparison explicitly measures two different efforts.
     if config["provider"] not in {"openai", "codex"}:
         raise ValueError("Low/medium comparisons require an OpenAI or Codex run.")
     path = settings.work / "runs" / run_id / "transcript.checkpoint.json"

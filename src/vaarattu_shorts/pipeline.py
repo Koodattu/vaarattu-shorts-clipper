@@ -65,7 +65,7 @@ class Pipeline:
     def analysis_config(self, analysis):
         if not analysis:
             return self.config
-        config = effective_config({**self.config, "openai_model": None, **analysis}, self.model_preference)
+        config = effective_config({**self.config, "openai_model": None, "reasoning_effort": None, **analysis}, self.model_preference)
         if self.model_preference["choice"] != "default" and self.config.get("budget_usd"):
             config["budget_usd"] = min(config["budget_usd"], self.config["budget_usd"])
         return config

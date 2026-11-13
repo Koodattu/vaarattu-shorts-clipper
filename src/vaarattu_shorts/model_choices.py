@@ -3,7 +3,7 @@
 import json
 from typing import get_args
 
-from .contracts import ResponsesModel
+from .contracts import REASONING_EFFORTS, ResponsesModel
 from .llm import PROVIDERS, check_provider, codex_settings
 from .models import CATALOG, model_path
 from .storage import atomic_json
@@ -33,13 +33,15 @@ def preference(settings):
         return {"choice": "default", "budget_usd": None}
 
 
-def save_preference(settings, choice, budget):
+def save_preference(settings, choice, budget, reasoning_effort=None):
     limit = None
+    efforts = ()
     if choice != "default":
         profile = profiles().get(choice)
         if not profile:
             raise ValueError("Choose a supported workspace model.")
         provider = profile["provider"]
+        efforts = REASONING_EFFORTS.get(provider, ())
         check_provider(provider)
         if provider == "local":
             model_path(settings, profile["local_model"])
@@ -48,6 +50,10 @@ def save_preference(settings, choice, budget):
                 raise ValueError("Set a spending limit per recording before choosing an API model.")
             limit = budget
     value = {"choice": choice, "budget_usd": limit}
+    if reasoning_effort is not None:
+        if reasoning_effort not in efforts:
+            raise ValueError("Choose a reasoning effort supported by this model.")
+        value["reasoning_effort"] = reasoning_effort
     atomic_json(settings.work / "llm-preference.json", value)
     return value
 
@@ -59,7 +65,14 @@ def with_override(config, pref):
     budget = pref["budget_usd"] or 0
     if config.get("budget_usd"):
         budget = min(budget, config["budget_usd"])
-    return {**config, "codex_model": None, "openai_model": None, **selected, "budget_usd": budget}
+    return {
+        **config,
+        "codex_model": None,
+        "openai_model": None,
+        **selected,
+        "budget_usd": budget,
+        "reasoning_effort": pref.get("reasoning_effort"),
+    }
 
 
 def effective_config(config, pref):
@@ -79,4 +92,8 @@ def effective_config(config, pref):
 
 def evaluator_options(config):
     model = config.get("local_model") if config["provider"] == "local" else config.get("openai_model")
-    return {"model": model, "codex_config": config.get("codex")}
+    return {
+        "model": model,
+        "codex_config": config.get("codex"),
+        "reasoning_override": config.get("reasoning_effort"),
+    }

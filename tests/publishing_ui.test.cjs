@@ -49,6 +49,7 @@ function fixture(){
         data.clips[0].publication.receipts.tiktok={...receipt,status:"posted",url:body.url,published_at:null,message:"",manual_confirmation:{previous_receipt:{...receipt}}};
         return data.clips[0].publication;
       }
+      if(url.endsWith("buffer/refresh"))return state.syncResponse;
       if(url.endsWith("buffer/fill"))return {scheduled:2,message:"",skipped_order:0,attention:state.attention||[]};
       if(url.endsWith("preview"))return {id:"ticket",channels:{youtube:{name:"Channel"}},items:body.items.map(i=>({...i,mapping:{youtube:"yt"},mode:body.mode==="now"?"now":"schedule",due_at:body.mode==="now"?null:"2030-01-01T16:00:00Z",timezone:body.timezone||"Europe/Helsinki"}))};
       if(url.includes("/send/"))return {receipts:{youtube:{status:state.fail?"unknown":"scheduled"}}};
@@ -108,6 +109,30 @@ test("uncertain submissions stop a batch and require fresh confirmation",async()
   assert.equal(nodes.get("publishing-confirm").checked,false);
   assert.equal(nodes.get("publishing-preview-dialog").open,true);
   assert.match(nodes.get("publishing-preview-message").textContent,/attention/);
+});
+test("Buffer sync gives immediate feedback, blocks duplicates and allows retry after failure",async()=>{
+  const {nodes,state,writes}=fixture();state.buffer=true;
+  await nodes.get("refresh-publishing").onclick();
+  const button=nodes.get("publishing-refresh-buffer"),message=nodes.get("publishing-message");
+  let rejectSync;
+  state.syncResponse=new Promise((_,reject)=>{rejectSync=reject;});
+  const syncing=button.onclick();
+  assert.equal(button.disabled,true);
+  assert.match(button.textContent,/Syncing with Buffer/);
+  assert.match(message.textContent,/Checking channels and delivery status/);
+  await button.onclick();
+  assert.deepEqual(writes.map(w=>w.url),["/api/publishing/buffer/refresh"]);
+  rejectSync(new Error("Buffer unavailable"));
+  await syncing;
+  assert.equal(message.textContent,"Buffer unavailable");
+  assert.equal(button.disabled,false);
+  assert.equal(button.textContent,"Sync with Buffer");
+  state.syncResponse={};
+  await button.onclick();
+  assert.equal(writes.length,2);
+  assert.match(message.textContent,/refreshed/);
+  assert.equal(button.disabled,false);
+  assert.equal(button.textContent,"Sync with Buffer");
 });
 test("fill button schedules directly only when clicked and blocks repeat clicks while busy",async()=>{
   const {nodes,writes,state}=fixture();state.storage=true;state.buffer=true;
@@ -314,6 +339,7 @@ test("reload reconnects to fill progress, blocks duplicates, and exposes stop an
   data.fill_job={id:"active",state:"running",provider:"openai",message:"Preparing posting copy 2 of 4",scheduled:0};
   await nodes.get("refresh-publishing").onclick();
   assert.equal(writes.length,0);
+  assert.equal(nodes.get("publishing-refresh-buffer").disabled,true);
   assert.equal(nodes.get("publishing-fill").disabled,true);
   assert.equal(nodes.get("publishing-fill-stop").hidden,false);
   assert.equal(nodes.get("publishing-model").disabled,true);

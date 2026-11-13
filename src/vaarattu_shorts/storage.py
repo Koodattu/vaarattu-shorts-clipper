@@ -570,6 +570,37 @@ class Store:
             )
             return {"run_id": clip["run_id"], "revision": clip["revision"], "request_id": request["id"]}
 
+    def recover_tighten(self, clip_id, expected_revision, request_id, action, note):
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            clip = self.unpack(db.execute("SELECT * FROM clips WHERE id=?", (clip_id,)).fetchone())
+            run = self.unpack(db.execute("SELECT * FROM runs WHERE id=?", (clip["run_id"],)).fetchone())
+            request = clip["body"].get("tighten_check") or {}
+            result = run["result"]
+            if (clip["revision"] != expected_revision or request.get("id") != request_id
+                    or request.get("status") != "pending" or result.get("tighten_requested") != clip_id):
+                raise ValueError("This editing check changed. Reopen the dialog to see the current check.")
+            if run["state"] not in {"failed", "paused", "cancelled"}:
+                raise ValueError("This editing check is already active. Reopen the dialog to follow it.")
+            if action == "retry":
+                if self.media_cleaned(run):
+                    raise ValueError("Source media was cleaned up. Start a new run to edit this recording again.")
+                note = request.get("note", "") if note is None else note.strip()
+                if request.get("mode") == "instructed" and not note:
+                    raise ValueError("Describe how you want this clip edited.")
+                request = {**request, "id": uuid.uuid4().hex, "note": note}
+                state, stage, progress, message = "queued", "tighten", 0, "Editing check queued again."
+            elif action == "discard":
+                request = None
+                result.pop("tighten_requested")
+                state, stage, progress, message = "completed", "complete", 1, "Current clip kept."
+            else:
+                raise ValueError("Choose retry or discard for this editing check.")
+            db.execute("UPDATE clips SET body=? WHERE id=?",
+                       (json.dumps({**clip["body"], "tighten_check": request}), clip_id))
+            db.execute("UPDATE runs SET state=?,stage=?,progress=?,intent='',message=?,result=?,updated=? WHERE id=?",
+                       (state, stage, progress, message, json.dumps(result), time.time(), clip["run_id"]))
+
     def start_context(self, clip_id, expected_revision, request_id):
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")

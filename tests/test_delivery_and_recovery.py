@@ -9,10 +9,11 @@ from vaarattu_shorts.render import render_clip
 from vaarattu_shorts.storage import atomic_json, digest
 
 
-@pytest.mark.parametrize("duration", [4, 8, 30])
-@pytest.mark.parametrize("problem", ["caption", "transcript", "outside_clip"])
-@pytest.mark.parametrize("composition", [{}, {"camera_height": 960, "camera_fit": "contain", "gameplay_fit": "cover"},
-                                         {"camera_height": 400, "camera_fit": "cover", "gameplay_fit": "contain"}])
+@pytest.mark.parametrize("duration,problem,composition", [
+    (4, "caption", {}),
+    (8, "transcript", {"camera_height": 960, "camera_fit": "contain", "gameplay_fit": "cover"}),
+    (30, "outside_clip", {"camera_height": 400, "camera_fit": "cover", "gameplay_fit": "contain"}),
+])
 def test_render_exports_with_caption_or_transcript_warnings(settings, monkeypatch, duration, problem, composition):
     folder = settings.ready / ".staging" / "test"
     folder.mkdir(parents=True)

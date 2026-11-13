@@ -80,31 +80,53 @@ function initWorkspaceModel(state){
   for(const item of modelOptions(state).filter(item=>["openai","codex"].includes(item.profile.provider)))addModelOption(publishing,item);
   publishing.value="openai";
   workspaceModel=state.llm_preference;
-  select.value=workspaceModel.choice;select.disabled=false;
-  $("workspace-budget").value=workspaceModel.budget_usd??"";
-  function paint(){
-    const active=workspaceModel.choice!=="default",draft=select.value;
-    const paid=draft!=="default"&&usesApi(modelProfiles[draft].provider);
-    $("workspace-budget-field").hidden=!paid;$("workspace-budget").required=paid;$("workspace-budget").disabled=!paid;
-    $("workspace-model-save").hidden=draft===workspaceModel.choice&&(!paid||Number($("workspace-budget").value)===workspaceModel.budget_usd);
-    $("workspace-model-help").textContent=paid?"Each recording has its own spending limit.":draft==="default"?"Default uses each tool’s model.":"Applies to all LLM tasks.";
+  const dialog=$("workspace-model-dialog"),open=$("workspace-model-open"),fields=$("workspace-model-fields");
+  const budget=$("workspace-budget"),effort=$("workspace-effort"),failure=$("workspace-model-error");
+  const effortNames={none:"None",low:"Low",medium:"Medium",high:"High",xhigh:"Extra high",max:"Maximum"};
+  function draftFields(selectedEffort){
+    const provider=modelProfiles[select.value]?.provider;
+    const paid=Boolean(provider&&usesApi(provider));
+    $("workspace-budget-field").hidden=!paid;budget.required=paid;budget.disabled=!paid;
+    const levels=state.providers[provider]?.reasoning_efforts||[];
+    effort.replaceChildren();
+    addModelOption(effort,{key:"",label:"Per-tool default"});
+    for(const key of levels)addModelOption(effort,{key,label:effortNames[key]});
+    effort.value=levels.includes(selectedEffort)?selectedEffort:"";
+    $("workspace-effort-field").hidden=!levels.length;effort.disabled=!levels.length;
+  }
+  function paintSaved(){
+    const active=workspaceModel.choice!=="default",profile=effectiveModel("");
+    const name=active?modelLabel(profile):"Default",level=effortNames[workspaceModel.reasoning_effort];
+    $("workspace-model-current").textContent="LLM: "+(profile.codex_model||profile.openai_model||name);
+    const summary=name+(level?" · "+level+" reasoning":"");
+    open.title="Workspace LLM: "+summary;open.setAttribute("aria-label",open.title);
     document.body.classList.toggle("workspace-override",active);
+    document.body.classList.toggle("workspace-effort-override",Boolean(level));
     for(const note of document.querySelectorAll(".workspace-model-info")){
-      note.hidden=!active;note.textContent=active?"Workspace LLM: "+modelLabel(effectiveModel("")):"";
+      note.hidden=!active;note.textContent=active?open.title:"";
     }
     $("provider").onchange?.();$("highlight-provider").onchange?.();$("publishing-model").onchange?.();
     if(typeof editorModelFields==="function")editorModelFields();
   }
-  select.onchange=paint;$("workspace-budget").oninput=paint;
-  form.onsubmit=async event=>{
-    event.preventDefault();select.disabled=true;$("workspace-model-save").disabled=true;
-    try{
-      const budget=$("workspace-budget-field").hidden?null:Number($("workspace-budget").value);
-      workspaceModel=await api("/api/llm-preference",{method:"POST",body:JSON.stringify({choice:select.value,budget_usd:budget})});
-      paint();$("notice").textContent="Workspace model saved.";$("notice").hidden=false;
-    }catch(e){error(e.message);}finally{select.disabled=false;$("workspace-model-save").disabled=false;}
+  open.disabled=false;
+  open.onclick=()=>{
+    select.value=workspaceModel.choice;budget.value=workspaceModel.budget_usd??"";
+    draftFields(workspaceModel.reasoning_effort);failure.hidden=true;dialog.showModal();
   };
-  paint();
+  select.onchange=()=>draftFields(effort.value);
+  $("workspace-model-cancel").onclick=()=>dialog.close();
+  dialog.oncancel=event=>{if(fields.disabled)event.preventDefault();};
+  form.onsubmit=async event=>{
+    event.preventDefault();if(fields.disabled)return;
+    const body={choice:select.value,budget_usd:budget.disabled?null:Number(budget.value),
+                reasoning_effort:effort.disabled?null:effort.value||null};
+    fields.disabled=true;failure.hidden=true;
+    try{
+      workspaceModel=await api("/api/llm-preference",{method:"POST",body:JSON.stringify(body)});
+      paintSaved();dialog.close();$("notice").textContent="Workspace model saved.";$("notice").hidden=false;
+    }catch(e){failure.textContent=e.message;failure.hidden=false;}finally{fields.disabled=false;}
+  };
+  paintSaved();
 }
 async function init(){const state=await api("/api/status");token=state.token;concurrencyLimit=state.max_concurrent_jobs||1;$("job-concurrency").value=String(concurrencyLimit);$("cache-path").textContent=`Model cache: ${state.model_cache}`;
   for(const item of modelOptions(state))addModelOption($("provider"),item);

@@ -129,13 +129,13 @@ Remove-Variable clipperApiKey
 
 The PowerShell override lasts for that terminal session and its child processes; `.env` persists your saved configuration. Once launched, the provider selector indicates missing keys. Set a positive API spending limit in the form (for example `$1.00` as a first-run ceiling, not a predicted VOD price); local mode can keep it at zero. Codex uses a separate subscription allowance and disables this dollar cap.
 
-**Workspace LLM** at the bottom of the sidebar overrides the individual model pickers for shorts, highlights, clip editing and publishing copy. Choose a model and select **Apply**. Paid API choices require a spending limit per recording; smaller existing limits still apply. The choice survives a restart. Choose **Default** and apply it to use each tool’s own model again. In-flight requests and completed results are kept. Speech transcription and thumbnail image generation use separate models.
+Open the **LLM** button at the bottom of the sidebar to configure **Workspace LLM** for shorts, highlights, clip editing and publishing copy. Choose a model and, if supported, its reasoning effort. **Per-tool default** keeps the reasoning settings used by each task. Select **Apply** to save, or **Cancel** to discard your changes. Paid API choices require a spending limit per recording; smaller existing limits still apply. The choice survives a restart. Choose **Default** and apply it to use each tool’s own model again. In-flight requests and completed results are kept. Speech transcription and thumbnail image generation use separate models.
 
 To use the already-running local Codex bridge instead of the Platform API, select **Codex gpt-6-luna**. Both `gpt-6-luna` (default) and `gpt-6.1-terra` are available. The default endpoint is `CODEX_BASE_URL=http://127.0.0.1:18080/v1` in `.env`; leave `CODEX_API_KEY` empty unless your bridge requires its own local key. Token usage is still recorded, while subscription/credit costs are shown as unavailable. See [Codex provider setup and limitations](codex-provider.md).
 
 Gemini 3.8 Flash, GPT-6 Luna, GPT-6.1 Terra, GLM-5.3-Flash and DeepSeek V4 Flash have implemented provider-specific request/response paths. They have fixture validation, not live API certification. Meta Muse Spark 1.3 appears as unavailable because its exact API contract remains unverified; entering a Meta key does not enable a guessed endpoint. This is the one requested provider whose implementation is deferred pending accessible documentation.
 
-Select a positive spend cap for API runs. Accounting uses conservative standard uncached rates, and peak rates for DeepSeek, so it can overestimate the provider's final invoice. Response usage includes reported reasoning where applicable. A timed-out or otherwise ambiguously billed request retains its reservation. There is one JSON repair attempt. Temporary model request failures (HTTP 408, 429, 500, 502, 503, 504, network errors, transport timeouts and remote protocol errors) automatically retry up to four times, waiting 30, 60, 120 and 240 seconds. The progress message shows a countdown, and pause/cancel remain available. A longer `Retry-After` is respected up to 15 minutes; longer requested waits stop for manual retry rather than retrying early. Access/configuration failures still stop immediately. Every retry reserves its own estimated cost under the existing cap and uses the same provider, model and request. The retry allowance is shared across the original request and its JSON repair. The application watchdog does not retry a request that may still be running. Exhaustion preserves completed work for Resume / retry. A run's cap is immutable; choose a sufficient cap initially or start a new run with a revised cap. There is no automatic paid fallback from local mode.
+Select a positive spend cap for API runs. Accounting uses conservative standard uncached rates, and peak rates for DeepSeek, so it can overestimate the provider's final invoice. Response usage includes reported reasoning where applicable. A timed-out or otherwise ambiguously billed request retains its reservation. There is one JSON repair attempt. Temporary model request failures (HTTP 408, 429, 500, 502, 503, 504, 520, network errors, transport timeouts and remote protocol errors) automatically retry up to four times, waiting 30, 60, 120 and 240 seconds. The progress message shows a countdown, and pause/cancel remain available. A longer `Retry-After` is respected up to 15 minutes; longer requested waits stop for manual retry rather than retrying early. Access/configuration failures still stop immediately. Every retry reserves its own estimated cost under the existing cap and uses the same provider, model and request. The retry allowance is shared across the original request and its JSON repair. The application watchdog does not retry a request that may still be running. Exhaustion preserves completed work for Resume / retry. A run's cap is immutable; choose a sufficient cap initially or start a new run with a revised cap. There is no automatic paid fallback from local mode.
 
 ### Token usage and costs
 
@@ -284,17 +284,21 @@ Live Twitch access and downloads require verification with configured credential
 
 ## Checks and recovery
 
-Offline checks do not download media/models, invoke FFmpeg, perform inference or launch a network server. HTTP fixture responses and in-memory ASGI requests validate orchestration; they cannot certify Finnish quality or GPU compatibility.
+For a single feature, run its Python and UI tests directly. For example, tighter edits use `.venv/Scripts/python.exe -m pytest -q tests/test_tighten.py` and `node --test tests/tighten_ui.test.cjs`. Use the full suite for changes to shared infrastructure or test fixtures.
+
+Python tests create their temporary databases and files under `.cache/tests/` on the project drive. On this workstation that is the E: hard drive. Pytest assigns a separate numbered directory to each run.
+
+The full offline checks use local fixtures and in-memory HTTP requests.
 
 ```powershell
 .venv/Scripts/python.exe -m pytest -q
 .venv/Scripts/ruff.exe check src tests
 .venv/Scripts/ruff.exe format --check src tests
 node --check src/vaarattu_shorts/static/app.js
-node --test tests/catalog_ui.test.cjs
+node --test "tests/*.test.cjs" tests/test_layout.js
 ```
 
-In restricted Windows environments, pytest's shared user temp folder can be inaccessible. Use a fresh directory under `.cache/tests/` with `--basetemp`, after creating its parent. Tests allow only the standard library's internal asyncio wake-up socket pair; outbound network calls are blocked.
+Tests allow only the standard library's internal asyncio wake-up socket pair; outbound network calls are blocked.
 
 Use `vaarattu-shorts status` to inspect saved local state without processing. Use `vaarattu-shorts backup` with the launcher/worker stopped to create a SQLite-backup-API snapshot plus durable artifacts/checksum manifest under `workdir/backups/`. Backup excludes downloaded audio/sections, scratch WAVs and logs. Model files remain in `.cache/models/`. Restore into the same project workdir with the app stopped and verify the manifest; stored absolute paths need migration before a restore to a different project path. A full restore drill is not yet performed.
 

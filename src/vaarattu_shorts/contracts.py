@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Literal
+from typing import Literal, get_args
 from urllib.parse import parse_qs, urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -116,20 +116,37 @@ class LayoutSave(Layout):
 ResponsesModel = Literal["gpt-6-luna", "gpt-6.1-terra"]
 
 
-class ClipAnalysisOptions(Contract):
+ReasoningEffort = Literal["none", "low", "medium", "high", "xhigh", "max"]
+REASONING_EFFORTS = {
+    "openai": get_args(ReasoningEffort),
+    "codex": get_args(ReasoningEffort),
+    "gemini": ("low", "medium", "high"),
+}
+Provider = Literal["local", "gemini", "openai", "codex", "zai", "deepseek", "meta"]
+
+
+class ModelSelection(Contract):
+    provider: Provider
+    reasoning_effort: ReasoningEffort | None = None
     openai_model: ResponsesModel | None = None
     codex_model: ResponsesModel | None = None
-    provider: Literal["local", "gemini", "openai", "codex", "zai", "deepseek", "meta"]
+
+    @model_validator(mode="after")
+    def supported_effort(self):
+        if self.reasoning_effort is not None and self.reasoning_effort not in REASONING_EFFORTS.get(self.provider, ()):
+            raise ValueError("Choose a reasoning effort supported by this model.")
+        return self
+
+
+class ClipAnalysisOptions(ModelSelection):
     budget_usd: float | None = Field(default=None, ge=0, le=100)
     local_model: Literal["gemma4-31b", "gemma4-26b-a4b"] | None = None
 
 
-class RunRequest(Contract):
+class RunRequest(ModelSelection):
     video: str
     asr: Literal["turbo"] = "turbo"
-    provider: Literal["local", "gemini", "openai", "codex", "zai", "deepseek", "meta"] = "local"
-    openai_model: ResponsesModel | None = None
-    codex_model: ResponsesModel | None = None
+    provider: Provider = "local"
     local_model: Literal["gemma4-31b", "gemma4-26b-a4b"] = "gemma4-31b"
     context_size: Literal[16384, 32768] = 16384
     budget_usd: float = Field(default=0, ge=0, le=100)

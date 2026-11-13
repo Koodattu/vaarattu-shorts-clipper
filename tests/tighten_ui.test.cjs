@@ -12,10 +12,13 @@ class Element{
   async play(){this.paused=false;}
   querySelectorAll(){return this.children.flatMap(c=>[c,...c.querySelectorAll()]).filter(c=>c.type==="checkbox"&&c.checked);}
 }
+const directory=path.join(__dirname,"../src/vaarattu_shorts/static");
+function dialogNodes(){
+  return new Map([...fs.readFileSync(path.join(directory,"index.html"),"utf8").matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],new Element()]));
+}
 for(const mode of ["suggest","instructed"])test(`${mode} edits show the current preview and guidance, then apply only selected cuts or undo`,async()=>{
   const button=mode==="instructed"?"review-instructed-edit":"review-tighten",endpoint=mode==="instructed"?"instructed-edit":"tighten";
-  const directory=path.join(__dirname,"../src/vaarattu_shorts/static");
-  const nodes=new Map([...fs.readFileSync(path.join(directory,"index.html"),"utf8").matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],new Element()]));
+  const nodes=dialogNodes();
   let clip={id:"clip",revision:1,run_id:"run",words:[],status:"ready",has_preview:true,start_us:1e8,end_us:12e7,
     pacing:{retained:[{source_start_us:1e8,source_end_us:11e7,output_start_us:0},{source_start_us:112e6,source_end_us:12e7,output_start_us:1e7}]}},renders=0;
   const writes=[],errors=[];
@@ -75,4 +78,53 @@ for(const mode of ["suggest","instructed"])test(`${mode} edits show the current 
   assert.match(writes[2].url,/speech-cuts-undo$/);assert.deepEqual(writes[2].body,{expected_revision:2});
   assert.equal(renders,2);
   await nodes.get("edit-tighten").onclick();assert.match(errors[0],/Save your current editor changes/);
+});
+
+test("recover a failed check in the review queue, including after reopening the dialog",async()=>{
+  const nodes=dialogNodes(),get=id=>nodes.get(id);
+  let clip={id:"clip",run_id:"run",revision:3,start_us:0,end_us:16e6,speech_cut_history:[[]],
+    tighten_check:{id:"failed-check",status:"pending",note:"Remove the detour"},
+    tighten_job:{state:"running"}};
+  let poll;
+  const writes=[];
+  const context=vm.createContext({
+    $:get, reviewQueue:[clip], error:assert.fail, setTimeout:callback=>{poll=callback;return 1;},clearTimeout:()=>{},
+    api:async(url,options)=>{
+      if(!options){assert.equal(url,"/api/clips/clip");return clip;}
+      assert.equal(url,"/api/clips/clip/tighten-recovery");
+      const body=JSON.parse(options.body);writes.push(body);
+      if(body.action==="retry")clip={...clip,tighten_job:{state:"queued"},tighten_check:{...clip.tighten_check,id:"new-check",note:body.note}};
+      else clip={...clip,tighten_job:null,tighten_check:null};
+      return clip;
+    },
+  });
+  vm.runInContext(fs.readFileSync(path.join(directory,"tighten.js"),"utf8"),context);
+  await get("review-tighten").onclick();
+  assert.equal(get("tighten-discard").hidden,true);
+  assert.equal(get("tighten-request").disabled,true);
+  clip={...clip,tighten_job:{state:"failed",message:"The cuts overlap."}};
+  await poll();
+  assert.match(get("tighten-message").textContent,/The cuts overlap/);
+  assert.equal(get("tighten-request").textContent,"Retry editing check");
+  assert.equal(get("tighten-request").disabled,false);
+  assert.equal(get("tighten-apply").disabled,true);
+  assert.equal(get("tighten-note").value,"Remove the detour");
+  get("tighten-note").value="Remove just the first detour";
+  await get("tighten-request").onclick();
+  assert.deepEqual(writes[0],{expected_revision:3,request_id:"failed-check",action:"retry",note:"Remove just the first detour"});
+  assert.equal(get("tighten-request").disabled,true);
+  assert.equal(get("tighten-dialog").open,true);
+  assert.equal(get("tighten-player").loads,1);
+  get("tighten-close").onclick();
+  clip={...clip,tighten_job:{state:"paused",message:"Check paused."}};
+  await get("review-tighten").onclick();
+  assert.equal(get("tighten-note").value,writes[0].note);
+  assert.equal(get("tighten-discard").hidden,false);
+  await get("tighten-discard").onclick();
+  assert.deepEqual(writes[1],{expected_revision:3,request_id:"new-check",action:"discard"});
+  assert.equal(get("tighten-dialog").open,true);
+  assert.equal(get("tighten-request").disabled,false);
+  assert.equal(get("tighten-undo").disabled,false);
+  assert.equal(get("tighten-apply").disabled,true);
+  assert.equal(get("tighten-discard").hidden,true);
 });

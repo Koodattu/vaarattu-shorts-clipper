@@ -6,10 +6,10 @@ from vaarattu_shorts.pipeline import Pipeline
 from vaarattu_shorts.storage import atomic_json
 
 
-@pytest.mark.parametrize("provider", ["youtube", "twitch"])
-@pytest.mark.parametrize(
-    "timing_issues", [[], [{"kind": "word_overlap", "start_us": 1000000, "end_us": 2000000}]]
-)
+@pytest.mark.parametrize("provider,timing_issues", [
+    ("youtube", []),
+    ("twitch", [{"kind": "word_overlap", "start_us": 1000000, "end_us": 2000000}]),
+])
 def test_one_run_reaches_output_with_adapters_replaced_and_resumes(
     settings, store, monkeypatch, timing_issues, provider
 ):

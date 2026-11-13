@@ -65,7 +65,12 @@ function fixture(){
 }
 const submit=(f,id)=>f.nodes.get(id).onsubmit({preventDefault(){}});
 test("editor offers the shared tools and decisions on its own clip without changing the review queue",async()=>{
-  const f=fixture();await f.open();const before=f.queue();
+  const f=fixture();
+  f.state.clip.layout={name:"Saved crop"};
+  f.context.savedLayouts.push({id:"matching",body:{name:"Saved crop"}});
+  f.context.sameLayout=(preset,clip)=>preset.name===clip.name;
+  await f.open();const before=f.queue();
+  assert.equal(f.nodes.get("edit-layout").value,"matching");
   assert.match(f.nodes.get("editor-player").src,/edited\/video\?revision=2/);
   for(const id of ["edit-trim","edit-context","edit-instructed-edit","edit-caption-edit","edit-caption-check","edit-ready"])assert.equal(f.nodes.get(id).disabled,false);
   f.nodes.get("edit-notes").onclick();assert.equal(f.nodes.get("clip-notes-dialog").open,true);f.nodes.get("close-clip-notes").onclick();
@@ -73,6 +78,9 @@ test("editor offers the shared tools and decisions on its own clip without chang
     await f.nodes.get(id).onclick();assert.equal(f.state.clip.review_status,status);assert.equal(f.nodes.get(id)["aria-pressed"],"true");
   }
   assert.deepEqual(f.queue(),before);assert.equal(f.context.currentView,"editor");
+  f.state.clip.has_source=false;
+  await f.open();
+  assert.equal(f.nodes.get("use-source-frame").disabled,true);
 });
 test("context lookup preserves direction and notes, then loads the new revision in the same editor",async()=>{
   const f=fixture();await f.open();const before=f.queue();f.nodes.get("editor-back").href="#gallery";
@@ -96,8 +104,8 @@ test("timeline trim and quick captions keep the editor open and leave queue stat
   for(const tool of ["trim","caption-edit"]){
     const f=fixture();await f.open();const before=f.queue();await f.nodes.get("edit-"+tool).onclick();
     if(tool==="trim"){
-      f.nodes.get("trim-player").onloadedmetadata();f.nodes.get("trim-start").value=4;f.nodes.get("trim-start").onchange();await submit(f,"trim-form");
-      assert.equal(f.calls.find(c=>c.body).body.start_us,4e6);
+      f.nodes.get("trim-player").onloadedmetadata();f.nodes.get("trim-start").value="4.000125";f.nodes.get("trim-start").onchange();await submit(f,"trim-form");
+      assert.equal(f.calls.find(c=>c.body).body.start_us,4000125);
     }else{
       const input=f.nodes.get("manual-caption-words").children[0];input.value="Moi";input.oninput();await submit(f,"manual-caption-form");
       assert.equal(f.calls.find(c=>c.body).body.words[0].text,"Moi");

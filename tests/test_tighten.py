@@ -11,23 +11,27 @@ from vaarattu_shorts.web import create_app
 
 
 @pytest.fixture
-def clip(settings, store):
+def body():
     words = [
         dict(id=f"w{i}", start_us=i * 1000000, end_us=i * 1000000 + 800000, text=f"word{i}")
         for i in range(16)
     ]
-    folder = settings.ready / "clip" / "1"
-    folder.mkdir(parents=True)
-    (folder / "short.mp4").write_bytes(b"preview")
-    body = dict(
+    return dict(
         words=words,
         start_us=0,
         end_us=16000000,
         status="ready",
-        folder=str(folder),
         title="A point",
         tighten_check={"note": "Keep the point"},
     )
+
+
+@pytest.fixture
+def clip(settings, store, body):
+    folder = settings.ready / "clip" / "1"
+    folder.mkdir(parents=True)
+    (folder / "short.mp4").write_bytes(b"preview")
+    body = {**body, "folder": str(folder)}
     run = store.admit(dict(video="aaaaaaaaaaa", provider="codex", budget_usd=0), "tighten")
     store.save_clip("clip", run, 1, body)
     store.update(run, state="completed", result={"outcome": "completed"})
@@ -51,14 +55,12 @@ def checked(body, cuts):
 
 
 @pytest.mark.parametrize("a,b", [(0, 3), (3, 15), (5, 3), (4, 4), (2, 99)])
-def test_only_internal_passages_can_be_removed(clip, a, b):
-    _, body = clip
+def test_only_internal_passages_can_be_removed(body, a, b):
     with pytest.raises(ValueError):
         tighten.resolve(body, [cut(a, b)])
 
 
-def test_overlap_uncertain_joins_and_stale_timing_fail_closed(clip):
-    _, body = clip
+def test_overlap_uncertain_joins_and_stale_timing_fail_closed(body):
     with pytest.raises(ValueError):
         tighten.resolve(body, [cut(2, 5), cut(4, 7)])
     with pytest.raises(ValueError):
@@ -77,8 +79,7 @@ def test_overlap_uncertain_joins_and_stale_timing_fail_closed(clip):
         tighten.intervals(applied)
 
 
-def test_cut_subsets_preserve_words_and_undo_restores_previous_plan(clip):
-    _, body = clip
+def test_cut_subsets_preserve_words_and_undo_restores_previous_plan(body):
     proposal = checked(body, [cut(2, 4), cut(9, 11)])
     first = tighten.apply(proposal, [1])
     assert first["words"] == body["words"]
@@ -96,9 +97,47 @@ def test_cut_subsets_preserve_words_and_undo_restores_previous_plan(clip):
         tighten.apply(changed, [0])
 
 
+@pytest.mark.parametrize("old,new", [((6, 8), (3, 5)), ((3, 5), (6, 8))])
+def test_extend_an_applied_cut_shows_the_audible_join_and_renders_one_cut(body, old, new):
+    # A pause between the two passages makes their source-time removal margins overlap.
+    for word in body["words"][6:]:
+        word["start_us"] += 5000000
+        word["end_us"] += 5000000
+    body["end_us"] += 5000000
+    original = tighten.apply(checked(body, [cut(*old)]), [0])
+    proposal = checked(original, [cut(*new)])
+    suggestion, = proposal["tighten_check"]["cuts"]
+    assert suggestion["word_ids"] == [f"w{i}" for i in range(new[0], new[1] + 1)]
+    assert suggestion["before"].endswith("word2") and suggestion["after"].startswith("word9 ")
+    edited = tighten.apply(proposal, [0])
+    assert tighten.intervals(edited) == [[2900000, 13900000]]
+    words = [Word.model_validate(word) for word in body["words"]]
+    plan = pacing.plan(0, body["end_us"], words, speech_cuts=tighten.intervals(edited))
+    assert [w.id for w in pacing.retime(words, plan)] == [w.id for w in words[:3] + words[9:]]
+    assert tighten.undo(edited)["speech_cuts"] == original["speech_cuts"]
+    with pytest.raises(ValueError):
+        tighten.resolve(original, [cut(*old)])
+
+
+def test_extend_across_an_existing_join_counts_only_additional_speech(body):
+    original = tighten.apply(checked(body, [cut(6, 8)]), [0])
+    proposal = checked(original, [cut(4, 10)])
+    assert proposal["tighten_check"]["cuts"][0]["word_ids"] == ["w4", "w5", "w9", "w10"]
+    edited = tighten.apply(proposal, [0])
+    assert edited["speech_cuts"][0]["word_ids"] == [f"w{i}" for i in range(4, 11)]
+    assert tighten.intervals(edited) == [[3900000, 10900000]]
+    assert tighten.undo(edited)["speech_cuts"] == original["speech_cuts"]
+
+    # The old cut already covers most of this long source gap.
+    body["words"][4].update(start_us=4000000, end_us=4100000)
+    body["words"][5].update(start_us=4100000, end_us=4200000)
+    original = tighten.apply(checked(body, [cut(6, 8)]), [0])
+    with pytest.raises(ValueError, match="one second"):
+        tighten.resolve(original, [cut(4, 5)])
+
+
 @pytest.mark.parametrize("silence", [True, False])
-def test_speech_removal_and_silence_keep_captions_synchronized(clip, silence):
-    _, body = clip
+def test_speech_removal_and_silence_keep_captions_synchronized(body, silence):
     body = copy.deepcopy(body)
     for w in body["words"][8:]:
         w["start_us"] += 3000000
@@ -119,8 +158,7 @@ def test_speech_removal_and_silence_keep_captions_synchronized(clip, silence):
     assert plan["silence_removed"] if silence else not plan["silence_removed"]
 
 
-def test_model_gets_actual_speech_and_can_return_no_cuts(clip):
-    _, body = clip
+def test_model_gets_actual_speech_and_can_return_no_cuts(body):
 
     class Evaluator:
         verification_budget = 48000
@@ -140,8 +178,7 @@ def test_model_gets_actual_speech_and_can_return_no_cuts(clip):
     assert tighten.propose(body, None, Evaluator())["cuts"] == []
 
 
-def test_compact_model_references_resolve_to_saved_word_ids(clip):
-    _, body = clip
+def test_compact_model_references_resolve_to_saved_word_ids(body):
     body = copy.deepcopy(body)
     for word in body["words"]:
         word["id"] = "original_" + word["id"]
@@ -167,8 +204,7 @@ def test_compact_model_references_resolve_to_saved_word_ids(clip):
     assert result["cuts"][0]["word_ids"] == [f"original_w{i}" for i in range(3, 7)]
 
 
-def test_instructed_edit_uses_distinct_objective_and_current_preview_times(clip):
-    _, body = clip
+def test_instructed_edit_uses_distinct_objective_and_current_preview_times(body):
     body = tighten.apply(checked(body, [cut(8, 9)]), [0])
     body["pacing"] = pacing.plan(
         body["start_us"], body["end_us"], [Word.model_validate(w) for w in body["words"]],
@@ -201,8 +237,7 @@ def test_instructed_edit_uses_distinct_objective_and_current_preview_times(clip)
     assert result["cuts"][0]["word_ids"] == ["w3", "w4", "w5", "w6"]
 
 
-def test_short_combined_speech_and_silence_edit_is_rejected_before_rendering(clip):
-    _, body = clip
+def test_short_combined_speech_and_silence_edit_is_rejected_before_rendering(body):
     body = {
         **body,
         "end_us": 12000000,
@@ -256,6 +291,46 @@ def test_completed_proposal_resumes_without_another_model_call(settings, store, 
     assert store.get(run)["state"] == "completed"
     assert store.get(run)["result"] == {"outcome": "completed"}
     assert store.clip("clip")["body"] == body
+
+
+@pytest.mark.parametrize("state", ["failed", "paused", "cancelled"])
+def test_recover_stopped_edit_in_place(settings, store, clip, state):
+    run, body = clip
+    original = tighten.apply(checked(body, [cut()]), [0])
+    store.save_clip("clip", run, 3, original)
+    store.review_clip("clip", 3, "approved")
+    client = TestClient(create_app(settings), base_url="http://127.0.0.1:8765")
+    headers = {"x-local-token": client.get("/api/status").json()["token"]}
+    request = store.queue_clip_analysis(
+        "clip", {"expected_revision": 3, "note": "Keep the point", "mode": "instructed",
+                 "analysis": {"provider": "codex"}}, "tighten_check", "tighten_requested", "tighten",
+    )
+    payload = {"expected_revision": 3, "request_id": request["request_id"], "action": "retry"}
+
+    def recover(**updates):
+        return client.post("/api/clips/clip/tighten-recovery", headers=headers, json={**payload, **updates})
+
+    assert recover().status_code == 400  # Still queued.
+    store.update(run, state=state, message="Stopped before proposal.")
+    assert client.get("/api/clips/clip").json()["tighten_job"] == {"state": state, "message": "Stopped before proposal."}
+    assert recover(expected_revision=2).status_code == 400
+    assert recover(request_id="stale").status_code == 400
+    assert recover(note="  ").status_code == 400
+    retry = recover(note="Remove the other detour").json()
+    assert retry["tighten_job"]["state"] == "queued"
+    assert retry["review_status"] == "approved" and retry["revision"] == 3 and retry["has_preview"]
+    check = retry["tighten_check"]
+    assert check["mode"] == "instructed" and check["note"] == "Remove the other detour"
+    assert check["analysis"] == {"provider": "codex"} and check["id"] != payload["request_id"]
+    store.update(run, state="failed")
+    assert recover(action="discard").status_code == 400  # Old request on the same revision.
+    discard = recover(request_id=check["id"], action="discard").json()
+    assert discard["tighten_job"] is None and discard["tighten_check"] is None
+    assert discard["revision"] == 3 and discard["review_status"] == "approved" and discard["has_preview"]
+    assert store.clip("clip")["body"] == original
+    assert store.get(run)["result"] == {"outcome": "completed"}
+    assert client.post("/api/clips/clip/speech-cuts-undo", headers=headers,
+                       json={"expected_revision": 3}).status_code == 202
 
 
 @pytest.mark.parametrize("action", ["tighten", "instructed-edit"])

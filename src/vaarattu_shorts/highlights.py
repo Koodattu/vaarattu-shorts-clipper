@@ -13,7 +13,7 @@ from typing import Literal
 from pydantic import Field, model_validator
 
 from . import highlight_copy, highlight_episode as editing, highlight_sources as sources, transcribe, youtube
-from .contracts import Contract, ResponsesModel
+from .contracts import Contract, ModelSelection, Provider
 from .model_choices import evaluator_options
 from .llm import Evaluator, ModelOutputError
 from .pipeline import Pipeline, check_space
@@ -28,14 +28,12 @@ class SourceRange(Contract):
     end_us: int = Field(gt=0)
 
 
-class Start(Contract):
+class Start(ModelSelection):
     manifest_id: str = Field(pattern=r"^[a-f0-9]{32}$")
     project_title: str = Field(default="", max_length=150)
     segments: list[SourceRange] | None = Field(default=None, min_length=1, max_length=30)
     target_minutes: int | None = Field(default=None, exclude=True, description="Legacy setting; ignored. Length follows the selected content.")
-    provider: Literal["local", "gemini", "openai", "codex", "zai", "deepseek", "meta"] = "codex"
-    openai_model: ResponsesModel | None = None
-    codex_model: ResponsesModel | None = None
+    provider: Provider = "codex"
     local_model: Literal["gemma4-31b", "gemma4-26b-a4b"] = "gemma4-31b"
     context_size: Literal[16384, 32768] = 32768
     budget_usd: float = Field(default=0, ge=0, le=100)
@@ -116,12 +114,16 @@ def public(settings, store, run):
     usage = store.usage(run["id"])
     requests = [r for r in usage["requests"] if r.get("created", 0) >= result.get("revision_started", run["created"])]
     phases = {}
+    editing_effort = run["config"].get("reasoning_effort") or result.get(
+        "editing_reasoning", run["config"].get("verification_reasoning", "low"))
     for request in requests:
         step = request.get("step", "")
         label = ("Discovery" if step.startswith("scan-") else "First ranking" if step.startswith("episode-screen")
                  else "Title and description" if step.startswith("highlight-copy")
                  else "Edited ranking" if step.startswith("episode-rank") else "Pacing review" if step.startswith(("episode-critic", "episode-polish", "episode-verify", "episode-joins", "episode-duplicate"))
                  else "Scene editing")
+        if label not in {"Discovery", "Title and description"} and request.get("reasoning_effort"):
+            editing_effort = request["reasoning_effort"]
         phase = phases.setdefault(label, {"requests": 0, "retries": 0, "seconds": 0})
         phase["requests"] += 1
         phase["retries"] += int(request.get("attempt", 1) > 1 or request.get("service_retries", 0) > 0 or "-repair-" in step)
@@ -140,7 +142,7 @@ def public(settings, store, run):
             "publishing_copy": highlight_copy.get(settings, run),
             "thumbnails": highlight_thumbnails.public(settings, run),
             "activity": {"request_count": len(requests), "phases": phases,
-                         "thinking": result.get("editing_reasoning", run["config"].get("verification_reasoning", "low"))},
+                         "thinking": editing_effort},
             "usage": {k: v for k, v in usage.items() if k != "requests"}}
 
 

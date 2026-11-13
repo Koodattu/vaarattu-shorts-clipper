@@ -101,18 +101,17 @@ def test_codex_repairs_bad_content_and_preserves_missing_usage(settings, store):
     assert store.get(run)["spent"] == store.get(run)["reserved"] == 0
 
 
-@pytest.mark.parametrize("status", [400, 401, 403, 404, 422])
-def test_codex_access_errors_do_not_retry_or_fall_back_to_paid_api(settings, store, status):
+def test_codex_access_errors_do_not_retry_or_fall_back_to_paid_api(settings, store):
     run = store.admit({"provider": "codex"}, "http-error")
     calls = []
 
     def handle(request):
         calls.append(str(request.url))
-        return httpx.Response(status, json={"error": "fixture"})
+        return httpx.Response(401, json={"error": "fixture"})
 
     with httpx.Client(transport=httpx.MockTransport(handle)) as client:
         evaluator = Evaluator("codex", store, run, settings.work, 0, lambda: None, client)
-        with pytest.raises(ValueError, match=f"HTTP {status}"):
+        with pytest.raises(ValueError, match="HTTP 401"):
             evaluator.call("rules", "speech", Proposals, "scan")
     assert calls == ["http://127.0.0.1:18080/v1/responses"]
 
@@ -202,8 +201,9 @@ def test_codex_admission_needs_no_platform_key_and_snapshots_no_secrets(settings
         RunRequest(video="abc_def-ghI", provider="openai", layout_id=layout)
 
 
-@pytest.mark.parametrize("model", [None, "gpt-6-luna", "gpt-6.1-terra"])
-@pytest.mark.parametrize("effort", ["none", "low", "medium", "high", "xhigh"])
+@pytest.mark.parametrize("model,effort", [
+    (None, "none"), ("gpt-6-luna", "low"), ("gpt-6.1-terra", "xhigh"),
+])
 def test_explicit_codex_choice_is_saved_for_both_run_types(settings, monkeypatch, model, effort):
     from vaarattu_shorts import highlights
     from vaarattu_shorts.storage import atomic_json

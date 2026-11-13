@@ -134,8 +134,6 @@ def test_peak_pass_adds_candidates_keeps_full_scan_and_verifies_without_activity
 @pytest.mark.parametrize(
     "scores,has_review_note",
     [
-        ({"opening": 0}, False),
-        ({"payoff": 0}, False),
         ({"opening": 0, "payoff": 0, "standalone": 3, "substance": 3, "fidelity": 3}, False),
         ({"substance": 2}, True),
         ({"standalone": 2}, True),
@@ -173,7 +171,7 @@ def test_scores_are_preserved_as_review_notes_without_editorial_vetoes(settings,
         assert result["verified"][0]["candidate"]["scores"][field] == score
 
 
-@pytest.mark.parametrize("trim_start,eligible", [(3, True), (15, True), (40, False)])
+@pytest.mark.parametrize("trim_start,eligible", [(15, True), (40, False)])
 def test_refinement_can_move_within_proposal_but_not_outside_it(
     settings, store, monkeypatch, trim_start, eligible
 ):

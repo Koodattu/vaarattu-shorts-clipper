@@ -1,10 +1,21 @@
+import shutil
 import socket
 import subprocess
+import tempfile
 
 import pytest
 
 from vaarattu_shorts.config import Settings
 from vaarattu_shorts.storage import Store
+
+
+def pytest_configure(config):
+    # Keep pytest's numbered runs and application-created temp files on the project drive.
+    scratch = config.rootpath / ".cache" / "tests"
+    scratch.mkdir(parents=True, exist_ok=True)
+    previous = tempfile.tempdir
+    tempfile.tempdir = str(scratch)
+    config.add_cleanup(lambda: setattr(tempfile, "tempdir", previous))
 
 
 @pytest.fixture(autouse=True)
@@ -36,6 +47,16 @@ def settings(tmp_path):
     return settings
 
 
+@pytest.fixture(scope="session")
+def empty_database(tmp_path_factory):
+    path = tmp_path_factory.mktemp("schema") / "state.sqlite3"
+    Store(path)
+    return path
+
+
 @pytest.fixture
-def store(settings):
-    return Store(settings.work / "state.sqlite3")
+def store(settings, empty_database):
+    # Each test gets its own real SQLite file, initialized from the same closed, empty database.
+    path = settings.work / "state.sqlite3"
+    shutil.copyfile(empty_database, path)
+    return Store(path)

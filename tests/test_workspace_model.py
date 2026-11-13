@@ -38,7 +38,7 @@ def test_workspace_model_reaches_requests_and_survives_restart(settings, store, 
     assert status["llm_profiles"][choice] == {"provider": provider, f"{provider}_model": terra}
     if paid:
         assert client.post("/api/llm-preference", headers=headers, json={"choice": choice}).status_code == 400
-    selected = {"choice": choice, "budget_usd": 3 if paid else None}
+    selected = {"choice": choice, "budget_usd": 3 if paid else None, "reasoning_effort": "max"}
     assert client.post("/api/llm-preference", headers=headers, json=selected).json() == selected
     client = TestClient(create_app(settings), base_url="http://localhost")
     status = client.get("/api/status").json()
@@ -63,13 +63,17 @@ def test_workspace_model_reaches_requests_and_survives_restart(settings, store, 
         int(paid),
     )
 
+    assert config["reasoning_effort"] == "max"
+
     # Editing an old run must override both its saved model and an individual action setting.
     old = {"provider": "codex", "budget_usd": 0}
     run = store.admit(old, "existing-run")
-    models = []
+    models, efforts = [], []
 
     def handle(request):
-        models.append(json.loads(request.content)["model"])
+        payload = json.loads(request.content)
+        models.append(payload["model"])
+        efforts.append(payload["reasoning"]["effort"])
         host = "api.openai.com" if paid else "127.0.0.1"
         assert request.url.host == host
         return httpx.Response(
@@ -107,12 +111,41 @@ def test_workspace_model_reaches_requests_and_survives_restart(settings, store, 
                 propose,
                 analysis={"provider": provider, "budget_usd": 1},
             )
+    assert efforts == ["max", "none"]
     assert models == [terra, "gpt-6-luna"]  # A model change cannot reuse the other model's response.
     usage = store.usage(run)
     assert usage["requests"][0]["model"] == terra
+    assert usage["requests"][0]["reasoning_effort"] == "max"
     if paid:
         assert usage["requests"][0]["estimated_cost_usd"] == pytest.approx(0.0015)
         assert usage["estimated_cost_usd"] == pytest.approx(0.00165)
     else:
         assert usage["estimated_cost_usd"] is None
     assert store.get(run)["config"] == old
+
+
+def test_gemini_effort_changes_actual_request_and_cache(settings, store, monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "fixture-key")
+    run = store.admit({"provider": "gemini", "budget_usd": 1}, "effort")
+    sent = []
+
+    def handle(request):
+        sent.append(json.loads(request.content)["generationConfig"]["thinkingConfig"]["thinkingLevel"])
+        parts = [{"text": '{"candidates":[],"feedback":"No standalone moment."}'}]
+        return httpx.Response(
+            200, json={"candidates": [{"finishReason": "STOP", "content": {"parts": parts}}]}
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(handle)) as transport:
+        for effort in ("low", "high", "high"):
+            save_preference(settings, "gemini", 1, effort)
+            Pipeline(settings, store, run).clip_proposal(
+                {"body": {}},
+                {},
+                settings.work / "edit",
+                transport,
+                lambda body, transcript, evaluator: evaluator.call("rules", "speech", Proposals, "copy"),
+            )
+    assert sent == ["low", "high"]
+    with pytest.raises(ValueError, match="supported"):
+        save_preference(settings, "gemini", 1, "xhigh")

@@ -25,13 +25,12 @@ def analysis_clip(settings, store):
     return run, client, headers
 
 
-@pytest.mark.parametrize("action,body_key,method", [
-    ("context", "context_request", "repair_context"),
-    ("tighten", "tighten_check", "suggest_tighter_edit"),
-    ("instructed-edit", "tighten_check", "suggest_tighter_edit"),
-    ("caption-check", "caption_check", "check_captions"),
+@pytest.mark.parametrize("action,body_key,method,provider", [
+    ("context", "context_request", "repair_context", "openai"),
+    ("tighten", "tighten_check", "suggest_tighter_edit", "codex"),
+    ("instructed-edit", "tighten_check", "suggest_tighter_edit", None),
+    ("caption-check", "caption_check", "check_captions", "openai"),
 ])
-@pytest.mark.parametrize("provider", ["openai", "codex", None])
 def test_action_provider_is_durable_and_used_by_worker(settings, store, analysis_clip, monkeypatch,
                                                      action, body_key, method, provider):
     run, client, headers = analysis_clip

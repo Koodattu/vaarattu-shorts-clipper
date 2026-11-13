@@ -38,7 +38,7 @@ PROVIDERS = {
 }
 MAX_OUTPUT = 4096
 SERVICE_RETRY_DELAYS = (30, 60, 120, 240)
-RETRYABLE_HTTP_STATUS = {408, 429, 500, 502, 503, 504}
+RETRYABLE_HTTP_STATUS = {408, 429, 500, 502, 503, 504, 520}
 
 
 class ModelOutputError(ValueError):
@@ -231,14 +231,16 @@ class Evaluator:
         *,
         codex_config=None,
         model=None,
+        reasoning_override=None,
         discovery_reasoning="low",
         verification_reasoning="low",
     ):
         self.provider, self.store, self.run_id = provider, store, run_id
         self.folder, self.cap, self.check, self.client = folder, cap, check, client
         self.context_size = context_size
-        self.discovery_reasoning = discovery_reasoning
-        self.verification_reasoning = verification_reasoning
+        self.reasoning_override = reasoning_override
+        self.discovery_reasoning = reasoning_override or discovery_reasoning
+        self.verification_reasoning = reasoning_override or verification_reasoning
         self.codex = (codex_config or codex_settings()) if provider == "codex" else None
         # Retired models in historical snapshots continue to fall back to the provider default.
         requested = self.codex.get("model") if self.codex else model
@@ -360,7 +362,7 @@ class Evaluator:
                         "responseMimeType": "application/json",
                         "responseJsonSchema": schema,
                         "maxOutputTokens": MAX_OUTPUT,
-                        "thinkingConfig": {"thinkingLevel": "low"},
+                        "thinkingConfig": {"thinkingLevel": self.reasoning_override or "low"},
                     },
                 },
             )
@@ -443,7 +445,8 @@ class Evaluator:
                     system,
                     prompt,
                     schema,
-                    reasoning_effort,
+                    f"thinkingLevel:{self.reasoning_override}" if self.provider == "gemini" and self.reasoning_override
+                    else self.reasoning_override or reasoning_effort,
                     MAX_OUTPUT,
                     self.context_size,
                     *([self.codex["base_url"]] if self.codex else []),
@@ -485,6 +488,7 @@ class Evaluator:
         attempt = 0
         service_retries = 0
         output_retries = 1 if output_retry_delays is None else len(output_retry_delays)
+        reasoning_effort = self.reasoning_override or reasoning_effort
         original_prompt = prompt
         while attempt <= output_retries:
             self.check()
@@ -522,7 +526,7 @@ class Evaluator:
                     "request_sha256": hashlib.sha256(
                         json.dumps(body, ensure_ascii=False, sort_keys=True).encode("utf-8")
                     ).hexdigest(),
-                    "reasoning_effort": reasoning_effort if self.provider in {"openai", "codex"} else None,
+                    "reasoning_effort": self.reasoning_override or (reasoning_effort if self.provider in {"openai", "codex"} else None),
                     **(
                         {"pricing_basis": "codex_subscription", "output_token_limit_enforced": False}
                         if self.codex

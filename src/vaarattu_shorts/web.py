@@ -17,7 +17,7 @@ from pydantic import BeforeValidator, Field, TypeAdapter
 
 from . import buffer, caption_correction, clip_trim, catalog, delivery, discover, highlight_sources, highlights, r2, recordings, stream_data, tighten, twitch_catalog
 from .context_repair import ContextRequest
-from .contracts import MIN_CLIP_US, ClipAnalysisOptions, EditRequest, LayoutSave, RunRequest, Word, clip_duration_limit, source_url
+from .contracts import REASONING_EFFORTS, ReasoningEffort, MIN_CLIP_US, ClipAnalysisOptions, EditRequest, LayoutSave, RunRequest, Word, clip_duration_limit, source_url
 from .llm import PROVIDERS, check_provider, codex_settings
 from .model_choices import preference, profiles, save_preference, with_override
 from .models import CATALOG, model_path
@@ -154,6 +154,7 @@ def create_app(settings):
             "providers": {
                 key: {
                     "model": spec["model"],
+                    "reasoning_efforts": REASONING_EFFORTS.get(key, ()),
                     "configured": not spec["key"] or bool(os.environ.get(spec["key"])),
                     "available": not spec.get("unavailable"),
                     "reason": spec.get("unavailable", ""),
@@ -166,8 +167,12 @@ def create_app(settings):
         }
 
     @app.post("/api/llm-preference")
-    def select_workspace_model(choice: str = Body(max_length=100), budget_usd: float | None = Body(default=None, gt=0, le=100, allow_inf_nan=False)):
-        return save_preference(settings, choice, budget_usd)
+    def select_workspace_model(
+        choice: str = Body(max_length=100),
+        budget_usd: float | None = Body(default=None, gt=0, le=100, allow_inf_nan=False),
+        reasoning_effort: ReasoningEffort | None = Body(default=None),
+    ):
+        return save_preference(settings, choice, budget_usd, reasoning_effort)
 
     @app.post("/api/concurrency")
     def concurrency(max_concurrent_jobs: int = Body(embed=True, ge=1, le=4)):
@@ -638,6 +643,8 @@ def create_app(settings):
         run = store.get(clip["run_id"])
         config = run["config"]
         return {**public_clip(clip), "context_recovery_available": True,
+                "tighten_job": {key: run[key] for key in ("state", "message")}
+                if run["result"].get("tighten_requested") == clip_id else None,
                 "context_job": {key: run[key] for key in ("state", "intent", "message")}
                 if (clip["body"].get("context_request") or {}).get("status") == "pending" else None,
                 "analysis_defaults": {
@@ -658,6 +665,8 @@ def create_app(settings):
         provider = options.provider
         check_provider(provider)
         selected = {"provider": provider}
+        if options.reasoning_effort:
+            selected["reasoning_effort"] = options.reasoning_effort
         if provider == "local":
             selected["local_model"] = options.local_model or config.get("local_model", "gemma4-31b")
             model_path(settings, selected["local_model"])
@@ -742,6 +751,14 @@ def create_app(settings):
             "tighten_check", "tighten_requested", "tighten",
         )
 
+    @app.post("/api/clips/{clip_id}/tighten-recovery")
+    def recover_tighten(clip_id: str, expected_revision: int = Body(ge=1),
+                        request_id: str = Body(min_length=1, max_length=100),
+                        action: Literal["retry", "discard"] = Body(),
+                        note: str | None = Body(default=None, max_length=2000)):
+        store.recover_tighten(clip_id, expected_revision, request_id, action, note)
+        return get_clip(clip_id)
+
     @app.post("/api/clips/{clip_id}/speech-cuts", status_code=202)
     def apply_speech_cuts(clip_id: str, expected_revision: int = Body(ge=1),
                           check_id: str = Body(min_length=1, max_length=100),
@@ -818,11 +835,11 @@ def create_app(settings):
 
     @app.post("/api/clips/{clip_id}/trim", status_code=202)
     def trim_clip(clip_id: str, expected_revision: int = Body(ge=1),
-                  start_us: int = Body(ge=0), end_us: int = Body(gt=0)):
+                  start_us: int = Body(ge=0), end_us: int = Body(gt=0), snap_to_words: bool = Body(True)):
         clip = store.clip(clip_id)
         if clip["revision"] != expected_revision:
             raise ValueError("This clip changed. Reopen Trim clip before saving.")
-        body = clip_trim.apply(clip["body"], trim_inputs(clip), start_us, end_us)
+        body = clip_trim.apply(clip["body"], trim_inputs(clip), start_us, end_us, snap_to_words=snap_to_words)
         body["previous_revision"] = clip["revision"]
         revision = store.queue_edit(clip_id, expected_revision, body)
         return {"revision": revision, "run_id": clip["run_id"]}
@@ -850,20 +867,21 @@ def create_app(settings):
             )
         canonical = [Word.model_validate(w) for w in captions["words"]]
         if any(
-            (w.start_us < edit.start_us < w.end_us) or (w.start_us < edit.end_us < w.end_us)
+            (edit.start_us != original["start_us"] and w.start_us < edit.start_us < w.end_us)
+            or (edit.end_us != original["end_us"] and w.start_us < edit.end_us < w.end_us)
             for w in canonical
         ):
             raise ValueError("Move the boundary into a pause so no spoken word is cut.")
-        selected = [w for w in canonical if w.start_us >= edit.start_us and w.end_us <= edit.end_us]
+        selected = clip_trim.words_in_range(canonical, edit.start_us, edit.end_us)
         submitted = {w.id: w for w in edit.words}
         known = {w.id: w for w in canonical}
         if len(submitted) != len(edit.words) or not submitted.keys() <= known.keys():
             raise ValueError("Caption edits must reference original word IDs.")
         for key, word in submitted.items():
             old = known[key]
-            if word.start_us != old.start_us or word.end_us != old.end_us or not word.text.strip():
+            if not clip_trim.matches_source_timing(old, word.start_us, word.end_us, original) or not word.text.strip():
                 raise ValueError("Edit caption text without changing its source timing or omitting words.")
-        words = [submitted.get(w.id, w).model_dump() for w in selected]
+        words = [{**w.model_dump(), "text": submitted.get(w.id, w).text} for w in selected]
         if not words:
             raise ValueError("The chosen interval contains no caption words.")
         if (

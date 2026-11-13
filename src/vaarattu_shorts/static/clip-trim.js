@@ -20,32 +20,56 @@ function trimPosition(node,start,end){
 }
 function trimControls(){
   const changed=clipTrim&&(clipTrim.start!==clipTrim.clip.start_us||clipTrim.end!==clipTrim.clip.end_us);
-  $("trim-save").disabled=trimBusy||!trimMediaReady||!changed||clipTrim.end-clipTrim.start<3e6;
+  $("trim-save").disabled=trimBusy||!trimMediaReady||!changed||Boolean(clipTrim.rangeError);
   $("trim-close").disabled=trimBusy;$("trim-fields").disabled=trimBusy;
-  $("trim-preview").disabled=$("trim-set-start").disabled=$("trim-set-end").disabled=trimBusy||!trimMediaReady;
+  $("trim-set-start").disabled=$("trim-set-end").disabled=trimBusy||!trimMediaReady;
+  $("trim-preview").disabled=trimBusy||!trimMediaReady||Boolean(clipTrim?.rangeError);
 }
 function paintTrim(){
   if(!clipTrim)return;
   const {start,end,words}=clipTrim;
   for(const edge of ["start","end"]){
-    $("trim-"+edge).value=(clipTrim[edge]/1e6).toFixed(3);
     const handle=$("trim-"+edge+"-handle");handle.value=clipTrim[edge];handle.setAttribute("aria-valuetext",`${trimPreviewClock(clipTrim[edge])} in preview`);
   }
   trimPosition($("trim-selected"),start,end);
-  $("trim-summary").textContent=`${trimPreviewClock(start)} – ${trimPreviewClock(end)} in preview · ${((end-start)/1e6).toFixed(2)} seconds before internal cuts`;
-  const spoken=words.filter(w=>start<=w.start_us&&w.end_us<=end&&!(clipTrim.clip.speech_cuts||[]).some(c=>c.start_us<=w.start_us&&w.end_us<=c.end_us));
+  $("trim-summary").textContent=clipTrim.rangeError||`${trimPreviewClock(start)} – ${trimPreviewClock(end)} in preview · ${((end-start)/1e6).toFixed(2)} seconds before internal cuts`;
+  const spoken=words.filter(w=>start<w.end_us&&w.start_us<end&&!(clipTrim.clip.speech_cuts||[]).some(c=>c.start_us<=w.start_us&&w.end_us<=c.end_us));
   $("trim-speech-summary").textContent=spoken.length?`Opening: ${spoken.slice(0,8).map(w=>w.text).join(" ")} … Ending: ${spoken.slice(-8).map(w=>w.text).join(" ")}`:"No speech in this range.";
   trimControls();
+}
+function readTrimTime(edge){
+  const seconds=$("trim-"+edge).value.trim().replace(",",".");
+  return /^(?:\d+(?:\.\d*)?|\.\d+)$/.test(seconds)?Math.round(Number(seconds)*1e6):NaN;
+}
+function updateTrimFromFields(seekEdge){
+  if(!clipTrim||trimBusy)return;
+  const start=readTrimTime("start"),end=readTrimTime("end");
+  clipTrim.rangeError=!Number.isFinite(start)||!Number.isFinite(end)?"Enter both times in seconds.":
+    start<clipTrim.min_us||end>clipTrim.max_us?"Keep both times inside the available recording range.":
+    end-start<3e6?"Keep at least three seconds of the clip.":"";
+  trimPlaying=false;$("trim-player").pause();
+  if(!clipTrim.rangeError){
+    clipTrim.start=start;clipTrim.end=end;
+    if(seekEdge&&trimMediaReady)$("trim-player").currentTime=Math.max(0,(clipTrim[seekEdge]-clipTrim.origin_us)/1e6-(seekEdge==="end"?0.8:0));
+  }
+  if(trimMediaReady)$("trim-message").textContent="";
+  paintTrim();
+}
+function resetTrimEdges(){
+  for(const edge of ["start","end"]){
+    clipTrim[edge]=clipTrim.clip[edge+"_us"];
+    $("trim-"+edge).value=String(clipTrim[edge]/1e6);
+  }
+  clipTrim.rangeError="";paintTrim();
 }
 function setTrimEdge(edge,value,snap=true){
   if(!clipTrim||trimBusy||!Number.isFinite(value))return;
   value=Math.round(Math.max(clipTrim.min_us,Math.min(clipTrim.max_us,value)));
   value=edge==="start"?Math.min(value,clipTrim.end-3e6):Math.max(value,clipTrim.start+3e6);
-  if(snap)value=trimSnap(value,edge,clipTrim.words);
-  if(value<clipTrim.min_us||value>clipTrim.max_us){$("trim-message").textContent="Move this edge farther inside the available range to keep the whole word.";return;}
-  clipTrim[edge]=value;trimPlaying=false;$("trim-player").pause();
-  if(trimMediaReady)$("trim-player").currentTime=Math.max(0,(value-clipTrim.origin_us)/1e6-(edge==="end"?0.8:0));
-  $("trim-message").textContent="";paintTrim();
+  const snapped=trimSnap(value,edge,clipTrim.words);
+  if(snapped<clipTrim.min_us||snapped>clipTrim.max_us){paintTrim();$("trim-message").textContent="Move this edge farther inside the available range to keep the whole word.";return;}
+  $("trim-"+edge).value=String((snap?snapped:value)/1e6);
+  updateTrimFromFields(edge);
 }
 async function openClipTrim(fromEditor=false){
   const queued=fromEditor?editing:reviewQueue[0];
@@ -57,12 +81,11 @@ async function openClipTrim(fromEditor=false){
   trimBusy=true;
   try{
     const data=await api(`/api/clips/${queued.id}/trim`);
-    clipTrim={...data,start:data.clip.start_us,end:data.clip.end_us};trimPlaying=false;trimMediaReady=false;
+    clipTrim=data;trimPlaying=false;trimMediaReady=false;
     $("trim-message").textContent="Loading the original recording…";
     $("trim-availability").textContent=`Available: ${trimPreviewClock(data.min_us)} – ${trimPreviewClock(data.max_us)} in preview (${trimClock(data.min_us)} – ${trimClock(data.max_us)} in the original recording).`;
     for(const edge of ["start","end"]){
       const handle=$("trim-"+edge+"-handle");handle.min=data.min_us;handle.max=data.max_us;
-      $("trim-"+edge).min=data.min_us/1e6;$("trim-"+edge).max=data.max_us/1e6;
     }
     $("trim-ruler").replaceChildren();$("trim-speech").replaceChildren();$("trim-cuts").replaceChildren();
     for(let i=0;i<=4;i++)$("trim-ruler").append(text("span",trimPreviewClock(data.min_us+(data.max_us-data.min_us)*i/4)));
@@ -76,7 +99,7 @@ async function openClipTrim(fromEditor=false){
       $("trim-message").textContent="";trimControls();
     };
     player.src=`/api/artifacts/${data.clip.id}/source?revision=${data.clip.revision}`;player.load();
-    $("trim-dialog").showModal();paintTrim();
+    resetTrimEdges();$("trim-dialog").showModal();
   }catch(e){
     clipTrim=null;
     if(fromEditor){editorMessage(e.message,true);editorBusy=false;editorControls();}
@@ -85,18 +108,17 @@ async function openClipTrim(fromEditor=false){
   finally{trimBusy=false;trimControls();}
 }
 async function previewTrim(){
-  if(!clipTrim||!trimMediaReady||trimBusy)return;
+  if(!clipTrim||!trimMediaReady||trimBusy||clipTrim.rangeError)return;
   trimPlaying=true;const player=$("trim-player");player.currentTime=(clipTrim.start-clipTrim.origin_us)/1e6;
   try{await player.play();}catch(e){trimPlaying=false;$("trim-message").textContent="Could not play the source preview. Use the player's controls to retry.";}
 }
 async function saveClipTrim(event){
   event.preventDefault();if(trimBusy||!clipTrim)return;
-  setTrimEdge("start",clipTrim.start);setTrimEdge("end",clipTrim.end);
-  trimControls();if($("trim-save").disabled)return;
+  updateTrimFromFields();if($("trim-save").disabled)return;
   trimBusy=true;trimControls();$("trim-message").textContent="Saving trim…";
   try{
     const clip=clipTrim.clip;
-    const result=await api(`/api/clips/${clip.id}/trim`,{method:"POST",body:JSON.stringify({expected_revision:clip.revision,start_us:clipTrim.start,end_us:clipTrim.end})});
+    const result=await api(`/api/clips/${clip.id}/trim`,{method:"POST",body:JSON.stringify({expected_revision:clip.revision,start_us:clipTrim.start,end_us:clipTrim.end,snap_to_words:false})});
     $("trim-dialog").close();
     if(trimFromEditor)await followEditorRevision(clip,result);
     else{
@@ -122,11 +144,12 @@ for(const edge of ["start","end"]){
     const value=trimSnap(clipTrim[edge]+direction*(event.shiftKey?1e6:1e5),direction<0?"start":"end",clipTrim.words);
     setTrimEdge(edge,value);
   };
-  $("trim-"+edge).onchange=()=>setTrimEdge(edge,Number($("trim-"+edge).value)*1e6);
+  $("trim-"+edge).oninput=()=>updateTrimFromFields();
+  $("trim-"+edge).onchange=()=>updateTrimFromFields(edge);
   $("trim-set-"+edge).onclick=()=>{if(clipTrim&&trimMediaReady)setTrimEdge(edge,clipTrim.origin_us+$("trim-player").currentTime*1e6);};
 }
 $("trim-preview").onclick=previewTrim;
-$("trim-reset").onclick=()=>{if(clipTrim&&!trimBusy){clipTrim.start=clipTrim.clip.start_us;clipTrim.end=clipTrim.clip.end_us;trimPlaying=false;$("trim-player").pause();$("trim-message").textContent="";paintTrim();}};
+$("trim-reset").onclick=()=>{if(clipTrim&&!trimBusy){trimPlaying=false;$("trim-player").pause();$("trim-message").textContent="";resetTrimEdges();}};
 $("trim-track").onclick=event=>{
   if(!clipTrim||!trimMediaReady||trimBusy||event.target.tagName==="INPUT")return;
   const rect=$("trim-track").getBoundingClientRect();

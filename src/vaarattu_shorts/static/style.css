@@ -312,11 +312,18 @@ kbd{font-family:inherit;font-size:.85em;font-weight:400;opacity:.8;border:1px so
 
 .publishing-ai-controls{display:flex;flex-wrap:wrap;gap:12px;align-items:end}.publishing-ai-controls label{margin:0}.publishing-ai-controls select{width:260px;max-width:100%}.publishing-ai-controls input{width:130px}
 
-.workspace-model-form{margin-top:auto;padding:var(--space-lg) var(--space-sm) 0}
-.workspace-model-form select{width:100%;min-width:0}
-.workspace-model-form p{font-size:.82rem;margin:var(--space-xs) 0}
-.workspace-model-form button{margin-top:var(--space-sm)}
+.workspace-model-trigger{display:flex;align-items:center;gap:var(--space-sm);min-width:0;margin-top:auto;text-align:left}
+.workspace-model-trigger svg{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.6}
+.workspace-model-trigger span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#workspace-model-dialog{width:min(420px,calc(100vw - 32px));max-height:90dvh;overflow:auto;padding:var(--space-xl);border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);color:var(--ink)}
+#workspace-model-dialog::backdrop{background:#000b}
+#workspace-model-dialog h2{font-size:1.3rem}
+#workspace-model-help{margin:var(--space-sm) 0 var(--space-lg)}
+#workspace-model-fields{display:grid;gap:var(--space-lg);margin:0;padding:0;border:0;min-width:0}
+#workspace-model-fields label{margin:0}
+#workspace-model-fields .actions{justify-content:flex-end}
+body.workspace-effort-override :is(#reasoning-settings,#highlight-reasoning-settings){display:none}
 .sidebar-foot{margin-top:0}
 .sidebar{overflow-y:auto}
 body.workspace-override :is(.feature-model,#budget-field,#highlight-budget-field,#editor-analysis-budget-field,#publishing-budget-field,#editor-local-model-field,#highlight-local-field,#local-settings label:first-child){display:none}
-@media(max-width:800px){.workspace-model-form{display:flex;align-items:end;flex-wrap:wrap;gap:var(--space-sm);padding:var(--space-sm) 0}.workspace-model-form label{min-width:0}.workspace-model-form p{max-width:22ch}.sidebar{max-height:50vh}}
+@media(max-width:800px){.workspace-model-trigger{align-self:flex-start;max-width:100%;margin-top:var(--space-sm)}.sidebar{max-height:50vh}}

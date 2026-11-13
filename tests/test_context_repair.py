@@ -12,32 +12,37 @@ from vaarattu_shorts.web import create_app
 
 
 @pytest.fixture
-def context_clip(settings, store):
-    config = dict(video="abc_def-ghI", provider="local", budget_usd=0, model_manifests={})
-    run = store.admit(config, "context")
+def excerpt():
     words = [
         Word(id=f"w{i}", start_us=i * 1000000, end_us=i * 1000000 + 800000, text=f"Sana{i}.").model_dump()
         for i in range(150)
     ]
-    folder = settings.ready / "clip" / "1"
-    folder.mkdir(parents=True)
-    (folder / "short.mp4").write_bytes(b"original preview")
     body = dict(
         title="Tarina",
         start_us=20000000,
         end_us=25000000,
         words=words[20:25],
-        folder=str(folder),
         status="ready",
         layout={},
         reviewed=False,
     )
+    return body, dict(words=words, duration_us=150000000)
+
+
+@pytest.fixture
+def context_clip(settings, store, excerpt):
+    body, transcript = excerpt
+    config = dict(video="abc_def-ghI", provider="local", budget_usd=0, model_manifests={})
+    run = store.admit(config, "context")
+    folder = settings.ready / "clip" / "1"
+    folder.mkdir(parents=True)
+    (folder / "short.mp4").write_bytes(b"original preview")
+    body = {**body, "folder": str(folder)}
     store.save_clip("clip", run, 1, body)
     atomic_json(folder / "metadata.json", body)
     store.review_clip("clip", 1, "approved", "Original review")
     store.update(run, state="completed", result={"chat": {"status": "unavailable"}})
     run_folder = settings.work / "runs" / run
-    transcript = dict(words=words, duration_us=150000000)
     atomic_json(run_folder / "asr" / "transcript.json", transcript)
     source = run_folder / "source.opus"
     source.write_bytes(b"audio")
@@ -64,8 +69,8 @@ def proposal(start="w17", end="w24", outcome="expand"):
         (True, True, "w17", "w28"),
     ],
 )
-def test_context_directions_preserve_existing_moment(context_clip, before, after, start, end):
-    _, body, transcript = context_clip
+def test_context_directions_preserve_existing_moment(excerpt, before, after, start, end):
+    body, transcript = excerpt
     words = [Word.model_validate(w) for w in transcript["words"]]
     a, b = context_repair.bounds(proposal(start, end), body, request(before, after), words)
     assert a <= body["start_us"] and b >= body["end_us"]
@@ -87,9 +92,9 @@ def test_context_directions_preserve_existing_moment(context_clip, before, after
     ],
 )
 def test_context_rejects_wrong_side_no_added_speech_and_invalid_ids(
-    context_clip, before, after, start, end
+    excerpt, before, after, start, end
 ):
-    _, body, transcript = context_clip
+    body, transcript = excerpt
     with pytest.raises(ModelAnchorError):
         context_repair.bounds(
             proposal(start, end),
@@ -99,8 +104,8 @@ def test_context_rejects_wrong_side_no_added_speech_and_invalid_ids(
         )
 
 
-def test_long_context_proposal_survives_final_transcription(context_clip):
-    _, body, transcript = context_clip
+def test_long_context_proposal_survives_final_transcription(excerpt):
+    body, transcript = excerpt
     body = {**body, "context_request": request()}
 
     class Evaluator:
@@ -147,8 +152,8 @@ def test_editor_allows_long_context_revisions_only(settings, store, context_clip
         assert store.clip("clip")["body"]["context_expanded"] is True
 
 
-def test_proposal_uses_current_caption_text_and_original_surrounding_ids(context_clip):
-    _, body, transcript = context_clip
+def test_proposal_uses_current_caption_text_and_original_surrounding_ids(excerpt):
+    body, transcript = excerpt
     body = {**body, "context_request": request(True), "caption_transcript": {"profile": "large-v3"},
             "caption_warning": "Old fallback", "caption_error": "Old failure", "audit_caption_warning": "Old audit"}
     body["words"][0] = {**body["words"][0], "text": "Human correction"}

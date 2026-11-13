@@ -17,8 +17,12 @@ function publishingAnalysis(){
   if(usesApi(provider)&&(!Number.isFinite(budget)||budget<=0||budget>100))throw new Error("Set an API run spending limit above $0 and up to $100.");
   return {provider,...modelFields(profile),...(usesApi(provider)?{budget_usd:budget}:{})};
 }
+function updateBufferSyncButton(){
+  $("publishing-refresh-buffer").disabled=publishingBusy||publishingFillJob?.state==="running"||!publishingData?.connected;
+}
 function publishingPaintFill(job){
   publishingFillJob=job;
+  updateBufferSyncButton();
   const running=job?.state==="running",recoverable=["failed","stopped","interrupted"].includes(job?.state);
   $("publishing-fill-stop").hidden=!running;
   $("publishing-fill-stop").disabled=!!job?.stopping;
@@ -70,8 +74,9 @@ async function publishingSaveCopy(clip){
 }
 async function publishingWork(fn){
   if(publishingBusy||publishingFillJob?.state==="running")return;publishingBusy=true;
+  updateBufferSyncButton();
   try{await fn();}catch(e){$("publishing-message").textContent=e.message;}
-  finally{publishingBusy=false;try{await loadPublishing();}catch(e){$("publishing-message").textContent=e.message;}}
+  finally{publishingBusy=false;updateBufferSyncButton();try{await loadPublishing();}catch(e){$("publishing-message").textContent=e.message;}}
 }
 function publishingSelection(){ $("publishing-selection").textContent=`${publishingSelected.size} selected · up to 10 at a time`;$("publishing-preview-plan").disabled=!publishingSelected.size; }
 async function loadPublishing(){
@@ -88,7 +93,7 @@ async function loadPublishing(){
   $("publishing-buffer-status").textContent=data.connected?"Connected. Select the channels you want to publish to.":"Not connected";
   publishingOptions($("publishing-organization"),data.organizations.map(o=>[o.id,o.name]),data.organization_id);
   for(const p of Object.keys(publishingNames))publishingOptions($("publishing-"+p),[["","Do not publish here"],...data.channels.filter(c=>c.service===p).map(c=>[c.id,`${c.displayName||c.name}${c.isDisconnected?" · Reconnect in Buffer":""}${c.isLocked?" · Locked":""}${c.isQueuePaused?" · Paused":""}`])],data.mapping[p]);
-  $("publishing-save-channels").disabled=!data.connected;$("publishing-refresh-buffer").disabled=!data.connected;
+  $("publishing-save-channels").disabled=!data.connected;
   publishingPaintFill(data.fill_job||{state:"idle"});
   $("publishing-model-status").textContent=data.analysis_available?"Used for all posting copy, including Fill scheduled queue. Saved copy is reused. API limit is per source run, including its earlier usage.":"Restart the app to enable Publishing model selection and queue recovery.";
   $("publishing-cleanup").disabled=!storage.connected||!data.connected;
@@ -244,7 +249,15 @@ $("publishing-fill").onclick=()=>publishingWork(async()=>{
     $("publishing-fill-message").textContent=publishingFillSummary(result);
   }catch(e){$("publishing-fill-message").textContent=e.message;$("publishing-message").textContent=e.message;}
 });
-$("publishing-refresh-buffer").onclick=()=>publishingWork(async()=>{await api("/api/publishing/buffer/refresh",{method:"POST"});$("publishing-message").textContent="Buffer channels and delivery status refreshed.";});
+$("publishing-refresh-buffer").onclick=()=>publishingWork(async()=>{
+  const button=$("publishing-refresh-buffer"),message=$("publishing-message");
+  button.textContent="Syncing with Buffer…";
+  message.textContent="Checking channels and delivery status with Buffer…";
+  try{
+    await api("/api/publishing/buffer/refresh",{method:"POST"});
+    message.textContent="Buffer channels and delivery status refreshed.";
+  }finally{button.textContent="Sync with Buffer";}
+});
 $("publishing-organization").onchange=()=>publishingWork(async()=>{await api("/api/publishing/buffer/channels",{method:"POST",body:JSON.stringify({organization_id:$("publishing-organization").value,mapping:{}})});});
 $("publishing-save-channels").onclick=()=>publishingWork(async()=>{const mapping=Object.fromEntries(Object.keys(publishingNames).map(p=>[p,$("publishing-"+p).value]));await api("/api/publishing/buffer/channels",{method:"POST",body:JSON.stringify({organization_id:$("publishing-organization").value,mapping})});$("publishing-message").textContent="Publishing channels saved.";});
 $("publishing-buffer-form").onsubmit=e=>{e.preventDefault();return publishingWork(async()=>{const body=JSON.stringify({api_key:$("publishing-buffer-key").value});$("publishing-buffer-key").value="";await api("/api/publishing/buffer/connect",{method:"POST",body});$("publishing-message").textContent="Buffer connected. Check your destination channels below.";});};

@@ -55,10 +55,7 @@ assert.deepEqual(vm.runInThisContext('point({clientX:491,clientY:291})'),{x:0.5,
 vm.runInThisContext('setFrame({width:1920,height:1080})');
 assert.equal(nodes.get("camera-rect").value,"");
 assert.equal(nodes.get("game-rect").value,"");
-vm.runInThisContext('savedLayouts=[{id:"wrong",body:{name:"Other"}},{id:"correct",body:fixturePreset}]; api=async()=>({layout:fixturePreset,has_source:false,start_us:0,end_us:1000000,words:[],title:"Clip"});');
-openEditor("clip").then(async()=>{
-  assert.equal(nodes.get("edit-layout").value,"correct");
-  assert.equal(nodes.get("use-source-frame").disabled,true);
+async function checkLayoutControls(){
   assert(vm.runInThisContext('sameLayout(fixturePreset,{...fixturePreset,camera_height:608,camera_fit:"cover",gameplay_fit:"cover",camera_ratio:"panel",gameplay_ratio:"panel"})'));
   vm.runInThisContext('setFrame({width:1920,height:1080},fixturePreset);setDrawMode("camera");');
   const crop=nodes.get("crop-canvas"),event=(x,y)=>({clientX:11+x*960,clientY:21+y*540,pointerId:1,button:0,preventDefault(){}});
@@ -114,4 +111,5 @@ openEditor("clip").then(async()=>{
   nodes.get("camera-rect").value="0.1, 0.2, 0.3, 0.4";nodes.get("camera-rect").oninput();
   pending[3].onload();assert.equal(nodes.get("camera-rect").value,"0.1, 0.2, 0.3, 0.4","Image loading must preserve intervening coordinate edits");
   console.log("Layout editor wiring checks passed");
-}).catch(error=>{console.error(error);process.exitCode=1;});
+}
+checkLayoutControls().catch(error=>{console.error(error);process.exitCode=1;});

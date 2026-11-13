@@ -63,10 +63,9 @@ class Proposal(Contract):
     cuts: list[Cut] = Field(max_length=6)
 
 
-def resolve(body, cuts):
+def _resolve_ranges(body, cuts):
     words = body["words"]
     positions = {w["id"]: i for i, w in enumerate(words)}
-    existing = body.get("speech_cuts", [])
     result = []
     for cut in cuts:
         a, b = positions.get(cut.start_word_id, -1), positions.get(cut.end_word_id, -1)
@@ -103,7 +102,7 @@ def resolve(body, cuts):
                 "after": " ".join(w["text"] for w in words[b + 1 : b + 9]),
             }
         )
-    all_cuts = sorted([*existing, *result], key=lambda c: c["start_us"])
+    all_cuts = sorted(result, key=lambda c: c["start_us"])
     for left, right in zip(all_cuts, all_cuts[1:]):
         if left["end_us"] >= right["start_us"]:
             raise ModelAnchorError(
@@ -126,12 +125,50 @@ def resolve(body, cuts):
     return result
 
 
+def _applied_plan(body, proposals):
+    """Combine consecutive removed words into the source ranges used by the renderer."""
+    existing = body.get("speech_cuts", [])
+    positions = {w["id"]: i for i, w in enumerate(body["words"])}
+    cuts = sorted([*existing, *proposals], key=lambda c: positions[c["start_word_id"]])
+    ranges = []
+    for cut in cuts:
+        start, end = positions[cut["start_word_id"]], positions[cut["end_word_id"]]
+        if ranges and start <= positions[ranges[-1].end_word_id] + 1:
+            if end > positions[ranges[-1].end_word_id]:
+                ranges[-1].end_word_id = cut["end_word_id"]
+        else:
+            ranges.append(Cut(**{k: cut[k] for k in Cut.model_fields}))
+    return _resolve_ranges(body, ranges)
+
+
+def _resolve_edit(body, cuts):
+    existing = body.get("speech_cuts", [])
+    if not existing:
+        proposals = _resolve_ranges(body, cuts)
+        return proposals, sorted(proposals, key=lambda c: c["start_us"])
+    saved_intervals = intervals(body)
+    removed = {key for cut in existing for key in cut["word_ids"]}
+    audible = [w for w in body["words"] if w["id"] not in removed]
+    proposals = _resolve_ranges({**body, "words": audible}, cuts)
+    for proposal in proposals:
+        start, end = proposal["start_us"], proposal["end_us"]
+        already_removed = sum(max(0, min(b, end) - max(a, start)) for a, b in saved_intervals)
+        if end - start - already_removed < 1000000:
+            raise ModelAnchorError("Remove at least one second outside the existing speech cuts.")
+    return proposals, _applied_plan(body, proposals)
+
+
+def resolve(body, cuts):
+    proposals, _ = _resolve_edit(body, cuts)
+    return proposals
+
+
 def intervals(body):
     saved = body.get("speech_cuts", [])
     if not saved:
         return []
-    resolved = resolve(
-        {**body, "speech_cuts": []},
+    resolved = _resolve_ranges(
+        body,
         [Cut(**{k: c[k] for k in ("start_word_id", "end_word_id", "reason")}) for c in saved],
     )
     if any(
@@ -217,12 +254,12 @@ def apply(body, indices):
     ):
         raise ValueError("Select one or more saved cut suggestions.")
     chosen = [check["cuts"][i] for i in sorted(indices)]
-    added = resolve(
+    _, plan = _resolve_edit(
         body, [Cut(**{k: c[k] for k in ("start_word_id", "end_word_id", "reason")}) for c in chosen]
     )
     return {
         **body,
-        "speech_cuts": sorted([*body.get("speech_cuts", []), *added], key=lambda c: c["start_us"]),
+        "speech_cuts": plan,
         "speech_cut_history": [*body.get("speech_cut_history", []), body.get("speech_cuts", [])],
         "tighten_check": None,
         "caption_check": None,

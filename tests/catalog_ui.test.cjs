@@ -754,7 +754,7 @@ test("Codex selection disables dollar cap and renders unknown costs", async()=>{
       let result;
       if(url==="/api/llm-preference")result=JSON.parse(options.body);
       else if(url==="/api/status")result={llm_preference:{choice:"default",budget_usd:null},llm_profiles:{codex:{provider:"codex"},openai:{provider:"openai"},"codex:gpt-6.1-terra":{provider:"codex",codex_model:"gpt-6.1-terra"}},token:"fixture",max_concurrent_jobs:2,models:{turbo:true,"large-v3":true},providers:{
-        codex:{model:"gpt-6-luna",configured:true,available:true},openai:{model:"gpt-6-luna",configured:true,available:true}}};
+        codex:{model:"gpt-6-luna",configured:true,available:true,reasoning_efforts:["low","high","max"]},openai:{model:"gpt-6-luna",configured:true,available:true,reasoning_efforts:["low","high","max"]}}};
       else if(url==="/api/concurrency"){
         assert.equal(options.method,"POST");
         assert.deepEqual(JSON.parse(options.body),{max_concurrent_jobs:3});
@@ -813,11 +813,21 @@ test("Codex selection disables dollar cap and renders unknown costs", async()=>{
   assert.equal(nodes.get("budget-field").hidden,false);
 
   const workspace=nodes.get("workspace-model"),apply=nodes.get("workspace-model-form").onsubmit;
-  workspace.value="codex:gpt-6.1-terra";workspace.onchange();
+  const open=nodes.get("workspace-model-open"),dialog=nodes.get("workspace-model-dialog"),effort=nodes.get("workspace-effort");
+  open.onclick();
+  workspace.value="openai";workspace.onchange();
+  assert.equal(nodes.get("workspace-budget-field").hidden,false);
+  nodes.get("workspace-model-cancel").onclick();open.onclick();
+  assert.equal(workspace.value,"default","Cancel discards the draft");
+  workspace.value="codex:gpt-6.1-terra";workspace.onchange();effort.value="high";
+  assert.equal(nodes.get("workspace-budget-field").hidden,true);
   await apply({preventDefault(){}});
   await nodes.get("run-form").onsubmit({preventDefault(){}});
   assert.deepEqual([submitted.provider,submitted.codex_model,submitted.budget_usd],["codex","gpt-6.1-terra",0]);
+  assert.equal(dialog.open,false);
+  open.onclick();assert.equal(effort.value,"high","Reopening shows the saved effort");
   workspace.value="default";workspace.onchange();
+  assert.equal(nodes.get("workspace-effort-field").hidden,true);
   await apply({preventDefault(){}});
   await nodes.get("run-form").onsubmit({preventDefault(){}});
   assert.deepEqual([submitted.provider,submitted.budget_usd],["openai",9],"Default restores the individual choice and cap");

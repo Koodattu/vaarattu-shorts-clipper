@@ -5,6 +5,11 @@ then **Find removable passages**. The recording's saved model/provider, verifica
 and spending limit are reused. This is one clip-level request, with the normal bounded validation
 retry; it does not reprocess the VOD or run Whisper.
 
+If the check fails or pauses, you can revise the guidance and choose **Retry editing check**
+in the same dialog. **Keep current clip** discards the unfinished check and lets you continue
+editing the current revision. A new cut can extend a previously removed passage on either side.
+The proposal shows the additional words to remove and the phrases you would hear at the new join.
+
 The review queue also has **Edit with instructions**. Enter a required editing prompt and choose
 **Plan my edit**. This uses a separate model prompt: your instructions determine which discussion
 to remove, even if that discussion is relevant or is not filler. It supplies timestamps from the

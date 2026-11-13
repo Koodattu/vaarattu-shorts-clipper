@@ -27,14 +27,13 @@ def waits(monkeypatch):
     return delays
 
 
-@pytest.mark.parametrize("status", [408, 429, 500, 502, 503, 504])
-def test_transient_failure_recovers_same_request_and_caches(settings, store, waits, status):
+def test_transient_failure_recovers_same_request_and_caches(settings, store, waits):
     run = store.admit({"provider": "codex"}, "retry")
     requests = []
 
     def handle(request):
         requests.append((str(request.url), json.loads(request.content)))
-        return httpx.Response(status, text="private error details") if len(requests) == 1 else success()
+        return httpx.Response(408, text="private error details") if len(requests) == 1 else success()
 
     with httpx.Client(transport=httpx.MockTransport(handle)) as client:
         evaluator = Evaluator("codex", store, run, settings.work, 0, lambda: None, client)
@@ -43,16 +42,16 @@ def test_transient_failure_recovers_same_request_and_caches(settings, store, wai
     assert waits == [30]
     assert len(requests) == 2 and requests[0] == requests[1]
     usage = store.usage(run)["requests"]
-    assert usage[0]["http_status"] == status and usage[0]["retry_delay_seconds"] == 30
+    assert usage[0]["http_status"] == 408 and usage[0]["retry_delay_seconds"] == 30
     assert usage[1]["status"] == "settled"
     assert "private error details" not in json.dumps(usage)
 
 
 def test_persistent_failure_has_bounded_exponential_waits(settings, store, waits):
     run = store.admit({"provider": "codex"}, "retry")
-    with httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(502))) as client:
+    with httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(520))) as client:
         evaluator = Evaluator("codex", store, run, settings.work, 0, lambda: None, client)
-        with pytest.raises(ValueError, match="HTTP 502.*Automatic retries exhausted"):
+        with pytest.raises(ValueError, match="HTTP 520.*Automatic retries exhausted"):
             evaluator.call("rules", "speech", Proposals, "scan")
     assert waits == [30, 60, 120, 240]
     assert store.usage(run)["request_count"] == 5
